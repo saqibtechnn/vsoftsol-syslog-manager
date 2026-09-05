@@ -1,0 +1,1488 @@
+VSoftSol Syslog Manager - ALL PHASES COMBINED
+
+Operator: put START_HERE.md in the repo root and tell Claude Code:
+  'Read START_HERE.md and begin.'   This file is a reference copy.
+Binding: CLAUDE.md, TESTING_STANDARDS.md, SECURITY_STANDARDS.md,
+         UX_STANDARDS.md, BRANDING.md, VENDOR_SUPPORT.md
+
+============================================================
+
+# PHASE 0 — Architecture & Skeleton
+
+## Context
+Fresh repository. You are starting VSoftSol Syslog Manager v1.0.0, an on-premises
+Windows syslog collection and log management application. Read `CLAUDE.md` and
+`BUILD_PLAN.md` before doing anything. This phase produces a compiling skeleton and the
+decisions that govern every later phase. **No feature code.**
+
+## Objective
+A solution that builds clean, with every project, seam, and convention in place, plus
+written ADRs justifying each stack choice.
+
+## Build
+1. `VSoftSol.Syslog.sln` with the exact project layout in CLAUDE.md.
+2. `Directory.Build.props` setting: .NET 8, C# 12, nullable enabled,
+   `TreatWarningsAsErrors=true`, deterministic builds, shared version property.
+3. `Core` project containing only: domain models for the canonical event schema in
+   BUILD_PLAN.md, enums (`Facility`, `Severity`, `Protocol`, `ParseStatus`, `Role`),
+   and the two seam interfaces — `ILogRepository` and `IAuthenticationProvider`.
+   Both fully specified, neither implemented.
+4. Empty class-library shells for `Data`, `Ingestion`, `Rules`, `Reporting`, wired with
+   correct inward-only project references.
+5. `Service` project as a Windows Service host with generic-host bootstrapping, Serilog
+   configured to rolling file + Windows Event Log, and a no-op hosted service.
+6. `Web` project as a Blazor Server app that starts, serves one placeholder page over
+   HTTPS, and shares the `Service` DI container registrations.
+7. Three test projects referencing xUnit + FluentAssertions, each with one passing
+   smoke test so the harness is proven.
+8. `docs/adr/` with one ADR per decision: SQLite over embedded Postgres, Blazor Server
+   over SPA, Channels over an external queue, Zstd over gzip, single-service over
+   split collector/UI processes. Each ADR states the decision, the alternatives
+   rejected, and the cost being accepted.
+9. `.editorconfig`, `.gitignore` for .NET, and a `dotnet format` clean tree.
+10. **Branding pipeline** per `BRANDING.md` — build it now so no later phase is tempted
+    to hardcode a string or an image:
+    - `build/branding.targets`, imported by `Directory.Build.props`, running before
+      compile
+    - Reads `branding/logo.png` and `branding/brand.json`; derives every missing asset
+      with ImageSharp (favicon, app icon, wide logo, mono logo, both installer BMPs)
+    - Emits to `src/VSoftSol.Syslog.Web/wwwroot/branding/` and `installer/assets/`,
+      both git-ignored
+    - Generates `BrandingInfo.g.cs` in `Core` with product name, vendor name, vendor URL,
+      support email, copyright, primary and accent colours as constants
+    - Writes `--brand-primary` and `--brand-accent` CSS custom properties for Phase 4
+    - Missing `logo.png` → build **warning** plus placeholder fallback from
+      `branding/placeholder/`, never a build failure
+    - Idempotent: two consecutive builds produce byte-identical derived assets
+
+## Do not build in this phase
+Any listener, parser, database schema, UI page beyond the placeholder, or repository
+implementation. Do not add interfaces beyond the two named seams.
+
+## Tests to write first
+One smoke test per test project asserting the harness runs. Plus an architecture test
+using NetArchTest asserting `Core` has no project references and no `System.Data` or
+`System.Net` usings.
+
+Branding tests:
+- Build with `branding/logo.png` present → assert every derived asset is emitted at the
+  correct dimensions.
+- Build with `logo.png` removed → assert a warning is raised, placeholders are used, and
+  the build still succeeds.
+- Assert two consecutive builds produce byte-identical derived assets.
+- **Literal test**: grep `src/` for the product and vendor names; assert the only hit is
+  `BrandingInfo.g.cs`. This test runs in every later phase and is your guard against
+  hardcoding.
+
+## Verification — run these and paste output
+```bash
+dotnet build -c Release            # zero warnings
+dotnet test                        # all green, including the architecture test
+dotnet format --verify-no-changes
+dotnet run --project src/VSoftSol.Syslog.Web   # confirm HTTPS placeholder page loads
+```
+Then swap in a different `logo.png`, rebuild, and confirm the derived assets change with
+no source edit. That is the acceptance test for the branding pipeline.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+This phase builds the machinery every later phase's validation depends on. Get it right
+here or every subsequent gate is unenforceable.
+
+- **CI pipeline** — `.github/workflows/ci.yml` implementing §7 in full: build (warnings
+  as errors), format check, test, coverage threshold, vulnerability scan, architecture
+  fitness tests, branding literal test. It must **fail** on each, proven by deliberately
+  breaking one of each and showing the red run.
+- **Architecture fitness tests** (NetArchTest) as permanent guards, not one-off checks.
+- **Build reproducibility** — two clean builds produce byte-identical assemblies.
+- **Test harness proof** — deliberately break one smoke test and show it goes red. A
+  harness that has never failed is not a harness.
+- **Stryker.NET and FsCheck wired in now**, configured but running against trivial
+  targets, so Phases 3 / 7 / 10 have no excuse to skip mutation and property tests.
+- **Evidence:** `docs/evidence/phase-00/` with the CI config, the deliberate-failure run
+  output, and the reproducibility hash comparison.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **`docs/security/THREAT_MODEL.md`** — STRIDE across all five trust boundaries in §3.
+  This is a Phase 0 deliverable, not a Phase 11 one; the architecture is being decided now.
+- **`docs/security/ASVS-checklist.md`** — OWASP ASVS 5.0 L2, every control marked
+  planned / implemented / not-applicable-because.
+- **Security tooling in CI, proven to fail**: CodeQL + Security Code Scan (SAST),
+  `dotnet list package --vulnerable` + Trivy (SCA), Gitleaks over full history, CycloneDX
+  SBOM generation. Deliberately introduce one finding of each type and show CI go red.
+- **Analyzer rules as build failures**: string-concatenated SQL, `Process.Start` with
+  unvalidated input, disabled certificate validation, weak crypto, `catch {}`.
+- **Least-privilege design ADR** — the service account model, data-directory ACLs, and
+  which operations need which rights. Decide now; retrofitting privilege separation later
+  is expensive.
+- **Evidence:** `docs/evidence/phase-00/security/` with the threat model, ASVS baseline,
+  and the deliberate-failure CI runs.
+
+## Definition of Done
+Every box in CLAUDE.md's Definition of Done, plus: the ADR set explains every choice,
+and the architecture test fails if someone later adds an outward reference from `Core`.
+
+## Commit
+`chore: phase 0 — solution skeleton, seams, ADRs` → tag `v1.0.0-phase.0`
+
+============================================================
+
+# PHASE 1 — Data Layer
+
+## Context
+Phase 0 gave you a compiling skeleton with `ILogRepository` defined but unimplemented.
+This phase makes the database real. Read `CLAUDE.md`, `PROGRESS.md`, and the canonical
+event schema in `BUILD_PLAN.md`.
+
+## Objective
+A migrated SQLite database in WAL mode with a working repository implementation and a
+recorded insert benchmark.
+
+## Build
+1. SQLite connection factory with WAL enabled, `synchronous=NORMAL`, busy timeout, and
+   a single-writer discipline documented in code.
+2. Forward-only migration runner (plain SQL files, versioned, checksummed, idempotent).
+   Migration 001 creates: `events`, `event_fields`, `devices`, `device_groups`,
+   `listeners`, `streams`, `rules`, `users`, `roles`, `audit_log`, `schema_version`.
+3. FTS5 virtual table over `events.message` and `events.raw_message`, kept in sync by
+   triggers. Verify tokenizer handles IP addresses and MAC addresses sensibly.
+4. Indexes on `received_utc`, `source_ip`, `severity`, `device_id`, and
+   `event_fields(name, value)`.
+5. `SqliteLogRepository` implementing `ILogRepository`, with **batched inserts**
+   (transaction per batch, configurable batch size, default 500) — single-row inserts
+   will not meet the ingest target.
+6. Retention-aware deletes that do not lock the writer for more than 100 ms per pass.
+7. Seed data: default roles, a default admin user, the seven default streams named in
+   the feature spec.
+
+## Do not build in this phase
+Listeners, parsers, UI, or any query language. Repository methods used later may exist
+as signatures but must be tested if implemented.
+
+## Tests to write first
+- Round-trip persistence test for every entity.
+- Migration test: empty file → migrated → re-run migration is a no-op.
+- FTS5 test: insert 10 messages, search for a substring, assert correct hits.
+- Concurrency test: one writer + five readers, no `SQLITE_BUSY` failures.
+- Retention delete test asserting the 100 ms bound.
+
+## Verification — run these and paste output
+```bash
+dotnet test tests/VSoftSol.Syslog.UnitTests
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Insert*"
+```
+Record the 1,000,000-row batched insert throughput in PROGRESS.md. If it is below
+20,000 rows/sec, fix it now — Phase 2 cannot make up the difference.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Migration validation** — empty → migrated → re-run is a no-op; migrating a database
+  seeded with 100k rows preserves every row (count and checksum before/after).
+- **Constraint enforcement** — a test per foreign key, unique index, NOT NULL, and check
+  constraint, asserting the violation is rejected rather than silently accepted.
+- **WAL crash consistency** — `kill -9` mid-transaction, reopen, assert the database is
+  not corrupt and the last committed transaction is intact. Repeat 20 times.
+- **Concurrency** — 1 writer + 5 readers for 60 s, zero `SQLITE_BUSY` failures,
+  zero torn reads.
+- **Property-based** — round-trip any generated event through write/read and assert
+  field-for-field equality, including nulls, unicode, and 64KB messages.
+- **Fuzz** — hostile strings (null bytes, RTL marks, 1MB payloads, SQL fragments) into
+  every repository method; assert no exception escapes and no injection occurs.
+- **Benchmark discipline** — the 1M-row insert benchmark runs **three times**; report
+  mean and standard deviation. A variance over 15% means an unreliable measurement,
+  not a passing gate.
+- **Evidence:** `benchmarks.json`, crash-consistency run log, constraint matrix results.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **SQL injection sweep** — every repository method receives the CWE-89 corpus plus
+  unicode-normalization and second-order payloads. Assert parameterization by inspecting
+  the generated command text, not just the result.
+- **File permissions** — the database, WAL, journal, and backup files are readable only
+  by the service account. Assert the ACL programmatically.
+- **No sensitive data in internal logs** — trigger every repository error path with
+  message content present; grep Serilog output for payload text. Zero hits.
+- **Fail-closed test** — a query whose scope filter cannot resolve returns zero rows,
+  never all rows. This one default has caused more real breaches than any clever attack.
+- **Evidence:** injection sweep results, ACL assertion output, log-leakage scan.
+
+## Definition of Done
+Standard DoD, plus the insert benchmark number is committed to PROGRESS.md.
+
+## Commit
+`feat: phase 1 — sqlite schema, migrations, fts5, repository` → tag `v1.0.0-phase.1`
+
+============================================================
+
+# PHASE 2 — Ingestion Core
+
+## Context
+Phase 1 gave you a working repository with batched inserts. This phase builds the
+receive path. **Constraint 3 in CLAUDE.md governs everything here: never lose a
+message.** This is the highest-risk phase in the build.
+
+## Objective
+UDP and TCP listeners feeding a bounded channel and a disk-assisted spill queue, proven
+to lose nothing under burst load and under a hard process kill.
+
+## Build
+1. `UdpSyslogListener` — configurable bind address and port (default 514), high
+   receive-buffer size, no per-message allocation in the hot path (use
+   `ArrayPool<byte>`).
+2. `TcpSyslogListener` — default 514, supporting **both** newline-delimited framing and
+   RFC 6587 octet-counted framing, auto-detected per connection. Per-connection
+   read loop, connection limit, idle timeout.
+3. `IngestionChannel` — bounded `System.Threading.Channels` channel with a configurable
+   capacity and `BoundedChannelFullMode.Wait`.
+4. `DiskSpillQueue` — when the channel is at capacity, write raw frames to an append-only
+   on-disk segment file with a length-prefixed format and an fsync policy. Drain back
+   into the channel when depth drops below a low-water mark. Segments are deleted only
+   after their contents are committed to the database.
+5. `IngestionPipeline` background service — drains the channel, batches, commits through
+   `ILogRepository`. At this phase, store messages with `parse_status = raw`; Phase 3
+   adds parsing.
+6. **Graceful shutdown**: on stop, stop accepting, drain the channel and spill queue,
+   commit, then exit. Bounded by a configurable timeout that is logged if exceeded.
+7. **Startup recovery**: on start, replay any spill segments left by a previous run
+   before opening listeners.
+8. Per-listener and per-source counters: received, queued, spilled, committed,
+   dropped, failed. Exposed via an internal stats service.
+9. Per-source rate limiting with configurable ceiling and breach behaviour
+   (throttle / drop-with-counter / quarantine).
+
+## Do not build in this phase
+Parsing, TLS, SNMP, Windows Event Log intake, deduplication, UI. Those are Phases 3 and 11.
+
+## Tests to write first
+- 100,000 messages over UDP → assert 100,000 committed.
+- 100,000 messages over TCP, both framing modes → assert 100,000 committed.
+- Backpressure test: stall the repository, assert messages spill to disk and none are lost.
+- **Kill test**: send at 5,000 msg/sec, `Process.Kill()` mid-run, restart, assert every
+  message acknowledged before the kill is present after recovery.
+- Rate-limit test: assert breach behaviour matches configuration and the counter increments.
+
+## Verification — run these and paste output
+```bash
+dotnet test tests/VSoftSol.Syslog.IntegrationTests --filter "Ingestion"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Ingest*"
+```
+Assert and record: sustained 5,000 msg/sec, burst 15,000 msg/sec for 60 s with zero
+loss. **Do not proceed to Phase 3 until the kill test passes.**
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+This is the highest-risk phase. Validation here is deliberately adversarial.
+
+- **Accounting reconciliation** — every load test asserts `sent == committed + dropped`,
+  with `dropped` explicitly zero for the zero-loss tests. Counting stored rows is not
+  enough; the ledger must balance.
+- **Chaos suite**, each repeated 10 times to catch races:
+  - `kill -9` mid-ingest at 5,000 msg/sec → restart → assert zero committed loss
+  - Disk full during spill → assert graceful degradation and a clear alert, never corruption
+  - Repository stalled 60 s → assert spill engages and drains cleanly
+  - Half-open TCP connections, connection floods, abrupt client resets
+- **Fuzz the wire** — random bytes, zero-length datagrams, 64KB datagrams, split TCP
+  frames, interleaved framing modes, 10k concurrent connections. Nothing may crash the
+  listener or leak a socket.
+- **Soak test — 24 hours at 2,000 msg/sec.** Assert: memory flat (< 5% growth after
+  warm-up), no handle or socket leak, no queue-depth drift, no throughput decay.
+  Nightly CI job, not per-commit.
+- **Performance, measured properly** — three runs, mean and standard deviation, report
+  p50/p95/p99 end-to-end latency alongside throughput. Averages hide the failures.
+- **Evidence:** load-test ledgers, chaos matrix (10 runs × 4 scenarios), 24h soak memory
+  graph, `benchmarks.json`.
+
+**Do not proceed to Phase 3 until the chaos suite passes 10/10 on every scenario.**
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+The listener is unauthenticated and reachable by anyone with network access. Treat it as
+an internet-facing service even though it is not one.
+
+- **Availability as a security property** — flood at 10× the rate limit from 100 spoofed
+  source IPs. Assert: the service stays up, the disk does not fill, legitimate sources are
+  still ingested, and the event is alerted rather than silently absorbed.
+- **Malformed frame fuzzing** — 1M generated hostile frames (random bytes, zero-length,
+  64KB, split framing, mixed framing on one connection, null bytes, invalid priorities).
+  Assert no crash, no hang, no unbounded allocation, no socket leak.
+- **Slowloris / connection exhaustion** — hold 10,000 half-open TCP connections. Assert
+  the connection cap and idle timeout hold and UDP ingestion is unaffected.
+- **Spoofing acknowledgement** — document explicitly that UDP source IPs are unverifiable,
+  record it as accepted residual risk in the threat model, and note TLS with mutual
+  authentication as the mitigation for customers who need it.
+- **Bind-address assertion** — listeners bind only where configured. A test asserts the UI
+  never binds `0.0.0.0` by default.
+- **Evidence:** flood test results, fuzz corpus and crash count (must be zero), connection
+  exhaustion results, threat model residual-risk entry.
+
+## Definition of Done
+Standard DoD, plus both throughput numbers and the kill-test result in PROGRESS.md.
+
+## Commit
+`feat: phase 2 — udp/tcp listeners, bounded channel, disk spill queue` → tag `v1.0.0-phase.2`
+
+============================================================
+
+# PHASE 3 — Parsing & Normalization
+
+## Context
+Phase 2 stores raw frames without loss. This phase turns them into structured events.
+**Constraint 4 in CLAUDE.md governs this phase: always keep the raw bytes, including
+for messages that fail to parse.**
+
+## Objective
+RFC 3164 and RFC 5424 parsing into the canonical schema, with a graceful failure path
+and an extractor pipeline.
+
+## Build
+1. `Rfc5424Parser` — priority, version, timestamp, hostname, app-name, procid, msgid,
+   structured data (multiple SD elements, escaped values), message. Store structured
+   data as JSON in `structured_data_json`.
+2. `Rfc3164Parser` — priority, BSD timestamp (no year — infer, handling year rollover),
+   hostname, tag/pid, message.
+3. `MessageParser` facade — try 5424, fall back to 3164, fall back to `raw`. On `raw`,
+   still populate `source_ip`, `received_utc`, `raw_message`, and route to the
+   **Parse Failures** stream. Never discard.
+4. Facility/severity decoding from the priority value, with bounds validation.
+5. Encoding handling: UTF-8 with BOM detection, latin-1 fallback, and a configurable
+   maximum message length with truncation recorded as a field rather than a silent cut.
+6. **Extractor pipeline**, ordered stages, configurable per source or stream:
+   GROK → regex named captures → key-value → JSON → lookup table → rename/coerce/drop.
+   Results land in `event_fields`.
+7. **Parser packs — the core eight** named in `VENDOR_SUPPORT.md`, in
+   `src/VSoftSol.Syslog.Ingestion/Patterns/<vendor>/`. Patterns are plain text files
+   **loaded at runtime, not compiled in** — adding a vendor must be a file drop, never a
+   release. Ship: Cisco IOS/IOS-XE, Cisco ASA, FortiGate, Palo Alto PAN-OS, Juniper
+   JunOS, MikroTik RouterOS, Ubiquiti UniFi, and Linux (`sshd`, `sudo`, `cron`, `kernel`).
+   Note the format differences called out in `VENDOR_SUPPORT.md`: FortiGate is key-value
+   (use the KV parser, not GROK) and Palo Alto is positional CSV that differs per log
+   type (parse by type, not one pattern).
+7a. Handle every item in the **"Known compatibility traps"** section of
+   `VENDOR_SUPPORT.md` — Cisco sequence numbers and `%FACILITY-SEVERITY-MNEMONIC`
+   extraction, ASA numeric message IDs, ambiguous local timestamps, multi-line messages
+   arriving as separate datagrams, and oversized messages. Each needs a fixture and a
+   passing test.
+8. **Deduplication window**: identical message + same host within N seconds increments
+   `occurrence_count` instead of inserting a new row. N configurable, default 0 (off).
+
+## Do not build in this phase
+The UI pattern tester (Phase 5), stream routing (Phase 6), rules (Phase 7).
+
+## Tests to write first
+Build `tests/fixtures/messages/<vendor>/` with **at least 10 samples per vendor and 200
+total across the core eight**, each paired with its expected parsed output. Then:
+- Field-by-field assertion for every fixture.
+- Assert `raw_message` is byte-identical to input for 100% of fixtures, parsed or not.
+- Malformed-input suite: truncated priority, missing timestamp, oversized message,
+  invalid UTF-8, empty payload — each must produce a stored `raw` event, never an exception.
+- Year-rollover test for RFC 3164 timestamps on 31 Dec / 1 Jan.
+- Dedup test asserting `occurrence_count` increments and no duplicate row is created.
+
+## Verification — run these and paste output
+```bash
+dotnet test tests/VSoftSol.Syslog.UnitTests --filter "Parsing"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Parse*"
+```
+Parsing must not drop sustained throughput below 5,000 msg/sec. Re-run the Phase 2
+ingest benchmark and confirm.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Differential / oracle testing** — run the full fixture corpus through `rsyslog` or
+  `syslog-ng` (in a container or WSL) and compare extracted fields against ours. Any
+  divergence is either a bug or a documented deliberate difference; there is no third
+  option. This is the strongest correctness evidence available for a parser.
+- **Property-based (FsCheck)** — for any generated byte sequence: the parser never
+  throws, never hangs, always returns a result, and `raw_message` is always byte-identical
+  to the input. Run 10,000 cases minimum.
+- **Fuzz** — truncated priorities, missing timestamps, invalid UTF-8, embedded nulls,
+  1MB messages, deeply nested structured data, ANSI escape sequences, and messages
+  crafted to trigger regex backtracking. Assert every pattern has a timeout.
+- **Mutation testing** — Stryker.NET on the parser and extractor pipeline,
+  **≥ 70% mutation score**. Coverage alone will not catch a parser that assigns the right
+  field to the wrong name.
+- **Per-vendor corpus** — ≥ 10 fixtures per vendor, ≥ 200 total across the core eight,
+  each with expected output committed. Every trap in `VENDOR_SUPPORT.md` has a fixture.
+- **Regression** — re-run the Phase 2 ingest benchmark and chaos suite. Parsing sits in
+  the hot path; a throughput drop over 10% blocks the phase.
+- **Evidence:** oracle comparison report, mutation score, fuzz seed log, throughput
+  before/after parsing.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Log injection / forging suite** — this is the signature attack against a syslog
+  collector. Messages containing CRLF, embedded newlines, fake priority prefixes, forged
+  hostnames, and null bytes must **not** produce multiple stored events, must not overwrite
+  the observed `source_ip`, and must not corrupt neighbouring records. The wire-observed
+  source IP always wins over any hostname claimed inside the message; assert this.
+- **ReDoS** — every user-authorable pattern compiles with a mandatory timeout. Feed the
+  known catastrophic-backtracking corpus; assert the timeout fires and ingestion continues.
+- **Memory exhaustion** — deeply nested structured data, 10,000 SD elements, a single
+  1MB field, 100k `event_fields` from one message. Assert bounded allocation and a
+  configured cap.
+- **No sanitization on ingest** — assert that a message containing `<script>`, `=cmd|`,
+  and `../../` is stored **byte-identical**. Neutralising it here would destroy evidence;
+  encoding happens at render. Make this an explicit passing test so no later phase
+  "fixes" it the wrong way.
+- **Evidence:** log-forging matrix, ReDoS timeout proof, allocation bounds, raw-preservation
+  assertion for hostile payloads.
+
+## Definition of Done
+Standard DoD, plus: 100% raw retention proven, and the post-parsing throughput number
+recorded in PROGRESS.md.
+
+## Commit
+`feat: phase 3 — rfc3164/5424 parsing, extractors, vendor patterns` → tag `v1.0.0-phase.3`
+
+============================================================
+
+# PHASE 4 — UI Shell & Authentication
+
+## Context
+The collector works end to end and stores parsed events. Nobody can see them yet. This
+phase builds the shell, the security model, and the audit trail that every later phase
+writes into.
+
+## Objective
+An HTTPS Blazor Server application with role-based access control, scoped visibility,
+and an immutable audit log.
+
+## Build
+1. Blazor Server host, HTTPS only, bound to localhost or a configured LAN interface.
+   HSTS, secure cookies, anti-forgery, and a strict Content-Security-Policy.
+2. `LocalAuthenticationProvider` implementing `IAuthenticationProvider`, with Argon2id
+   password hashing and configurable parameters.
+3. Roles: **Administrator**, **Operator**, **Read-Only**, **Auditor**. Enforce with
+   policy-based authorization, not role-string checks scattered through components.
+4. **Scoped visibility**: a role assignment carries a set of visible streams and device
+   groups. Every data query goes through a scope filter — build this as a single
+   chokepoint so no future page can bypass it.
+5. Account lockout after N failed attempts, configurable session timeout, forced
+   password change on first login for the seeded admin.
+6. **Audit log** — append-only, no update or delete path in the repository, separately
+   retained. Every login attempt, config change (with before/after JSON diff), user
+   management action, and export is recorded with actor, timestamp, and source IP.
+7. Application shell: navigation, page layout, theme, notification centre placeholder,
+   and a settings area scaffolded for later phases to fill.
+8. DPAPI-backed secret storage service for SMTP and webhook credentials, used from
+   Phase 7 onward. Secrets never appear in logs or the audit diff.
+9. **Design system — build this now, every later phase consumes it.** Read
+   `UX_STANDARDS.md` first. Deliver: one table component (virtualized, sortable, column
+   chooser, empty state), one form component (inline validation, Basic/Advanced
+   disclosure, unsaved-changes guard), one modal, one confirmation dialog, one toast
+   service, one skeleton loader, one empty-state component taking title/explanation/
+   primary-action, and one visual condition builder (field / operator / value rows with
+   AND-OR grouping) reused by Phases 6, 7, and 8.
+10. Fixed navigation: Dashboards · Search · Devices · Streams · Rules · Alerts · Reports ·
+    Settings. Global time-range picker in a fixed position. Notification centre.
+11. Keyboard map: `/` focuses search, `Esc` closes modals, `Enter` submits,
+    arrows navigate grids, `?` opens the shortcut list.
+12. Severity colour tokens defined once, always paired with a text label or icon.
+    WCAG 2.1 AA contrast, visible focus rings, labelled inputs.
+13. **Branding consumption** per `BRANDING.md`: logo on the login page and in the header
+    (collapsing to the square mark on narrow viewports), favicon, page titles as
+    `<Page> — <productName>`, and an About page showing logo, version, build date, vendor
+    URL, and copyright. All values from `BrandingInfo`, all colours from the
+    `--brand-primary` / `--brand-accent` CSS properties. No literals.
+
+## Do not build in this phase
+Search, dashboards, rules, device management pages. Only the shell and security.
+
+## Tests to write first
+- Authorization matrix test: for each of the 4 roles × each protected endpoint, assert
+  allow or deny. This test must be exhaustive and must fail when a new page is added
+  without a policy.
+- Scope filter test: a user scoped to stream A cannot retrieve an event in stream B by
+  any query path.
+- Audit test: perform a config change, assert an audit row with correct before/after.
+- Audit immutability test: assert update and delete attempts on `audit_log` fail.
+- Lockout test.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Authorization|Audit|Scope"
+dotnet run --project src/VSoftSol.Syslog.Web
+```
+Manually confirm: HTTPS redirect works, self-signed certificate is generated, login
+succeeds, forced password change fires, and an unauthenticated request to a protected
+page redirects rather than 500s.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+This phase sets the vocabulary for the whole UI, so the gate is strictest here.
+Run all five checks and record results in PROGRESS.md. Additionally: confirm the design
+system components are genuinely reusable by building the login and user-management
+screens **entirely** from them. If either screen needs a one-off component, the design
+system is wrong — fix it now rather than in Phase 9.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Exhaustive authorization matrix** — 4 roles × every protected route × every HTTP verb,
+  generated from route discovery so **a new page added without a policy fails the build**.
+  A hand-maintained list will rot within two phases.
+- **Security suite** — session fixation, CSRF token absence and reuse, cookie flags
+  (Secure, HttpOnly, SameSite), concurrent session handling, password reset flow, timing
+  attack on login (assert constant-time comparison), lockout bypass attempts.
+- **Scope-bypass suite** — for each data access path, attempt to reach out-of-scope data
+  by direct ID, by query parameter, by sort field, and by export. All must be denied.
+- **Audit immutability** — attempt UPDATE and DELETE on `audit_log` through the
+  repository, through raw SQL, and through the API. All must fail.
+- **Secret leakage scan** — trigger every log path with credentials configured; grep the
+  log files, audit diffs, and HTTP responses for the secret value. Zero hits required.
+- **Accessibility** — automated axe-core scan on every page, zero critical or serious
+  violations, plus manual keyboard-only traversal.
+- **Evidence:** authorization matrix output (all combinations, pass/deny), axe report,
+  secret-scan result, UX gate results.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **ASVS L2 verification** for V1 (architecture), V2 (authentication), V3 (session),
+  V4 (access control), V7 (error/logging), V14 (config). Record each control's result.
+- **DAST** — OWASP ZAP full scan against the running UI. No High or Medium findings.
+- **Authentication attacks** — credential stuffing, brute force past the lockout,
+  username enumeration via timing and error text, password reset abuse, Argon2id parameter
+  verification, and constant-time comparison.
+- **Session attacks** — fixation, hijacking, logout not invalidating server-side,
+  concurrent session policy, cookie flags (Secure, HttpOnly, SameSite=Strict), absolute
+  and idle timeout.
+- **Access control** — vertical escalation attempts per role pair, horizontal IDOR on
+  every entity by ID, forced browsing to admin routes, and HTTP verb tampering.
+- **Security headers** — CSP without `unsafe-inline`, HSTS, X-Content-Type-Options,
+  Referrer-Policy, frame-ancestors. Asserted by test, not by inspection.
+- **Audit tamper attempts** through repository, raw SQL, and API. All must fail.
+- **Threat model review #1** — update boundaries now that the UI exists.
+- **Evidence:** ASVS results, ZAP report, header assertions, escalation matrix.
+
+## Definition of Done
+Standard DoD, plus the authorization matrix test covers every protected route, and no
+later phase will need to invent a new table, form, or modal.
+
+## Commit
+`feat: phase 4 — blazor shell, rbac, scoped visibility, audit log` → tag `v1.0.0-phase.4`
+
+============================================================
+
+# PHASE 5 — Search & Investigation
+
+## Context
+Events are stored and the UI shell is secured. This phase makes the data usable. Search
+is the feature operators touch most, so it sets the perceived quality of the whole product.
+
+## Objective
+A query language, a fast results grid, live tail, context view, and export — all
+respecting Phase 4's scope filter.
+
+## Build
+1. **Query parser** supporting: free text (FTS5), `field:value`, `field:>value` and
+   `field:<value`, quoted phrases, `AND` / `OR` / `NOT`, parentheses, and trailing
+   wildcards. Compile to parameterized SQL — never string-concatenate user input.
+2. Time range selector: quick presets (15m, 1h, 4h, 24h, 7d, 30d) plus absolute range.
+   Time range is always applied; there is no unbounded query.
+3. Results grid: virtualized scrolling, sortable, column chooser, saved column layouts
+   per user, severity colour coding, expandable row showing all `event_fields` and the
+   raw message.
+4. **Context view** — from any event, open the ±N surrounding messages from the same
+   host in a modal, N configurable, default 50. This is a headline differentiator; make
+   it fast and make it one click.
+5. **Live tail** — server-side push of new matching events with the active filter
+   applied, pausable, with a buffer cap and a visible "N messages while paused" counter.
+6. **Saved searches** — named, owned, optionally shared, with a one-click promote to
+   dashboard widget (Phase 9) or alert definition (Phase 8). Store the query, not the results.
+7. Export current result set to CSV, JSON, and raw syslog text. Exports are streamed,
+   size-capped, and written to the audit log.
+8. **Pattern tester page**: paste a sample message, select or write a GROK/regex
+   pattern, see extracted fields live, save as an extractor. This closes the loop on Phase 3.
+9. **Filter sidebar** — device, severity, stream, and time selectors that compose the
+   query for the user. The query bar shows what the sidebar produced, so users learn the
+   syntax by seeing it. **Typing a query must never be required to use search.** This is
+   the single most important usability decision in the product; Graylog and Elastic both
+   lose non-specialist users here.
+10. Query bar autocomplete on field names and known values, with an inline syntax cheat
+    sheet behind a `?` affordance.
+11. Empty state on zero results explains *why* (no matches / no data in range / scope
+    restriction) and offers to widen the time range with one click.
+
+## Do not build in this phase
+Dashboards, charts, alerting. Saved searches are stored but only consumed by search.
+
+## Tests to write first
+- Query-language matrix: at least 40 cases covering each operator, precedence,
+  malformed input, and injection attempts. Assert malformed queries produce a clear
+  user error, never an exception or a full-table scan.
+- Scope test: a scoped user's search cannot return out-of-scope events via any operator.
+- Context view test: correct neighbours returned, correct ordering, host isolation.
+- Export test: streamed output matches the grid contents exactly.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Search|Query|Export"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Search*"
+```
+Assert the target: **< 2 s for a filtered query returning ≤ 1,000 rows over a 30-day
+hot window** on a database seeded with 50 million events. Seed that database in the
+benchmark; do not test against a toy dataset.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+Run all five checks. Cold-eyes task: **find every authentication failure from one
+specific switch in the last 24 hours, without typing a query.** Record the click count.
+If it exceeds 5 clicks, redesign the sidebar before committing.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Golden oracle for query correctness** — implement a deliberately naive brute-force
+  matcher over the same dataset, then assert the optimised SQL path returns **identical
+  result sets** for 500 generated queries. This is the only reliable way to prove a query
+  compiler is correct.
+- **Injection suite** — SQL fragments, FTS5 syntax abuse, nested quotes, unicode
+  normalization tricks, and 10KB query strings. Assert parameterization holds and every
+  malformed query yields a user-facing error, never an exception or a full table scan.
+- **Query plan assertions** — for the 10 most common query shapes, assert
+  `EXPLAIN QUERY PLAN` uses the intended index. A query that silently degrades to a scan
+  will pass a correctness test and fail a customer.
+- **Latency percentiles, not averages** — p50/p95/p99 against the **50M-event** dataset,
+  three runs. The p99 is what users actually complain about.
+- **Pagination and virtualization** — scroll 50,000 rows, assert no duplicated or skipped
+  rows and stable memory.
+- **Evidence:** oracle divergence report (must be zero), query plan assertions, latency
+  percentile table, UX gate with the no-typing search task click count.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Stored XSS through the full path** — ingest payloads from the OWASP XSS filter-evasion
+  corpus, then assert correct encoding in the results grid, the expanded row, the context
+  view, live tail, and JSON export. This is the product's highest-likelihood real
+  vulnerability: attacker-controlled content rendered to an administrator.
+- **CSV formula injection** — a message starting with `=`, `+`, `-`, `@`, tab, or CR must
+  be neutralised **in the export only** (prefix per OWASP guidance), never in storage.
+  Assert both halves: safe in the CSV, byte-identical in the database.
+- **Query injection** — SQL fragments, FTS5 operator abuse, nested quotes, unicode
+  normalization, 10KB queries, and stacked statements. Assert parameterization holds.
+- **IDOR** — saved searches, column layouts, and exports accessed by another user's ID.
+- **Scope bypass via query** — attempt to reach out-of-scope events through sort fields,
+  wildcards, negation, and export parameters.
+- **Export DoS** — request an export of 50M rows; assert streaming, a size cap, and that
+  the UI stays responsive.
+- **Evidence:** XSS matrix (payload × output surface), CSV injection proof, injection
+  sweep, IDOR results.
+
+## Definition of Done
+Standard DoD, plus the search latency number against 50M rows recorded in PROGRESS.md,
+and the no-typing search task completed in 5 clicks or fewer.
+
+## Commit
+`feat: phase 5 — query language, search grid, live tail, context view` → tag `v1.0.0-phase.5`
+
+============================================================
+
+# PHASE 6 — Devices & Streams
+
+## Context
+Search works. Events are still an undifferentiated pile. This phase adds the two
+organising concepts everything after it depends on: the device registry and streams.
+
+## Objective
+A device registry with auto-discovery, device groups, and stream routing evaluated at
+ingest.
+
+## Build
+1. **Device registry**: hostname, IP addresses (multiple), vendor, model, role, site,
+   group membership, owner, notes, expected message rate, heartbeat threshold, enabled flag.
+2. **Auto-discovery**: an unrecognised source IP creates a pending-device record.
+   Pending devices appear in an approval queue where an admin names, classifies, and
+   approves or rejects them. Unknown-source policy configurable:
+   accept-and-auto-register / accept-as-unknown / reject.
+3. Events are linked to `device_id` at ingest when the source resolves.
+4. **Device groups** — used for RBAC scoping, filtering, dashboards, and bulk rule
+   application. A device may belong to multiple groups.
+5. **Device health card**: last seen, messages/min trend sparkline, parse-failure rate,
+   active alerts, top message types.
+6. **Streams**: named routing buckets defined by match rules over any normalized or
+   extracted field (equals, contains, regex, numeric range, in-list), combinable with
+   AND/OR groups. A message may match multiple streams. Evaluation happens once at
+   ingest and is stored, not recomputed at query time.
+7. Ship the seven default streams: All Messages, Security Events, Interface Up/Down,
+   Authentication Failures, Configuration Changes, Hardware/Environment, Parse Failures.
+8. **Stream rule tester**: paste or pick a message, see which streams it would match and why.
+
+## Do not build in this phase
+Rules and actions (Phase 7), alerting (Phase 8). Stream *routing* only, no side effects.
+
+## Tests to write first
+- Routing test: a message matching three streams is present in exactly those three.
+- Non-match test: a message matching none lands only in All Messages.
+- Regex-rule safety: assert a catastrophic-backtracking pattern is rejected or timeboxed.
+- Discovery test: unknown source creates exactly one pending record, not one per message.
+- Scope test: stream-scoped users see only their streams in every list and picker.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Stream|Device|Discovery"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Ingest*"
+```
+Stream evaluation runs in the ingest path — re-run the ingest benchmark and confirm
+throughput is still ≥ 5,000 msg/sec with 20 active streams configured.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+Run all five checks. Cold-eyes task: **approve a newly discovered device, name it, assign
+it to a group, and set its heartbeat threshold.** Build the stream condition editor from
+the Phase 4 visual condition builder — a raw expression box is available behind a toggle,
+never as the only option. The pending-device queue must show a badge count in the
+navigation so discovery is noticed without hunting for it.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Routing oracle** — an independent naive evaluator computes expected stream membership
+  for 10,000 generated messages against 50 generated stream definitions; assert exact
+  agreement with the production router.
+- **ReDoS suite** — feed known catastrophic-backtracking patterns and adversarial inputs.
+  Assert every user-supplied regex is compiled with a timeout and that a malicious stream
+  rule cannot stall ingestion.
+- **Discovery idempotency** — 100k messages from one unknown source create exactly one
+  pending record. Race 20 concurrent sources; assert no duplicates and no lost registrations.
+- **Regression** — re-run the ingest benchmark with 20 active streams; throughput must
+  hold ≥ 5,000 msg/sec.
+- **Evidence:** routing oracle agreement report, ReDoS timeout proof, throughput with
+  streams active.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Discovery flood** — 100,000 spoofed source IPs. Assert the pending queue is bounded,
+  the database does not balloon, and an operator alert fires rather than the UI becoming
+  unusable.
+- **ReDoS in stream rules** — a user-authored catastrophic pattern must not stall the
+  ingest path for other devices. Assert per-rule timeout and isolation.
+- **IDOR** — device and group records accessed and modified by ID across scopes.
+- **Stored XSS via device fields** — hostname and vendor come from the wire and are
+  rendered in pickers, health cards, and dashboards. Test each.
+- **Authorization on approval** — only Administrators approve pending devices; assert
+  Operator and Read-Only are refused at the API, not just hidden in the UI.
+- **Evidence:** flood containment results, ReDoS isolation proof, IDOR matrix.
+
+## Definition of Done
+Standard DoD, plus post-stream-routing throughput recorded in PROGRESS.md.
+
+## Commit
+`feat: phase 6 — device registry, discovery, groups, stream routing` → tag `v1.0.0-phase.6`
+
+============================================================
+
+# PHASE 7 — Rules & Actions Engine
+
+## Context
+Streams route messages. This phase makes the product *do* things — the Kiwi-style
+filter→action engine that is the core operator feature. Actions have real-world side
+effects, so rate limiting and cool-downs are requirements, not polish.
+
+## Objective
+A rules engine evaluated at ingest, with all action types implemented, rate-limited,
+and audited.
+
+## Build
+1. **Rule model**: name, description, enabled, priority (ordered evaluation), filter
+   expression (reuse the Phase 6 condition builder), ordered action list, optional
+   time-of-day window, optional device-group restriction, hit counter, last-fired timestamp.
+2. **Evaluation**: rules run in priority order at ingest. A `Suppress` action stops
+   further rule processing for that message.
+3. **Actions**, each with per-action rate limit and cool-down:
+   - `SendEmail` — SMTP with TLS, templated subject and body with `{field}` substitution
+   - `HttpWebhook` — JSON POST, custom headers, retry with exponential backoff, timeout
+   - `RunScript` — executable + args, working directory, timeout-bounded, stdout/stderr
+     captured to the audit log, non-zero exit recorded. Path allow-list enforced.
+   - `ForwardSyslog` — UDP/TCP/TLS to another host, optional reformatting template
+   - `WriteToFile` — named file, rotation by size and age
+   - `WriteToOdbc` — external SQL destination, column mapping
+   - `AddTag`, `RouteToStream`, `Suppress`
+   - `RaiseNotification` — appears in the UI notification centre
+4. **Escalation**: if a rule's condition fires N times in M minutes, run a second,
+   different action list instead.
+5. **Alert-storm protection**: a global outbound action budget per minute. On breach,
+   collapse into a single summary notification rather than sending hundreds.
+6. Credentials for email, webhooks, and ODBC read from the Phase 4 DPAPI secret store.
+   Never persisted in the rule definition.
+7. **Rule tester**: pick or paste a message, dry-run the rule set, see which rules match
+   and which actions *would* run — without executing them.
+
+## Do not build in this phase
+Scheduled aggregation alerts — that is Phase 8. These are per-message rules only.
+
+## Tests to write first
+- Each action type integration-tested against a local stub: an in-process SMTP sink, an
+  HTTP sink, a temp file, a local syslog receiver, a SQLite ODBC target, a script that
+  echoes and exits 0 and a variant that exits 1.
+- Priority test: rules fire in the correct order; `Suppress` halts the chain.
+- Rate-limit test: 1,000 matching messages produce exactly the configured number of sends.
+- Cool-down test with a virtual clock.
+- Escalation test: Nth occurrence within the window triggers the escalation list once.
+- Script sandbox test: an executable outside the allow-list is refused and audited.
+- Secret test: assert no credential appears in logs, audit diffs, or exported rules.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Rules|Action"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Ingest*"
+```
+Confirm ingest throughput holds at ≥ 5,000 msg/sec with 50 active rules. Actions must
+execute **off** the ingest thread — assert a slow action does not stall ingestion.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+Run all five checks. Cold-eyes task: **create a rule that emails on any critical message
+from the core switches, and verify it works — without documentation.**
+Required here: the visual condition builder is the default editor; **Test buttons on SMTP,
+webhook, and the whole rule** (dry-run against a sample message, showing which actions
+would fire without executing them); and a starter library of 8-10 pre-built rule
+templates users can clone rather than author from scratch.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+Actions have real side effects. Validate failure paths harder than success paths.
+
+- **Fault injection per action type** — SMTP server refusing connections, hanging, or
+  returning 4xx/5xx; webhook returning 500, timing out, or returning 10MB; disk full on
+  file write; ODBC target unreachable; script exceeding its timeout, exiting non-zero, or
+  writing 100MB to stdout. **Every failure must be contained, retried per policy, logged,
+  and must never stall ingestion.**
+- **Ingest isolation proof** — configure an action that blocks for 60 s; assert ingest
+  throughput is unaffected. This is the single most important test in the phase.
+- **Rate-limit accuracy** — 10,000 matching messages produce exactly the configured
+  number of sends, verified against the sink's own count, not our counter.
+- **Idempotency** — a rule re-evaluated after a restart does not double-fire.
+- **Script sandbox security** — path traversal in the executable path, argument injection,
+  environment variable leakage, symlink escape. All must be refused and audited.
+- **Mutation testing** on the rules evaluator, **≥ 70%**.
+- **Evidence:** fault-injection matrix (action × failure mode), isolation benchmark,
+  rate-limit sink counts, sandbox refusal log, mutation score.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+Actions turn log content into outbound network calls and process execution. This is the
+most dangerous phase in the product.
+
+- **SSRF on the webhook action** — attempt `127.0.0.1`, `169.254.169.254` (cloud
+  metadata), internal RFC1918 ranges, `file://`, `gopher://`, DNS rebinding, and redirect
+  chains to internal hosts. Enforce a scheme allow-list (https, http), block link-local
+  and metadata ranges by default, disable redirect following, and make any internal-range
+  exception explicit configuration.
+- **Command injection on the script action** — field substitution into arguments using
+  `; & | $() \`\` %VAR%` and newline payloads. Arguments must be passed as an argument
+  vector, never through a shell. Assert an executable outside the allow-list is refused,
+  and test symlink escape and relative-path traversal.
+- **Path traversal on the file action** — `../`, UNC paths, ADS (`file.txt:evil`),
+  reserved Windows names (`CON`, `NUL`), and a hostname field containing separators.
+- **SMTP header injection** — CRLF in a templated subject must not add headers or
+  recipients.
+- **Template injection** — assert the substitution engine cannot execute expressions or
+  reach outside the event object.
+- **Secret leakage** — configure every action with credentials, force every failure path,
+  then grep logs, audit diffs, UI errors, and config bundle exports. Zero hits.
+- **Forward-loop protection** — a `ForwardSyslog` action pointed at the collector's own
+  listener must be detected, not amplified.
+- **Threat model review #2** — egress boundary now exists and must be documented.
+- **Evidence:** SSRF matrix, command-injection matrix, traversal matrix, secret scan,
+  loop-detection proof.
+
+## Definition of Done
+Standard DoD, plus the slow-action isolation test passes, throughput is recorded, and a
+first-time user can create a working email rule in under 3 minutes.
+
+## Commit
+`feat: phase 7 — rules engine, actions, rate limiting, escalation` → tag `v1.0.0-phase.7`
+
+============================================================
+
+# PHASE 8 — Aggregation Alerts
+
+## Context
+Phase 7 reacts to single messages. Real incidents are patterns: five failed logins in
+two minutes, or a switch that has gone quiet. This phase adds scheduled evaluators over
+windows of data.
+
+## Objective
+Threshold, distinct-count, and device-silent alert definitions with a full
+acknowledge/resolve workflow.
+
+## Build
+1. **Alert definition model**: name, description, severity, filter, evaluation type,
+   window, schedule, grouping field, threshold, remediation notes, action list (reuse
+   Phase 7 actions), enabled flag.
+2. **Evaluation types**:
+   - `Threshold` — count of matching events grouped by field exceeds N within window
+   - `DistinctCount` — distinct values of a field exceeds N within window
+   - `DeviceSilent` — no events received from a device (or device group) for N minutes.
+     **This is a headline differentiator** — it detects a dead switch, a broken syslog
+     config, or a failed collector path. Honour each device's own heartbeat threshold.
+   - `Absence` — no events matching a filter within window (e.g. no nightly backup log)
+3. **Scheduler** — quartz-style or hosted timer, evaluations must not overlap themselves,
+   missed runs are logged not silently skipped, and evaluation state survives restart.
+4. **Deduplication**: an alert in the firing state does not re-fire every evaluation.
+   It fires once, stays open, and re-notifies only on a configurable re-notify interval.
+5. **Alert lifecycle**: `Firing → Acknowledged → Resolved`, with actor, timestamp, and
+   free-text note at each transition. Auto-resolve when the condition clears, configurable.
+6. **Alert history** page: filterable, showing full lifecycle and the events that
+   triggered each firing (store the triggering event IDs, not a copy of the events).
+7. Promote-to-alert from a saved search (the Phase 5 hook).
+8. Notification centre in the shell shows open alerts by severity.
+
+## Do not build in this phase
+Dashboard widgets showing alerts — that is Phase 9.
+
+## Tests to write first
+Use a virtual clock throughout; no `Thread.Sleep` in tests.
+- Threshold test: exactly at N does not fire, N+1 fires, and it fires **once** per window.
+- Dedup test: a condition true for 10 consecutive evaluations produces one open alert.
+- Re-notify test: honours the configured interval.
+- DeviceSilent test: device stops sending → alert fires after the threshold → device
+  resumes → alert auto-resolves.
+- Restart test: kill mid-schedule, restart, assert no duplicate fire and no missed window.
+- Lifecycle test: ack and resolve transitions recorded with actor and audited.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Alert|Schedule|Heartbeat"
+```
+Then run a manual scenario: send traffic from a fake device, stop it, confirm the
+device-silent alert fires and the notification arrives.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+Run all five checks. Cold-eyes task: **set up an alert for when a core switch stops
+sending logs.** Device-silent is the differentiator, so it must be the easiest alert in
+the product to create — offer it as a one-click action directly from the device health
+card, not only from a generic alert-builder page. Ship 6-8 alert templates. Every alert
+definition shows a live preview: "this would have fired N times in the last 7 days" so
+users can tune the threshold before saving instead of discovering it by being spammed.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Virtual clock time-travel suite** — no test may take longer than the code under test.
+  Simulate 30 days of evaluations in seconds and assert exact firing counts.
+- **Labelled dataset for false positive/negative rate** — construct a fixture dataset
+  with known-correct expected alerts, then measure. State the measured FP and FN rates in
+  the evidence pack. An alerting system nobody has measured is an alerting system nobody
+  will trust.
+- **Boundary matrix** — exactly at threshold, one below, one above, at window edges,
+  across DST transitions, across midnight UTC, and with events arriving out of order.
+- **Crash-during-evaluation** — kill at 10 points in the evaluation cycle; restart; assert
+  no duplicate fire, no missed window, and no stuck-open alert.
+- **Storm containment** — inject 100k matching events in 10 s; assert the alert fires once
+  and the global action budget prevents a notification flood.
+- **Heartbeat accuracy** — device stops at T; assert the alert fires within the configured
+  threshold ± one evaluation interval, and auto-resolves within one interval of resumption.
+- **Evidence:** FP/FN rates against the labelled set, boundary matrix, crash-point results
+  (10/10), storm containment log.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Notification flooding as an attack** — an attacker who can generate log events can
+  weaponise the alerting system against the administrator's inbox or a downstream
+  webhook. Assert the global action budget and per-alert cool-down contain it, and that
+  the collapse-to-summary path triggers.
+- **Information disclosure in alert content** — alert emails and webhooks must respect
+  the recipient's scope. A notification must never leak an event from a stream the
+  recipient cannot see.
+- **Stored XSS in alert fields** — descriptions, remediation notes, and triggering-event
+  previews render in the notification centre and in emails. Test HTML email escaping
+  specifically; it is a commonly missed surface.
+- **Authorization on lifecycle** — assert Read-Only cannot acknowledge or resolve, and
+  that ack/resolve actions are audited with the true actor.
+- **Evidence:** flood containment results, scope-leak matrix, XSS results including
+  HTML email.
+
+## Definition of Done
+Standard DoD, plus the restart-safety test passes and the threshold preview is accurate
+against fixture data.
+
+## Commit
+`feat: phase 8 — aggregation alerts, device-silent heartbeat, ack/resolve` → tag `v1.0.0-phase.8`
+
+============================================================
+
+# PHASE 9 — Dashboards
+
+## Context
+Search answers "what happened to this device". Dashboards answer "is anything wrong
+right now". Every widget must be backed by a saved search plus an aggregation spec —
+no special-case widget code, or this phase becomes unmaintainable.
+
+## Objective
+A generic widget framework and four shipped default dashboards.
+
+## Build
+1. **Widget contract**: `{ savedSearchId | inlineQuery, aggregation, visualization,
+   timeRange?, refreshInterval? }`. One rendering path, one data path.
+2. **Aggregation spec**: `count | distinctCount | sum | avg | min | max`, optional
+   `groupBy` field, optional time bucketing with auto-selected bucket size.
+3. **Visualization types**: time-series line/area, bar, single-value counter, top-N
+   table, severity donut, message-rate gauge, recent-events table, device status grid.
+4. **Dashboard**: named, owned, optionally shared, drag-to-arrange responsive grid,
+   per-dashboard default time range, auto-refresh interval, full-screen mode for a
+   wall display.
+5. Widget time range inherits from the dashboard unless overridden.
+6. **Default dashboards**, shipped and non-deletable but copyable:
+   - *Network Overview* — message rate, top talkers, severity distribution, recent criticals
+   - *Security Overview* — auth failures by host, config changes, distinct source IPs
+   - *Device Health* — device status grid, silent devices, parse-failure rate by device
+   - *Collector Health* — ingest rate, queue depth, spill size, DB size, disk free, drops
+7. All widget queries respect the Phase 4 scope filter. A scoped user sees a dashboard
+   with their data, not an error.
+8. Aggregation results cached with a short TTL so a shared wall dashboard does not
+   hammer the database.
+
+## Do not build in this phase
+Report generation or PDF export — that is Phase 10.
+
+## Tests to write first
+- Each aggregation type returns correct values against a seeded fixture dataset.
+- Time bucketing test: correct bucket boundaries across DST and across midnight UTC.
+- Scope test: two users with different scopes load the same shared dashboard and each
+  sees only their own data.
+- Empty-data test: every widget renders an empty state, never an exception.
+- Cache test: TTL honoured, invalidated on time-range change.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Widget|Aggregation|Dashboard"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Dashboard*"
+```
+Assert the target: **dashboard load < 3 s** against the 50M-event database from Phase 5.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+Run all five checks. Cold-eyes task: **add a widget showing the top 10 noisiest devices
+to a new dashboard.** Widget creation must be a guided picker (pick a saved search → pick
+a visualization → preview → add), never a JSON editor. Every widget renders a useful
+empty state. The four default dashboards must be genuinely useful on day one with zero
+customization — a user who never builds a dashboard should still get value.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Aggregation oracle** — every aggregation type verified against an independently
+  written SQL query over the same fixture data. Sums, counts, and distinct counts are
+  exactly the kind of thing that looks right and is wrong.
+- **Time bucketing matrix** — bucket boundaries across DST forward and back, leap day,
+  year boundary, and a device sending in a different timezone. Assert no double-counted
+  or dropped buckets.
+- **Visual regression** — snapshot each widget type against fixture data; assert
+  pixel-stable rendering across runs so a styling change cannot silently break a chart.
+- **Empty, sparse, and extreme data** — zero rows, one row, one series with 100k points,
+  12 series, all-identical values, and negative/zero values. Every widget renders; none
+  throws.
+- **Concurrency** — 20 simultaneous dashboard loads against the 50M dataset; assert the
+  cache holds and p95 load stays under 3 s.
+- **Evidence:** oracle comparison, bucketing matrix, visual snapshots, concurrent load
+  percentiles, UX gate click count.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Cross-scope leakage on shared dashboards** — the single highest risk here. Two users
+  with different scopes load the same shared dashboard; assert each sees only their own
+  data in every widget, including aggregate counts. **An aggregate that includes
+  out-of-scope events is a data leak even when no individual event is displayed.**
+- **Stored XSS** — widget titles, dashboard names, axis labels, and any log-derived value
+  used as a category label (hostnames and app names come from the wire).
+- **IDOR** — dashboards and widgets accessed and modified by ID across users.
+- **Cache poisoning** — assert the aggregation cache is keyed by scope so one user's
+  cached result can never be served to another.
+- **Evidence:** cross-scope aggregate comparison, XSS results, cache key assertion.
+
+## Definition of Done
+Standard DoD, plus the dashboard load number recorded in PROGRESS.md and widget creation
+completable in 5 clicks or fewer.
+
+## Commit
+`feat: phase 9 — widget framework, aggregations, default dashboards` → tag `v1.0.0-phase.9`
+
+============================================================
+
+# PHASE 10 — Retention, Archival & Reports
+
+## Context
+Without this phase the database grows until the disk fills. With it, the product has a
+compliance story — which is what turns it from a tool into something an auditor accepts.
+
+## Objective
+Tiered retention with verifiable archives, and a scheduled report engine.
+
+## Build
+1. **Retention tiers, configurable per stream**:
+   - *Hot* — uncompressed, fully indexed, searchable. Default 30 days.
+   - *Warm* — Zstd-compressed message bodies, still searchable (slower). Default 90 days.
+   - *Cold* — exported to compressed archive files on local disk or a UNC path, removed
+     from the live database. Default 12 months.
+   - *Delete* — after the configured horizon.
+2. **Tiering jobs** run on a schedule, in bounded batches, never blocking the writer for
+   more than 100 ms per batch. Progress is resumable after a restart.
+3. **Zstd compression** via `ZstdSharp`, with gzip fallback if Zstd is unavailable.
+   Compression level configurable.
+4. **Archive integrity** — every archive file gets a SHA-256 hash recorded in the
+   database at creation. A scheduled verification job re-hashes and raises an alert on
+   mismatch. This is the tamper-evidence story; do not skip it.
+5. **Archive restore** — select an archive, restore into a searchable temporary index,
+   auto-expire the restore after N days. Restores are audited.
+6. **Report engine**: a report is a saved search + aggregation + template + schedule.
+   - Canned templates: Failed Authentication Summary, Configuration Change Audit,
+     Device Availability, Interface Flap Report, Severity Trend, Top Talkers,
+     Rule & Alert Activity
+   - Compliance templates mapped to PCI-DSS, HIPAA, ISO 27001, and SOX logging controls.
+     Each states the control it evidences.
+   - Custom reports from any saved search
+7. **Output**: PDF (QuestPDF) and CSV. Include generation timestamp, time range covered,
+   the query used, the generating user, and whether archived data was included.
+   PDFs carry the branding from `branding/` — wide logo in the header, copyright in the
+   footer, `primaryColor` for headings — all via `BrandingInfo`, no literals. CSV and
+   JSON exports carry product name and version in their metadata header.
+8. **Scheduling**: daily / weekly / monthly, delivered by email or written to a folder.
+   Failed deliveries retry and raise an alert.
+9. Reports must be runnable by the **Auditor** role without Administrator help.
+
+## Do not build in this phase
+Installer, TLS listener, SNMP. Those are Phases 11 and 12.
+
+## Tests to write first
+- **Full lifecycle test**: seed events → age them → hot→warm→cold transitions → verify
+  searchability at each tier → archive → verify hash → restore → confirm data identical
+  → expire restore.
+- Tamper test: modify an archive file on disk, run verification, assert an alert fires.
+- Warm-tier search test: compressed rows return the same results as uncompressed.
+- Report test: generate each canned template against fixture data, assert the PDF
+  renders and the CSV row count matches the underlying query.
+- Auditor-role test: an Auditor generates a compliance report end to end with no
+  Administrator action.
+- Interruption test: kill mid-tiering, restart, assert no data loss and no duplicates.
+
+## Verification — run these and paste output
+```bash
+dotnet test --filter "Retention|Archive|Report"
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*Retention*"
+```
+Confirm tiering a 10M-event backlog does not push search latency past the Phase 5 target
+while it runs.
+
+## UX gate (required — see `UX_STANDARDS.md`)
+Run all five checks. Cold-eyes task, performed as an **Auditor-role** user: **generate a
+90-day PCI-DSS report and schedule it monthly by email.** Retention configuration must
+show the projected disk usage for the chosen settings before saving — never let a user
+configure retention blind and discover the consequence when the disk fills. Report
+templates are pick-and-run, not build-from-scratch.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **End-to-end data integrity** — checksum every event before tiering; after hot → warm →
+  cold → archive → restore, assert **byte-identical** recovery for 100% of events. Any
+  loss or mutation is a phase failure, not a known issue.
+- **Tamper detection** — modify one byte in an archive, truncate another, replace a third
+  with a valid archive from a different period. All three must be detected and alerted.
+- **Interruption matrix** — kill during warm compression, during cold export, during
+  delete, and during restore. Restart each time; assert no data loss, no duplicates, and
+  no half-tiered rows.
+- **Report content validation** — extract text from generated PDFs and assert the figures
+  match an independent SQL query. A PDF that renders is not a PDF that is correct.
+- **Compliance mapping review** — each compliance template states the control it evidences;
+  verify the query actually satisfies that control rather than merely being named after it.
+- **Auditor-role end-to-end** — the full report task performed with Auditor permissions
+  only, proving no hidden Administrator dependency.
+- **Mutation testing** on retention logic, **≥ 70%**.
+- **Evidence:** integrity checksum report (100% match), tamper matrix (3/3 detected),
+  interruption matrix, PDF-vs-SQL figure comparison.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Archive path traversal / zip-slip** — hostnames, stream names, and dates feed archive
+  filenames. Test `../`, absolute paths, UNC, and reserved names. On restore, assert
+  entries cannot escape the target directory.
+- **Malicious archive import** — a crafted archive with traversal entries, a decompression
+  bomb, and a mismatched hash. All three must be refused before any extraction begins.
+- **Tamper-evidence review** — confirm SHA-256 is computed over the complete archive
+  content, that the hash is stored where an attacker with file-system access cannot
+  trivially update it in step, and document that limitation honestly in the compliance
+  documentation.
+- **XSS in PDF and CSV** — the sixth and most-forgotten output surfaces. Assert log
+  payloads containing markup and formulas are neutralised in generated PDFs and exported
+  CSVs while remaining byte-identical in storage.
+- **Report scope enforcement** — an Auditor's report must not include out-of-scope data,
+  including through archived and restored data paths.
+- **Evidence:** traversal matrix, malicious-archive refusal log, PDF/CSV injection
+  results, scope enforcement on reports.
+
+## Definition of Done
+Standard DoD, plus the full lifecycle test and the tamper test both pass, and the
+Auditor completes the report task unaided.
+
+## Commit
+`feat: phase 10 — retention tiering, zstd archives, sha-256 verification, reports` → tag `v1.0.0-phase.10`
+
+============================================================
+
+# PHASE 11 — Extras & Security Hardening
+
+## Context
+The product is functionally complete for the common case. This phase adds the remaining
+intake protocols, the operability features, and the security work that must be done
+before anyone installs this on a production network.
+
+## Objective
+TLS and SNMP intake, Windows Event Log support, config portability, self-monitoring,
+and a completed security review.
+
+## Build
+1. **TLS syslog listener** (default 6514) — server certificate from the Windows
+   certificate store or a PFX path, configurable minimum TLS version (default 1.2),
+   optional mutual TLS with client certificate validation.
+2. **SNMP trap receiver** (default 162) — v1 and v2c, community string configuration,
+   MIB-free varbind capture, traps normalized into the canonical event schema with
+   `protocol = snmp`.
+3. **Windows Event Log intake endpoint** — accept forwarded Windows events and normalize
+   them into the same schema with `protocol = wineventlog`, mapping level to severity
+   and channel to facility. Windows has no native syslog; this closes that gap.
+3a. **Extended parser packs** — the seven listed for Phase 11 in `VENDOR_SUPPORT.md`:
+   Check Point Gaia (including CEF/LEEF output from `cp_log_export`), Sophos XG/XGS,
+   SonicWall SonicOS, pfSense/OPNsense, Aruba AOS-Switch and AOS-CX, Huawei VRP, and
+   VMware ESXi. Same rule as Phase 3: runtime-loaded files, 10 fixtures each, no
+   recompilation to add a vendor.
+4. **Configuration bundles** — export rules, streams, devices, groups, users (without
+   password hashes), dashboards, reports, and extractors as a signed JSON bundle. Parser
+   packs export as bundles too — this is how a vendor pack is shipped to a customer
+   between releases.
+   Import with a preview-and-merge step. This is the "content pack" pattern and it is
+   how you ship pre-built vendor packs to customers.
+5. **Self-monitoring page** — queue depth, spill queue size, ingest rate, drop counter,
+   database size, disk free, WAL checkpoint status, last archive job, per-listener status.
+6. **Self-alerts** — disk below threshold, non-zero drop counter, sustained queue depth,
+   listener down, archive verification failure.
+7. The application emits its own health events into a reserved internal stream, so the
+   collector is monitored the same way everything else is.
+8. **TOTP MFA** for Administrator accounts, with recovery codes.
+9. **Security review pass** — complete and commit `docs/SECURITY_REVIEW.md` covering:
+   input validation on every listener, SQL parameterization audit, XSS review of every
+   place a raw message is rendered, path traversal on file actions and archive paths,
+   script action allow-list, secret handling, TLS configuration, session management,
+   rate limiting on login, and dependency vulnerability scan output.
+
+## Do not build in this phase
+The installer or user documentation — Phase 12.
+
+## Tests to write first
+- TLS handshake test including a rejected client under mutual TLS.
+- SNMP trap test: send v1 and v2c traps, assert normalization.
+- Windows Event Log test: forward a sample event, assert severity and facility mapping.
+- Config bundle round trip: export from instance A, import to a clean instance B, assert
+  functional equivalence.
+- **XSS test**: ingest a message containing `<script>` and HTML entities, assert it
+  renders escaped in the grid, the context view, the export, and the PDF report.
+- Path traversal test on file-write actions and archive paths.
+- MFA test including recovery code use and reuse rejection.
+
+## Verification — run these and paste output
+```bash
+dotnet test
+dotnet list package --vulnerable --include-transitive
+```
+The vulnerability scan must be clean, or every finding must have a written justification
+in `docs/SECURITY_REVIEW.md`.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+- **Protocol conformance** — TLS 1.2 and 1.3 handshakes, rejected weak ciphers, expired
+  cert, wrong hostname, revoked cert, and mutual-TLS rejection of an unknown client.
+  SNMP v1 and v2c traps with malformed varbinds, oversized OIDs, and wrong community.
+- **Structured penetration checklist**, executed and documented in
+  `docs/SECURITY_REVIEW.md`: injection (SQL, command, LDAP, log), XSS (stored and
+  reflected — ingest `<script>` and confirm escaping in grid, context view, live tail,
+  CSV, JSON, **and PDF**), path traversal on every file and archive path, SSRF on the
+  webhook action, XXE on config bundle import, deserialization of untrusted bundles,
+  privilege escalation between roles, and rate-limit bypass on login.
+- **Dependency and supply chain** — `dotnet list package --vulnerable --include-transitive`
+  clean, plus a committed SBOM. Every accepted finding needs a written justification.
+- **Config bundle round trip** — export from A, import to clean B, assert functional
+  equivalence by running **the entire prior-phase test suite** against B.
+- **Full regression** — every test from Phases 0-10 green, plus the Phase 2 chaos suite
+  and the 24h soak re-run against the final feature set.
+- **Evidence:** completed `SECURITY_REVIEW.md`, TLS/SNMP conformance results, XSS matrix
+  across all six output surfaces, SBOM, vulnerability scan, full regression run.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+This phase's existing scope **is** the security phase; the additions below make it verifiable.
+
+- **XXE and deserialization on config bundle import** — external entity expansion,
+  billion-laughs, zip-slip, oversized bundles, malformed signatures, and a bundle signed
+  by an untrusted key. Import must be schema-validated and signature-verified **before**
+  any content is processed.
+- **TLS configuration scan** — testssl.sh or sslyze against both the UI and the TLS
+  syslog listener. Grade A, no TLS 1.0/1.1, no weak ciphers, no renegotiation flaws.
+  Verify mutual TLS rejects unknown and revoked client certificates.
+- **SNMP intake security** — community strings are secrets (DPAPI, never logged),
+  malformed varbinds and oversized OIDs are rejected without crashing, and the default
+  configuration is not `public`.
+- **Windows Event Log endpoint** — authenticated, rate-limited, and unable to be used to
+  forge events attributed to another host.
+- **Full DAST** — ZAP full scan across every page added since Phase 4.
+- **Threat model review #3** — final pass; every residual risk explicitly accepted with a
+  reason.
+- **ASVS L2 completion** — every control resolved. Gaps go in `SECURITY_REVIEW.md` with
+  justification.
+- **Evidence:** bundle-attack matrix, TLS scan grades, SNMP fuzz results, ZAP report,
+  completed ASVS checklist, updated threat model.
+
+## Definition of Done
+Standard DoD, plus `docs/SECURITY_REVIEW.md` is complete and every item is either fixed
+or explicitly accepted with a reason.
+
+## Commit
+`feat: phase 11 — tls, snmp, wineventlog, config bundles, self-monitoring, hardening` → tag `v1.0.0-phase.11`
+
+============================================================
+
+# PHASE 12 — Packaging & Release
+
+## Context
+Final phase. Everything works on a developer machine. This phase makes it installable by
+someone who has never seen the code, and proves it on a clean VM.
+
+## Objective
+A signed MSI, a first-run experience, complete documentation, and a passing end-to-end
+acceptance run.
+
+## Build
+1. **WiX MSI installer**:
+   - Installs the Windows Service and registers it for automatic start with delayed start
+   - Creates the data directory with correct ACLs (service account only)
+   - Adds firewall rules for the configured listener ports, and **removes them on uninstall**
+   - Generates a self-signed HTTPS certificate at install with a documented path to
+     replacing it with a real one
+   - Upgrade path that preserves the database and configuration
+   - Clean uninstall: no orphaned services, files, registry keys, firewall rules, or
+     certificates. Offer to retain or remove the data directory.
+2. **First-run wizard** — maximum 5 steps, unskippable, per `UX_STANDARDS.md` §2:
+   admin password → listener ports → data directory → retention preset (Small / Medium /
+   Large, each showing its projected disk usage inline) → optional vendor config bundle
+   import. Nothing else goes in the wizard.
+2a. **"Waiting for messages" landing page** shown immediately after the wizard. It
+   displays copy-ready device configuration commands with **this server's own IP and
+   port already substituted in**, taken verbatim from the configuration section of
+   `VENDOR_SUPPORT.md` — all 20+ platforms, in a searchable picker with the eight most
+   common pinned to the top. `<SYSLOG_IP>` and `<PORT>` are replaced at render time. It auto-advances to the Network Overview
+   dashboard the moment the first message arrives. This page is the product's first
+   impression and the single highest-leverage screen in the build — treat it as such.
+2b. **In-app help**: a searchable shortcut list (`?`), field-level one-sentence help
+   text throughout, and a Getting Started checklist on the dashboard that tracks
+   first device added / first rule created / first alert configured, and dismisses itself
+   when complete.
+3. **Version stamping**: assembly version, UI footer, and an About page showing version,
+   build date, and license state.
+3a. **Installer branding** from `branding/` per `BRANDING.md`: `app-icon.ico` on the MSI,
+    the service entry, and Add/Remove Programs; `installer-banner.bmp` and
+    `installer-dialog.bmp` in the WiX UI; publisher set to `vendorName`; support URL and
+    contact from `brand.json`. The wide logo appears on every first-run wizard step.
+    **Rebranding test**: replace `branding/logo.png` and `brand.json`, rebuild the MSI,
+    and confirm the installer, the service entry, the UI, and a generated PDF report all
+    show the new brand with zero source changes. This is the white-label acceptance test.
+4. **Documentation** in `docs/`:
+   - *Admin Guide* — install, upgrade, backup/restore, certificate replacement,
+     port configuration, service account, troubleshooting
+   - *User Guide* — search syntax reference, building rules and alerts, dashboards,
+     reports, plus a **Device Compatibility** chapter built from `VENDOR_SUPPORT.md`:
+     the three support tiers, the per-vendor configuration commands, how to author a new
+     parser pack with the pattern tester, and an honest statement of the
+     "not supported in v1" list (API-only cloud sources, NetFlow/sFlow/IPFIX, endpoint
+     agents). State the limits plainly rather than letting a customer discover them.
+   - *Sizing Guide* — messages/sec vs. CPU, RAM, and disk, with the retention maths and
+     worked examples for 50, 200, and 1,000 devices
+   - *Release Notes* for v1.0.0
+5. **Backup and restore procedure** for the database and configuration, tested and documented.
+
+## Do not build in this phase
+Any new feature. If something is missing, record it in PROGRESS.md as v1.1 scope.
+
+## Tests to write first
+- Installer test on a clean Windows Server VM: install → verify service running → verify
+  firewall rules present → uninstall → verify nothing left behind.
+- Upgrade test: install v1.0.0-phase.11 build, populate data, upgrade, assert data and
+  configuration survive.
+
+## Verification — the full acceptance run, on a clean VM
+Execute every v1 acceptance criterion from `BUILD_PLAN.md` and record the result:
+1. Clean VM → installer → live syslog from a real (or simulated) Cisco switch in under
+   10 minutes with no config-file editing
+2. All performance targets met, benchmark output committed
+3. Hard kill at 5,000 msg/sec → zero committed messages lost
+4. Every setting changeable from the UI; no second console, no config file
+5. Auditor role produces a 90-day PCI-DSS report including archived data, unaided
+6. Every unparseable message stored, searchable by raw text, in the Parse Failures stream
+7. Audit log is a complete ordered record of every config change made during the run
+8. Line coverage ≥ 80% on Ingestion, Rules, Reporting
+9. An untrained network admin installs, configures a device, and finds a specific
+   message — UI only, no documentation, no help
+10. Every primary task reachable in ≤ 5 clicks and completable keyboard-only
+11. Every screen passes the five-point UX gate in `UX_STANDARDS.md`
+
+```bash
+dotnet build -c Release
+dotnet test /p:CollectCoverage=true /p:Threshold=80 /p:ThresholdType=line
+dotnet run -c Release --project tests/VSoftSol.Syslog.Benchmarks -- --filter "*"
+```
+
+## UX gate — the real one
+The eleven acceptance criteria include a live usability test. Find a network or systems
+admin who has **never seen this product**, hand them the installer and nothing else, and
+observe. Do not help. Do not explain. Record every point where they hesitate, backtrack,
+or reach for documentation. Each hesitation is a defect: fix it or write it into the v1.1
+backlog with a justification for shipping without it.
+
+Ten minutes from installer to first message received, unaided, is the pass condition.
+
+## Validation & Evidence (per `TESTING_STANDARDS.md`)
+
+Final validation. Nothing here is self-assessed.
+
+- **Installation matrix** on clean VMs — Windows Server 2019, 2022, and 2025; fresh
+  install, upgrade from phase.11, repair, and uninstall. After each uninstall, assert no
+  orphaned service, files, registry keys, firewall rules, or certificates.
+- **Upgrade data safety** — install, ingest 1M events, configure rules and dashboards,
+  upgrade, assert every event, rule, dashboard, and user survives byte-identical.
+- **Full regression** — the entire suite from Phase 0 onward, plus the 24h soak and the
+  chaos suite, against the packaged build rather than a dev build.
+- **Real-device acceptance** — a physical or virtual Cisco switch, a FortiGate, and a
+  Linux host sending live traffic simultaneously for 1 hour. Assert correct parsing,
+  routing, alerting, and zero loss.
+- **Live usability test** — an untrained network admin, the installer, no help, observed.
+  Every hesitation recorded as a defect.
+- **Sizing validation** — run at 50, 200, and 1,000 simulated devices; record actual CPU,
+  RAM, and disk consumption and confirm the Sizing Guide numbers are measured, not estimated.
+- **Release sign-off** — all eleven acceptance criteria with committed evidence, the
+  §9 sign-off block with zero FAILs, and a written v1.1 backlog for anything deferred.
+- **Evidence:** `docs/evidence/phase-12/` containing the install matrix, upgrade
+  verification, regression run, real-device capture, usability observation notes, and
+  sizing measurements.
+
+## Security Validation (per `SECURITY_STANDARDS.md`)
+
+- **Full penetration test** per `SECURITY_STANDARDS.md` §7, executed against the
+  **packaged build on a clean VM**, not a dev build. Output:
+  `docs/security/PENTEST_REPORT.md` with finding, CVSS v3.1 score, reproduction steps,
+  and resolution.
+- **Installer security review** — data directory ACLs grant only the service account;
+  the service runs as a dedicated low-privilege account, not LocalSystem; firewall rules
+  are scoped to the configured ports and removed on uninstall; the generated certificate
+  has a sane key size and lifetime; no world-writable paths; no credentials in the MSI
+  or in installer logs.
+- **No-backdoor assertion** — an automated test proves the release build contains no
+  default credentials, no debug or diagnostic endpoint, no test-only authentication
+  bypass, and no hardcoded key. Run it against the shipping binary.
+- **Final security regression** — every security test from Phases 0-11 against the
+  packaged build.
+- **Hardening guide** in `docs/` — network placement, service account setup, certificate
+  replacement, TLS-only configuration, firewall rules, backup encryption, and what the
+  product does **not** protect against (UDP source spoofing, an attacker with file-system
+  access to archives). State the limits plainly.
+- **Release gate: zero open Critical or High findings.** Every Medium and Low is
+  documented with an operator-signed justification. This gate is not waivable.
+- **Evidence:** `docs/evidence/phase-12/security/` with the pentest report, installer
+  ACL audit, no-backdoor test output, and the final regression run.
+
+## Definition of Done
+All eleven acceptance criteria pass with recorded evidence in PROGRESS.md. Anything not
+met is either fixed or moved to a written v1.1 backlog — never silently dropped.
+
+## Commit
+`chore: release v1.0.0` → tag `v1.0.0`
+
+============================================================
+
