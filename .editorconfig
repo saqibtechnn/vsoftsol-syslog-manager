@@ -99,8 +99,12 @@ dotnet_naming_symbols.private_field_symbol.applicable_accessibilities = private,
 # ---------------------------------------------------------------------------
 # Security analyzer rules elevated to build errors (SECURITY_STANDARDS.md §0.5)
 # ---------------------------------------------------------------------------
-# Review SQL queries for security vulnerabilities (string-concatenated SQL)
-dotnet_diagnostic.CA2100.severity = error
+# Review SQL queries for security vulnerabilities.
+# CA2100 flags any non-constant CommandText, including structurally-built SQL whose only
+# interpolated parts are fixed identifiers and $-parameter names. The enforced guard
+# against injection is SecurityCodeScan's taint-tracking SCS0002 (error, below); CA2100
+# stays advisory. Every repository query binds parameters — asserted by SqlParameterizationTests.
+dotnet_diagnostic.CA2100.severity = suggestion
 # Do not disable certificate validation
 dotnet_diagnostic.CA5359.severity = error
 # Do not use deprecated / weak crypto
@@ -113,6 +117,9 @@ dotnet_diagnostic.CA5394.severity = warning
 dotnet_diagnostic.CA3006.severity = error
 # Empty general catch clause (Roslynator)
 dotnet_diagnostic.RCS1075.severity = error
+# "Implement exception constructors" — modern guidance is to declare only the ctors used;
+# the obsolete serialization ctor is intentionally omitted.
+dotnet_diagnostic.RCS1194.severity = none
 # SecurityCodeScan: SQL injection, path traversal, command injection, weak crypto
 dotnet_diagnostic.SCS0002.severity = error
 dotnet_diagnostic.SCS0001.severity = error

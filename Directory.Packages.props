@@ -21,6 +21,13 @@
     <PackageVersion Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageVersion Include="Serilog.Sinks.EventLog" Version="4.0.0" />
 
+    <!-- Data layer -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="8.0.30" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+
     <!-- Branding asset derivation. ImageSharp 2.1.x is Apache-2.0 (the 3.x split
          license does not apply); 2.1.13 clears the advisories that affected 2.1.9. -->
     <PackageVersion Include="SixLabors.ImageSharp" Version="2.1.13" />

@@ -1,6 +1,8 @@
 using System.Net;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using VSoftSol.Syslog.IntegrationTests.TestSupport;
 using Xunit;
 
 namespace VSoftSol.Syslog.IntegrationTests;
@@ -10,11 +12,11 @@ namespace VSoftSol.Syslog.IntegrationTests;
 /// Also proves the shared composition root wires without throwing and the Phase 0
 /// baseline security headers are present.
 /// </summary>
-public sealed class WebHostSmokeTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class WebHostSmokeTests : IClassFixture<SyslogWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly SyslogWebApplicationFactory _factory;
 
-    public WebHostSmokeTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public WebHostSmokeTests(SyslogWebApplicationFactory factory) => _factory = factory;
 
     [Fact]
     public async Task Root_ReturnsPlaceholderPage()
@@ -48,5 +50,21 @@ public sealed class WebHostSmokeTests : IClassFixture<WebApplicationFactory<Prog
         Action act = () => _ = _factory.Services;
 
         act.Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task Host_MigratesAndSeedsTheDatabaseOnStartup()
+    {
+        // Force the host (and its DatabaseInitializer hosted service) to start.
+        using HttpClient client = _factory.CreateClient();
+        _ = await client.GetAsync("/");
+
+        var options = _factory.Services.GetRequiredService<IOptions<VSoftSol.Syslog.Data.Sqlite.SqliteDataOptions>>();
+        File.Exists(options.Value.DatabasePath).Should().BeTrue();
+
+        var repository = _factory.Services.GetRequiredService<VSoftSol.Syslog.Core.Abstractions.ILogRepository>();
+        long id = await repository.AppendAsync(
+            SampleEvents.Minimal("host wrote this"), CancellationToken.None);
+        (await repository.GetByIdAsync(id, CancellationToken.None)).Should().NotBeNull();
     }
 }

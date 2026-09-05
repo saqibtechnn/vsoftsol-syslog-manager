@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using VSoftSol.Syslog.Data;
+using VSoftSol.Syslog.Data.Sqlite;
 
 namespace VSoftSol.Syslog.Service.Hosting;
 
@@ -21,9 +23,26 @@ public static class SyslogPlatformExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        // Seams (CLAUDE.md "Two seams only"). Implementations land in Phases 1 and 4;
-        // registering them here now keeps the composition root the single source of truth.
-        // services.AddSingleton<ILogRepository, SqliteLogRepository>();
+        // Migrations + seed run before any other hosted service (registered first so it
+        // starts first).
+        services.AddHostedService<DatabaseInitializer>();
+
+        // Data layer (Phase 1). The database path is not configurable on its own — it
+        // lives under the collector data directory unless an operator overrides it in the
+        // "Data" section. AddSyslogData also registers the SearchIndexMaintainer hosted
+        // service, which starts after DatabaseInitializer.
+        services.AddSyslogData();
+        services.AddOptions<SqliteDataOptions>()
+            .Bind(configuration.GetSection(SqliteDataOptions.SectionName))
+            .PostConfigure<IOptions<CollectorOptions>>((data, collector) =>
+            {
+                if (string.IsNullOrWhiteSpace(data.DatabasePath))
+                {
+                    data.DatabasePath = Path.Combine(collector.Value.DataDirectory, "syslog.db");
+                }
+            });
+
+        // IAuthenticationProvider implementation lands in Phase 4.
         // services.AddScoped<IAuthenticationProvider, LocalAuthenticationProvider>();
 
         return services;

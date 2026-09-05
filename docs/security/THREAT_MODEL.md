@@ -74,10 +74,13 @@ Phase 12 hardening guide.
 
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
-| T | SQL injection via any field that reaches a query | Parameterized queries only, enforced by analyzer `CA2100`/`SCS0002` as build errors (Phase 0) | 1 | implemented (gate) |
-| T | Direct tampering with the DB file / audit rows | Data-directory ACL to the service account only (ADR 0006); audit table has no UPDATE/DELETE path and is tamper-evident (Phase 4) | 4, 6, 12 | planned |
+| T | SQL injection via any field that reaches a query | Parameterized queries only (`SqliteLogRepository` binds every value); `SCS0002` taint analysis is the enforced build-error guard, `CA2100` advisory; CWE-89 sweep test | 1 | **implemented** |
+| T | Direct tampering with the DB file / audit rows | `audit_log` `UPDATE`/`DELETE` blocked by `BEFORE` triggers (`001_initial.sql`) — append-only *in fact*; data-directory ACL to the service account by the installer (ADR 0006) | 1 (triggers), 4, 6, 12 | **partial** — triggers in place; ACL Phase 12 |
+| T | Corrupt store after a crash mid-write | WAL + `synchronous=NORMAL`; `kill -9` ×20 leaves `integrity_check = ok` and every committed row intact | 1 | **implemented** (`WalCrashConsistencyTests`) |
 | I | Someone with file access reads archived data | Documented limitation; archive-at-rest encryption option (Phase 10/12) | 10, 12 | planned |
-| D | Disk full halts writes | Spill queue + retention/tiering + disk-space alerts and self-monitoring | 2, 10, 11 | planned |
+| I | Message payload leaking into internal logs | Repository logs no payloads; error paths carry no body text — asserted | 1 | **implemented** |
+| D | Disk full halts writes | Spill queue + retention/tiering + disk-space alerts and self-monitoring; `wal_autocheckpoint` bounds the WAL | 2, 10, 11 | partial (WAL bound in Phase 1) |
+| E | Fail-open scope filter returns all rows | Repository query filters are `IN`/`EXISTS` over the scope set — an unresolvable scope matches nothing | 1, 4 | **implemented** (Phase 1 primitive); full scope layer Phase 4 |
 | R | — | WAL + backup procedure (Phase 12) | 12 | planned |
 
 ---

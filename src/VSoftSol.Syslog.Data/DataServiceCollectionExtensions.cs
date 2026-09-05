@@ -1,0 +1,40 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using VSoftSol.Syslog.Core.Abstractions;
+using VSoftSol.Syslog.Data.Migrations;
+using VSoftSol.Syslog.Data.Repositories;
+using VSoftSol.Syslog.Data.Search;
+using VSoftSol.Syslog.Data.Seed;
+using VSoftSol.Syslog.Data.Sqlite;
+
+namespace VSoftSol.Syslog.Data;
+
+/// <summary>DI registration for the SQLite data layer.</summary>
+public static class DataServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers the connection factory, migration runner, seeder, and the
+    /// <see cref="ILogRepository"/> implementation. The caller is responsible for
+    /// configuring <see cref="SqliteDataOptions"/> (in particular
+    /// <see cref="SqliteDataOptions.DatabasePath"/>) and for running
+    /// <see cref="MigrationRunner"/> + <see cref="DatabaseSeeder"/> at startup.
+    /// </summary>
+    public static IServiceCollection AddSyslogData(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddOptions<SqliteDataOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.TryAddSingleton<SqliteConnectionFactory>();
+        services.TryAddSingleton<MigrationRunner>();
+        services.TryAddSingleton<DatabaseSeeder>();
+        services.TryAddSingleton<SqliteLogRepository>();
+        services.TryAddSingleton<ILogRepository>(sp => sp.GetRequiredService<SqliteLogRepository>());
+
+        services.AddHostedService<SearchIndexMaintainer>();
+
+        return services;
+    }
+}

@@ -33,8 +33,9 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V4.2 | No IDOR; object-level checks | P | Scope-bypass suite (by id, query, sort, export) — Phases 5, 6 |
 | V4.3 | Admin interfaces need extra authz | P | Phase 4 |
 | **V5** | **Validation, sanitisation, encoding** | | |
-| V5.1 | Input validation with allow-lists | P | Config validation with `what/how-to-fix` messages — every UI phase |
-| V5.2 | Untrusted data sanitised for the sink, not on ingest | I (rule) / P | Encode-at-render principle set now; surfaces built Phases 5/9/10; raw bytes always kept (Constraint 4) |
+| V5.1 | Input validation with allow-lists | I / P | Schema CHECK constraints (facility/severity/protocol/parse_status) reject invalid rows at the store (Phase 1); config validation with `what/how-to-fix` messages — every UI phase |
+| V5.2 | Untrusted data sanitised for the sink, not on ingest | I | Repository binds every parameter (SQL sink); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4); render sinks Phases 5/9/10 |
+| V5.3.4 | SQL injection prevented by parameterisation | I | `SqliteLogRepository` — CWE-89 sweep + `ToFtsPhrase` quote-doubling; `SCS0002` build gate (Phase 1) |
 | V5.3 | Output encoding per context (HTML, attr, JS, CSV, PDF) | P | Six output surfaces — Phases 5, 9, 10; CSV formula-injection guard — Phase 5 |
 | V5.5 | Safe deserialization; no arbitrary types | P | Config-bundle import — Phase 11 |
 | **V6** | **Stored cryptography** | | |
@@ -42,7 +43,8 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V6.4 | Key management / rotation documented | P | Phase 12 hardening guide |
 | V6.x | No weak algorithms | I (gate) | `CA5350/5351/5358/5359` are build errors — `.editorconfig` |
 | **V7** | **Error handling and logging** | | |
-| V7.1 | No sensitive data in logs; log security events | I (principle) / P | "Never log payloads at Debug"; audit events list — Phase 4 |
+| V7.1 | No sensitive data in logs; log security events | I / P | Repository logs no message payloads — asserted (Phase 1); audit event list + writes — Phase 4 |
+| V7.3.1 | Logs protected from tampering | I / P | `audit_log` `UPDATE`/`DELETE` blocked by `BEFORE` triggers (Phase 1); write path Phase 4 |
 | V7.2 | Errors give a correlation id, not a stack trace, to users | I | `Error.razor` shows a correlation id; `DetailedErrors` only in Development |
 | V7.3 | Logs protected from tampering | P | Audit log append-only + tamper-evident — Phase 4 |
 | V7.4 | Time source is UTC and consistent | I | All timestamps UTC; convert at UI edge only |

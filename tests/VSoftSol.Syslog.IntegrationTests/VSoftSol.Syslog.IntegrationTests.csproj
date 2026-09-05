@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <NoWarn>$(NoWarn);CA1707;CA2007</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CA2007;CA1861;CA5394;SCS0005</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,13 +12,20 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="FsCheck" />
+    <PackageReference Include="FsCheck.Xunit" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="coverlet.collector" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Data\VSoftSol.Syslog.Data.csproj" />
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Web\VSoftSol.Syslog.Web.csproj" />
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj" />
+    <ProjectReference Include="..\..\tests\VSoftSol.Syslog.CrashProbe\VSoftSol.Syslog.CrashProbe.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

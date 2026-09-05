@@ -1,0 +1,19 @@
+Phase 1 coverage — dotnet test tests/VSoftSol.Syslog.IntegrationTests --collect "XPlat Code Coverage"
+(the Data layer is exercised almost entirely from integration tests, against a real SQLite file)
+
+overall:  line-rate 0.853  branch-rate 0.7835   (853/1000 lines, 304/388 branches)
+
+per package:
+  VSoftSol.Syslog.Data          0.906   <-- Phase 1 deliverable
+  VSoftSol.Syslog.Web           0.811
+  VSoftSol.Syslog.Service       0.657   (DatabaseInitializer + composition root exercised via WebHostSmokeTests)
+  VSoftSol.Syslog.Core          0.526   (schema records / enums are largely declarative)
+  VSoftSol.Syslog.Ingestion     0.000   (shell — Phase 2)
+  VSoftSol.Syslog.Rules         0.000   (shell — Phase 7)
+  VSoftSol.Syslog.Reporting     0.000   (shell — Phase 10)
+
+TESTING_STANDARDS.md §3 gate (>= 80% line on Ingestion / Rules / Reporting): still not
+applicable — those three projects are Phase-0 shells. It becomes enforceable as each
+gains logic (Phase 2 / 7 / 10). Data, this phase's real target, is at 90.6%.
+Uncovered Data lines: error/rollback branches in the retention and sync paths, and the
+`RebuildSearchIndexAsync` maintenance method (covered indirectly).
