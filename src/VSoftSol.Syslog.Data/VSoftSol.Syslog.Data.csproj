@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SQLite, migrations, repository implementations. Shell only in Phase 0. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>VSoftSol.Syslog.Data</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Data</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

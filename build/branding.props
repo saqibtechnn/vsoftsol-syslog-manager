@@ -1,0 +1,12 @@
+<Project>
+
+  <!-- Branding pipeline locations (BRANDING.md). Imported early by Directory.Build.props;
+       $(Configuration) is not resolved yet here, so paths that need it live in
+       branding.targets. -->
+  <PropertyGroup>
+    <RepoRoot>$(MSBuildThisFileDirectory)..\</RepoRoot>
+    <BrandingGenProject>$(RepoRoot)build\VSoftSol.Syslog.BrandingGen\VSoftSol.Syslog.BrandingGen.csproj</BrandingGenProject>
+    <BrandingOwnerProject>VSoftSol.Syslog.Core</BrandingOwnerProject>
+  </PropertyGroup>
+
+</Project>

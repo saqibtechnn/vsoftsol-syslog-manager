@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Domain models, enums, and the two seam interfaces. References nothing.
+       No I/O: no System.Data, no System.Net (enforced by the architecture test). -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>VSoftSol.Syslog.Core</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BrandingInfo.g.cs is emitted during the build by the branding pipeline and
+         added to the compilation by build/branding.targets. Keep the default glob
+         from claiming it too (that would be a duplicate Compile item). -->
+    <Compile Remove="Generated\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Build-order only: forces the branding generator to build before Core so
+         BrandingInfo.g.cs can be produced. ReferenceOutputAssembly=false means NO IL
+         dependency is created (the architecture fitness test stays green); this is not
+         a code dependency and Core references nothing at runtime. -->
+    <ProjectReference Include="..\..\build\VSoftSol.Syslog.BrandingGen\VSoftSol.Syslog.BrandingGen.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Not a test project: no test SDK is referenced, so `dotnet test` skips it.
+         Run it explicitly via `dotnet run -c Release` per CLAUDE.md commands. -->
+    <IsTestProject>false</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707;CA1822</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

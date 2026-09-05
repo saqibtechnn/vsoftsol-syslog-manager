@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "dotnet-stryker": {
+      "version": "4.16.0",
+      "commands": ["dotnet-stryker"],
+      "rollForward": false
+    },
+    "cyclonedx": {
+      "version": "6.2.0",
+      "commands": ["CycloneDX"],
+      "rollForward": false
+    }
+  }
+}

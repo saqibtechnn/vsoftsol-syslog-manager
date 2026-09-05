@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  build-test:
+    name: Build, test, gates
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Gitleaks needs full history
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore VSoftSol.Syslog.sln
+
+      - name: Build (warnings are errors)
+        run: dotnet build VSoftSol.Syslog.sln -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Format gate
+        run: dotnet format VSoftSol.Syslog.sln --verify-no-changes --no-restore
+
+      - name: Test (all categories except Soak)
+        run: >
+          dotnet test VSoftSol.Syslog.sln -c Release --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory artifacts/test
+          --filter "Category!=Soak"
+
+      - name: Coverage threshold (Ingestion, Rules, Reporting — line >= 80%)
+        # Enforced from the phase that first gives these projects executable logic.
+        # See docs/evidence/phase-00/known-issues.md.
+        run: echo "Coverage threshold enforced from Phase 1 onward."
+
+      - name: SCA — vulnerable packages (fails on any)
+        shell: pwsh
+        run: |
+          $out = dotnet list VSoftSol.Syslog.sln package --vulnerable --include-transitive
+          $out
+          if ($out | Select-String -Pattern '>\s+\S+\s+\S+\s+(Critical|High|Moderate|Low)') {
+            Write-Error "Vulnerable packages found."
+            exit 1
+          }
+
+      - name: SCA — deprecated packages
+        run: dotnet list VSoftSol.Syslog.sln package --deprecated
+
+      - name: Architecture + branding literal gates
+        run: dotnet test tests/VSoftSol.Syslog.UnitTests -c Release --no-build --filter "FullyQualifiedName~Architecture|FullyQualifiedName~Branding"
+
+      - name: Reproducible-build check
+        shell: pwsh
+        run: |
+          $a = 'src/VSoftSol.Syslog.Core/bin/Release/net8.0/VSoftSol.Syslog.Core.dll'
+          $h1 = (Get-FileHash $a).Hash
+          dotnet clean VSoftSol.Syslog.sln -c Release -v q
+          dotnet build VSoftSol.Syslog.sln -c Release --no-restore -p:ContinuousIntegrationBuild=true | Out-Null
+          $h2 = (Get-FileHash $a).Hash
+          if ($h1 -ne $h2) { Write-Error "Build is not reproducible: $h1 != $h2"; exit 1 }
+          Write-Host "Reproducible: $h1"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/test
+
+  sast:
+    name: SAST (CodeQL)
+    runs-on: windows-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          queries: security-and-quality
+      - run: dotnet build VSoftSol.Syslog.sln -c Release
+      - uses: github/codeql-action/analyze@v3
+
+  secrets:
+    name: Secrets scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet tool install --global CycloneDX
+      - run: dotnet CycloneDX VSoftSol.Syslog.sln -o artifacts/sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: artifacts/sbom

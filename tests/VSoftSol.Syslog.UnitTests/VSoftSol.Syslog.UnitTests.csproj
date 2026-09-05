@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Test method names are the specification (Method_Scenario_ExpectedResult) and
+         intentionally break naming rules; do not fail the build on that. -->
+    <NoWarn>$(NoWarn);CA1707;CA1861;CA2007;CA5394</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="NetArchTest.Rules" />
+    <PackageReference Include="FsCheck" />
+    <PackageReference Include="FsCheck.Xunit" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Data\VSoftSol.Syslog.Data.csproj" />
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Ingestion\VSoftSol.Syslog.Ingestion.csproj" />
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Rules\VSoftSol.Syslog.Rules.csproj" />
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Reporting\VSoftSol.Syslog.Reporting.csproj" />
+    <ProjectReference Include="..\..\build\VSoftSol.Syslog.BrandingGen\VSoftSol.Syslog.BrandingGen.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+DELIBERATE-FAILURE PROOFS — Phase 0 gates go RED on violation. 2026-09-05T18:51:40.6588965+03:00
+
+### 1+4. Build with (a) outward System.Net ref in Core and (b) CS0219 warning-as-error
+E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Service\Hosting\CollectorHostedService.cs(25,13): error CS0219: The variable 'unusedWarningDemo' is assigned but its value is never used [E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj]
+Build FAILED.
+E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Service\Hosting\CollectorHostedService.cs(25,13): error CS0219: The variable 'unusedWarningDemo' is assigned but its value is never used [E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj]
+    1 Error(s)
+
+
+### 4. warning-as-error (CS0219 unused variable in Service) -> build FAILS  [captured above]
+
+### 1/2/3. Core outward System.Net ref + hardcoded 'Vision Software Solutions' in Home.razor + broken smoke test
+Passed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 846 ms - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+[xUnit.net 00:00:02.03]     VSoftSol.Syslog.UnitTests.Architecture.CoreArchitectureTests.Core_HasNoDependencyOn_SystemDataOrSystemNet [FAIL]
+Failed VSoftSol.Syslog.UnitTests.Architecture.CoreArchitectureTests.Core_HasNoDependencyOn_SystemDataOrSystemNet [443 ms]
+Expected boolean to be True because Core does no I/O. Offenders: VSoftSol.Syslog.Core.Events.<SyslogPriority>F4B09460F7457AF0313F99DF53724B1A02053C1AB3A06F05FE14BBDFAF9B6D5BA__OutwardRefDemo, but found False.
+[xUnit.net 00:00:03.86]     VSoftSol.Syslog.UnitTests.Branding.BrandingLiteralTests.ProductSource_ContainsNoHardcodedBrandStrings_ExceptGeneratedBrandingInfo [FAIL]
+Failed VSoftSol.Syslog.UnitTests.Branding.BrandingLiteralTests.ProductSource_ContainsNoHardcodedBrandStrings_ExceptGeneratedBrandingInfo [30 ms]
+Expected collection to be empty because brand values must be read from BrandingInfo / CSS custom properties, never hardcoded, but found at least one item {"VSoftSol.Syslog.Web\Components\Pages\Home.razor :: "Vision Software Solutions""}.
+[xUnit.net 00:00:03.89]     VSoftSol.Syslog.UnitTests.SmokeTests.Harness_Runs_True [FAIL]
+Failed VSoftSol.Syslog.UnitTests.SmokeTests.Harness_Runs_True [1 ms]
+Expected boolean to be True, but found False.
+Failed!  - Failed:     3, Passed:    25, Skipped:     0, Total:    28, Duration: 3 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+

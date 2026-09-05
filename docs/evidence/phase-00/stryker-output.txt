@@ -1,0 +1,48 @@
+﻿
+   _____ _              _               _   _ ______ _______  
+  / ____| |            | |             | \ | |  ____|__   __| 
+ | (___ | |_ _ __ _   _| | _____ _ __  |  \| | |__     | |    
+  \___ \| __| '__| | | | |/ / _ \ '__| | . ` |  __|    | |    
+  ____) | |_| |  | |_| |   <  __/ |    | |\  | |____   | |    
+ |_____/ \__|_|   \__, |_|\_\___|_| (_)|_| \_|______|  |_|    
+                   __/ |                                      
+                  |___/                                       
+
+
+Version: 4.16.0
+
+[19:11:11 INF] Analysis starting.
+[19:11:11 INF] Stryker will mutate solution VSoftSol.Syslog.
+[19:11:11 INF] Using configuration/platform 'Debug|Any CPU'.
+[19:11:11 INF] Identifying projects to mutate in E:\Claoud Projects\vSoftsol Syslog Manager\VSoftSol.Syslog.sln. This can take a while.
+[19:11:55 INF] Found project E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj to mutate.
+[19:11:56 INF] Analysis complete.
+[19:11:56 INF] Building solution VSoftSol.Syslog.sln.
+[19:11:56 INF] Building project VSoftSol.Syslog.sln using dotnet build VSoftSol.Syslog.sln -c Debug --property:Platform="Any CPU" (directory E:\Claoud Projects\vSoftsol Syslog Manager.)
+[19:12:20 ERR] TestDiscoverer: Test discovery has been aborted!
+[19:12:20 WRN] Project 'E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IntegrationTests\VSoftSol.Syslog.IntegrationTests.csproj' did not report any test. This may be because the test adapter package, xunit.runner.visualstudio, failed to deploy or run. Check if any dependency is missing or there is a version conflict, check the testdiscovery logs or explore with VsTest.console.
+[19:12:22 ERR] TestDiscoverer: Test discovery has been aborted!
+[19:12:22 WRN] Project 'E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\VSoftSol.Syslog.UnitTests.csproj' did not report any test. This may be because the test adapter package, xunit.runner.visualstudio, failed to deploy or run. Check if any dependency is missing or there is a version conflict, check the testdiscovery logs or explore with VsTest.console.
+[19:12:22 INF] Number of tests found: 0 for project E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj. Initial test run started.
+[19:12:22 WRN] Runner 0: Test assemblies do not contain any test, skipping.
+[19:12:22 INF] Time Elapsed 00:01:11.1189115
+Stryker.NET failed to mutate your project. For more information see the logs 
+below:
+
+
+No test result reported. Make sure your test project contains test and is 
+compatible with VsTest.
+Project 'E:\Claoud Projects\vSoftsol Syslog 
+Manager\tests\VSoftSol.Syslog.IntegrationTests\VSoftSol.Syslog.IntegrationTests.
+csproj' did not report any test. This may be because the test adapter package, 
+xunit.runner.visualstudio, failed to deploy or run. Check if any dependency is 
+missing or there is a version conflict, check the testdiscovery logs or explore 
+with VsTest.console.
+Project 'E:\Claoud Projects\vSoftsol Syslog 
+Manager\tests\VSoftSol.Syslog.UnitTests\VSoftSol.Syslog.UnitTests.csproj' did 
+not report any test. This may be because the test adapter package, 
+xunit.runner.visualstudio, failed to deploy or run. Check if any dependency is 
+missing or there is a version conflict, check the testdiscovery logs or explore 
+with VsTest.console.
+
+

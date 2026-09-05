@@ -1,0 +1,131 @@
+# THREAT_MODEL.md — VSoftSol Syslog Manager
+
+Phase 0 deliverable (SECURITY_STANDARDS.md §3). STRIDE per trust boundary. Reviewed and
+updated at Phases 4, 7, and 11.
+
+**Method:** STRIDE = Spoofing, Tampering, Repudiation, Information disclosure, Denial of
+service, Elevation of privilege.
+
+**Status legend:** `planned` (design decided, not yet built) · `partial` · `implemented`
+· `accepted` (residual risk accepted, see SECURITY_REVIEW.md).
+
+---
+
+## System overview
+
+Single Windows host. One service process hosts the syslog collector (UDP/TCP/TLS
+listeners → bounded channel → disk spill queue → SQLite) and a Blazor Server UI over
+HTTPS bound to localhost or a named LAN interface. Outbound: SMTP, HTTP webhooks, syslog
+forward, ODBC, and local script execution as rule actions (Phase 7). Not internet-facing.
+
+## Trust boundaries
+
+| # | Boundary | Trust of the far side |
+|---|---|---|
+| B1 | Network → listener | Unauthenticated, hostile, spoofable (UDP) |
+| B2 | Browser → web UI | Authenticated, semi-trusted (privileged admin) |
+| B3 | Application → SQLite file | Trusted (same host, ACL'd directory) |
+| B4 | Application → outbound actions (SMTP/webhook/script/syslog/ODBC) | Egress to attacker-influenceable targets |
+| B5 | Operator → installer & config-bundle import | Privileged operator, but the *files* may be untrusted |
+
+---
+
+## B1 — Network → listener
+
+**Assets:** ingestion availability; integrity of the stored record; the raw bytes.
+**Entry points:** UDP 514 (+configurable), TCP 514 (+configurable), TLS listener (Phase 11).
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| S | Forge messages from a spoofed source IP; flood the device-discovery queue | Store `source_ip` as observed and flag it as unverified; discovery is a review queue, never auto-trust; per-source rate limiting; optional allow-list of source subnets; TLS listener gives authenticated transport | 2, 6, 11 | planned |
+| T | CRLF / embedded-newline injection to fabricate or split log entries, forge a hostname | Parse framing per RFC; never split on raw newlines post-frame; store `raw_message` verbatim and render with encoding; record a `framing_anomaly` field | 3 | planned |
+| R | Attacker denies having sent a message | `received_utc` + `source_ip` + `listener_id` + raw bytes retained; no dedup that discards origin | 2, 3 | planned |
+| I | — (listener receives, does not disclose) | n/a | | |
+| D | UDP flood fills disk / exhausts the queue / OOMs the process | Bounded `Channel`; disk spill queue with a hard size cap and fail-closed drop-to-disk-full policy that still never loses an *accepted* message; per-source rate limiter; configurable max message size; back-pressure metrics surfaced in the UI | 2 | planned |
+| D | ReDoS via user-authored extractor/stream/rule regex stalling the ingest path | Compile user regex with a timeout; reject catastrophic patterns at save time with a test button; run extraction off the accept path | 3, 6 | planned |
+| E | Parser memory-safety / RCE from crafted input | Managed code, no unsafe parsing; fuzz corpus (CWE Top 25) in CI from Phase 3; least-privilege service account (ADR 0006) bounds impact | 3 | planned |
+
+**Residual risk:** UDP source spoofing cannot be eliminated for plain UDP syslog; the
+product documents this and offers TLS + source allow-lists. Accepted, stated in the
+Phase 12 hardening guide.
+
+---
+
+## B2 — Browser → web UI
+
+**Assets:** admin session; configuration; the audit log; scoped log visibility.
+**Entry points:** HTTPS endpoints, SignalR circuit, auth cookie, anti-forgery token.
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| S | Credential stuffing / brute force; session fixation; username enumeration | Argon2id hashing; account lockout; constant-time path for unknown-user vs bad-password (`AuthenticationResult` hides the distinction from callers); regenerate session on login; generic error text | 4 | planned |
+| T | CSRF; parameter/verb tampering to reach other data | Anti-forgery on all state-changing requests; policy-based authorization; single scope-filter chokepoint for every query | 4, 5 | planned |
+| R | Admin denies making a config change | Append-only audit log with actor, timestamp, source IP, and before/after JSON diff; no update/delete path in the repository | 4 | planned |
+| I | Stored XSS from a log payload rendered to an admin (grid, context view, live tail, export, PDF); secrets leaking into logs or audit diffs | Encode at render on every surface, never sanitise on ingest; CSP without `unsafe-inline` (Phase 4; Phase 0 ships a baseline CSP with `unsafe-inline` on `style-src` only, tracked); DPAPI-encrypted secrets never logged or diffed | 4, 5, 9, 10 | partial (baseline headers in Phase 0) |
+| I | CSV/formula injection when an exported CSV is opened in Excel | Prefix `= + - @` cells per OWASP; documented | 5 | planned |
+| D | A malformed query or huge result set blocks the UI | Query timeout; virtualized grid; skeleton/partial results; background execution for > 5 s | 5 | planned |
+| E | Vertical escalation between roles; horizontal IDOR across streams/device groups | Exhaustive authorization-matrix test generated from route discovery — a new route without a policy fails the build; scope filter denies by default (fail closed) | 4, 5, 6 | planned |
+
+---
+
+## B3 — Application → SQLite file
+
+**Assets:** the event store; the audit log; FTS index.
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| T | SQL injection via any field that reaches a query | Parameterized queries only, enforced by analyzer `CA2100`/`SCS0002` as build errors (Phase 0) | 1 | implemented (gate) |
+| T | Direct tampering with the DB file / audit rows | Data-directory ACL to the service account only (ADR 0006); audit table has no UPDATE/DELETE path and is tamper-evident (Phase 4) | 4, 6, 12 | planned |
+| I | Someone with file access reads archived data | Documented limitation; archive-at-rest encryption option (Phase 10/12) | 10, 12 | planned |
+| D | Disk full halts writes | Spill queue + retention/tiering + disk-space alerts and self-monitoring | 2, 10, 11 | planned |
+| R | — | WAL + backup procedure (Phase 12) | 12 | planned |
+
+---
+
+## B4 — Application → outbound actions
+
+**Assets:** internal network reachability; the service account; target systems.
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| S | Spoof a notification's origin | Signed/authenticated SMTP and webhook config; branding footer from `BrandingInfo` | 7 | planned |
+| T | Path traversal via hostname/app-name reaching a file-write action or archive name | Allow-list of destination directories; sanitise path components to a safe charset; never interpolate raw fields into paths | 7, 10 | planned |
+| I | SSRF via webhook action hitting cloud metadata / internal ranges | Scheme allow-list (https only by default); block link-local, loopback, and private ranges unless explicitly permitted; no redirects to disallowed hosts; DNS-rebinding guard | 7 | planned |
+| D | A rule action fan-out (thousands of matches) hammers a target or the host | Per-rule rate limits and a global action budget; actions run off the accept path | 7 | planned |
+| E | Command injection via script action with attacker-controlled fields | Allow-list of script paths; pass fields as arguments/stdin, never build a shell string; run as the low-privilege account; `CA3006`/`SCS0001` as build errors (Phase 0) | 7 | implemented (gate) |
+
+---
+
+## B5 — Operator → installer & config-bundle import
+
+**Assets:** host integrity; configuration; secrets.
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| T | Tampered installer | Signed MSI; documented hash | 12 | planned |
+| I | Secrets in installer logs or the MSI | No credentials in the MSI or install logs; asserted by test | 12 | planned |
+| D / E | Malicious config bundle: XXE, zip-slip, deserialization, oversized/malformed | Safe XML settings (no DTD/external entities); path-checked extraction; size limits; schema validation; no arbitrary type deserialization | 11 | planned |
+| E | Installer creates world-writable paths or an over-privileged account | Installer security review; ACL audit on a clean VM (Phase 12); dedicated low-privilege account (ADR 0006) | 12 | planned |
+
+---
+
+## Phase 0 mitigations already in force
+
+- Parameterized-SQL, `Process.Start`, weak-crypto, disabled-cert-validation, and
+  empty-catch analyzer rules are **build errors** (`.editorconfig`, verified by the
+  deliberate-failure run).
+- HTTPS-only Blazor host bound to localhost by default; baseline response security
+  headers (CSP with `frame-ancestors 'none'`, `X-Content-Type-Options`,
+  `Referrer-Policy`, `X-Frame-Options`) — asserted by an integration test.
+- `Core` does no I/O (no `System.Net`, no `System.Data`) — architecture fitness test.
+- SCA clean (no High/Critical), dependencies centrally pinned, no floating ranges.
+- Deterministic/reproducible builds.
+
+## Review schedule
+
+| When | Focus |
+|---|---|
+| Phase 4 | Re-draw B2 now that the UI, RBAC, sessions, and audit log exist |
+| Phase 7 | Re-draw B4 now that rule actions (SSRF, command injection, path traversal) exist |
+| Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import |
+| Phase 12 | Full pre-release pen test (SECURITY_STANDARDS.md §7) |

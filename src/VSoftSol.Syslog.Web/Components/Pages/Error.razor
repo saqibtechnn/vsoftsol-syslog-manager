@@ -1,0 +1,25 @@
+@page "/Error"
+@using Microsoft.AspNetCore.Components
+
+<PageTitle>Error — @BrandingInfo.ProductName</PageTitle>
+
+<section class="placeholder">
+    <h1>Something went wrong</h1>
+    <p>An unexpected error occurred while processing your request.</p>
+    @if (ShowRequestId)
+    {
+        <p class="muted">Correlation ID: <code>@RequestId</code></p>
+    }
+</section>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = System.Diagnostics.Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

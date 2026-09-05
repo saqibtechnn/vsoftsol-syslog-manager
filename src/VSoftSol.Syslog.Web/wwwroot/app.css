@@ -1,0 +1,67 @@
+/* Brand colours come from branding/brand.css (generated from brand.json), which is
+   linked before this file. The var() fallbacks below are neutral greys, not brand
+   colours, so a missing brand.css degrades gracefully without hardcoding a brand value. */
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: #1b1b1f;
+    background: #f6f7f9;
+}
+
+.app-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-shell main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.placeholder {
+    max-width: 40rem;
+    background: #fff;
+    border-top: 4px solid var(--brand-primary, #444);
+    border-radius: 6px;
+    padding: 2rem 2.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.placeholder h1 {
+    color: var(--brand-primary, #1b1b1f);
+    margin-top: 0;
+}
+
+.placeholder .muted {
+    color: #5b5b66;
+    font-size: 0.9rem;
+}
+
+.placeholder a {
+    color: var(--brand-accent, #0b6bcb);
+}
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.75rem 1.25rem;
+    background: #ffe9e9;
+    border-top: 1px solid #f5c2c2;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        float: right;
+    }

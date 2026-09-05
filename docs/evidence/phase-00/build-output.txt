@@ -1,0 +1,24 @@
+# Phase 0 — dotnet build -c Release (warnings-as-errors, analyzers on)
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  VSoftSol.Syslog.BrandingGen -> E:\Claoud Projects\vSoftsol Syslog Manager\build\VSoftSol.Syslog.BrandingGen\bin\Release\net8.0\VSoftSol.Syslog.BrandingGen.dll
+  branding: generated E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Core\Generated\BrandingInfo.g.cs
+  VSoftSol.Syslog.Core -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Core\bin\Release\net8.0\VSoftSol.Syslog.Core.dll
+  VSoftSol.Syslog.Benchmarks -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.Benchmarks\bin\Release\net8.0\VSoftSol.Syslog.Benchmarks.dll
+  VSoftSol.Syslog.Reporting -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Reporting\bin\Release\net8.0\VSoftSol.Syslog.Reporting.dll
+  VSoftSol.Syslog.Rules -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Rules\bin\Release\net8.0\VSoftSol.Syslog.Rules.dll
+  VSoftSol.Syslog.Ingestion -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Ingestion\bin\Release\net8.0\VSoftSol.Syslog.Ingestion.dll
+  VSoftSol.Syslog.Data -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Data\bin\Release\net8.0\VSoftSol.Syslog.Data.dll
+  VSoftSol.Syslog.UnitTests -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\bin\Release\net8.0\VSoftSol.Syslog.UnitTests.dll
+  VSoftSol.Syslog.Service -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Service\bin\Release\net8.0\VSoftSol.Syslog.Service.dll
+  VSoftSol.Syslog.Web -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Web\bin\Release\net8.0\VSoftSol.Syslog.Web.dll
+  VSoftSol.Syslog.IntegrationTests -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IntegrationTests\bin\Release\net8.0\VSoftSol.Syslog.IntegrationTests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:16.86
+
+# dotnet format --verify-no-changes
+format exit: 0

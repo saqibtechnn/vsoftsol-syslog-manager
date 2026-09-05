@@ -1,0 +1,16 @@
+Phase 0 coverage summary (dotnet test tests/VSoftSol.Syslog.UnitTests --collect "XPlat Code Coverage")
+
+overall:  line-rate 0.5658  branch-rate 0.6034   (202/357 lines, 35/58 branches)
+
+per package:
+  VSoftSol.Syslog.BrandingGen   0.865   (branding generator — exercised by BrandingPipelineTests)
+  VSoftSol.Syslog.Core          0.158   (schema + SyslogPriority; DTOs/enums mostly declarative)
+  VSoftSol.Syslog.Data          0.000   (shell — Phase 1)
+  VSoftSol.Syslog.Ingestion     0.000   (shell — Phase 2)
+  VSoftSol.Syslog.Rules         0.000   (shell — Phase 7)
+  VSoftSol.Syslog.Reporting     0.000   (shell — Phase 10)
+  VSoftSol.Syslog.Service       0.000   (host wiring — integration-tested, not in this unit run)
+
+The TESTING_STANDARDS.md 80% line gate on Ingestion/Rules/Reporting is not enforceable in
+Phase 0 (those projects contain only a marker type). Enforcement begins Phase 1. See
+docs/evidence/phase-00/known-issues.md P0-1.

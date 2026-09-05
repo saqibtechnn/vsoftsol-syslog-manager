@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Retention, archival, report generation. Shell only in Phase 0. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>VSoftSol.Syslog.Reporting</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Reporting</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,44 @@
+<Project>
+
+  <!-- Repo-wide build contract. CLAUDE.md "Code conventions": C# 12 / .NET 8 LTS,
+       nullable on, warnings as errors, deterministic builds, one shared version. -->
+
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-Recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Deterministic / reproducible builds (Phase 0 reproducibility gate) -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+    <DebugType>portable</DebugType>
+
+    <!-- One shared version. Tags: v1.0.0-phase.N -->
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <Product>Syslog Manager</Product>
+    <Company>Vendor</Company>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <NeutralLanguage>en</NeutralLanguage>
+
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Static-analysis packages on every project except the analyzer-free build task.
+       SECURITY_STANDARDS.md §4: SAST runs from Phase 0. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'VSoftSol.Syslog.BrandingGen'">
+    <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
+    <PackageReference Include="SecurityCodeScan.VS2019" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)build\branding.props" />
+
+</Project>

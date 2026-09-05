@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <!-- Windows Service host. Composition root: every DI registration the product needs
+       is declared here and reused by the Web project. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>VSoftSol.Syslog.Service</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Service</AssemblyName>
+    <UserSecretsId>vsoftsol-syslog-service</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.Extensions.Hosting is supplied implicitly by Microsoft.NET.Sdk.Worker. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Sinks.EventLog" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+    <ProjectReference Include="..\VSoftSol.Syslog.Data\VSoftSol.Syslog.Data.csproj" />
+    <ProjectReference Include="..\VSoftSol.Syslog.Ingestion\VSoftSol.Syslog.Ingestion.csproj" />
+    <ProjectReference Include="..\VSoftSol.Syslog.Rules\VSoftSol.Syslog.Rules.csproj" />
+    <ProjectReference Include="..\VSoftSol.Syslog.Reporting\VSoftSol.Syslog.Reporting.csproj" />
+  </ItemGroup>
+
+</Project>

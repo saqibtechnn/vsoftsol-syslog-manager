@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Rule evaluation, actions, alert evaluators. Shell only in Phase 0. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>VSoftSol.Syslog.Rules</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Rules</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

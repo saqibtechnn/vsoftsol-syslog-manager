@@ -1,0 +1,99 @@
+<Project>
+
+  <!--
+    Runs the branding asset pipeline before Core compiles (BRANDING.md):
+      - derive every operator-omitted asset from branding/logo.png
+      - generate src/VSoftSol.Syslog.Core/Generated/BrandingInfo.g.cs
+      - a missing logo.png is a warning + placeholder, never a failure
+      - byte-identical on a second build (the tool content-compares every write)
+
+    The generator tool itself must not run this (it produces the exe this target calls),
+    and only the Core project (the branding owner) triggers it.
+  -->
+
+  <PropertyGroup Condition="'$(_IsBrandingToolProject)' != 'true'">
+    <_BrandingConfiguration>$(Configuration)</_BrandingConfiguration>
+    <_BrandingConfiguration Condition="'$(_BrandingConfiguration)' == ''">Debug</_BrandingConfiguration>
+    <GeneratedBrandingFile>$(RepoRoot)src\VSoftSol.Syslog.Core\Generated\BrandingInfo.g.cs</GeneratedBrandingFile>
+    <BrandingGenDll>$(RepoRoot)build\VSoftSol.Syslog.BrandingGen\bin\$(_BrandingConfiguration)\net8.0\VSoftSol.Syslog.BrandingGen.dll</BrandingGenDll>
+    <BrandingWarningsFile>$(RepoRoot)build\VSoftSol.Syslog.BrandingGen\obj\branding-warnings.txt</BrandingWarningsFile>
+    <_RunBrandingPipeline Condition="'$(MSBuildProjectName)' == '$(BrandingOwnerProject)'">true</_RunBrandingPipeline>
+    <!-- Skip the full pipeline for design-time / analysis-only builds (IDEs, Buildalyzer,
+         Stryker) and inside the Stryker sandbox: the generator exe is not built in those
+         contexts. Core has no compile-time dependency on BrandingInfo, and the
+         EnsureBrandingInfoStub target below still provides a compilable file. -->
+    <_RunBrandingPipeline Condition="'$(DesignTimeBuild)' == 'true' Or '$(SkipCompilerExecution)' == 'true'">false</_RunBrandingPipeline>
+    <_RunBrandingPipeline Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').Contains('StrykerOutput'))">false</_RunBrandingPipeline>
+  </PropertyGroup>
+
+  <Target Name="GenerateBranding"
+          Condition="'$(_RunBrandingPipeline)' == 'true'"
+          DependsOnTargets="ResolveProjectReferences"
+          BeforeTargets="BeforeCompile;CoreCompile">
+
+    <Error Condition="!Exists('$(BrandingGenDll)')"
+           Text="Branding generator not found at $(BrandingGenDll)." />
+
+    <!-- Use the running dotnet host, not PATH: builds invoked with an absolute dotnet
+         path (CI, IDEs) do not always have 'dotnet' on PATH for child processes. -->
+    <PropertyGroup>
+      <_DotNetHost>$(DOTNET_HOST_PATH)</_DotNetHost>
+      <_DotNetHost Condition="'$(_DotNetHost)' == ''">dotnet</_DotNetHost>
+    </PropertyGroup>
+
+    <Exec Command="&quot;$(_DotNetHost)&quot; &quot;$(BrandingGenDll)&quot; &quot;$(RepoRoot.TrimEnd('\'))&quot; &quot;$(BrandingWarningsFile)&quot;"
+          WorkingDirectory="$(RepoRoot)"
+          ConsoleToMSBuild="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="_BrandingConsole" />
+      <Output TaskParameter="ExitCode" PropertyName="_BrandingExit" />
+    </Exec>
+
+    <Error Condition="'$(_BrandingExit)' != '0'"
+           Text="Branding generation failed (exit $(_BrandingExit)): @(_BrandingConsole)" />
+
+    <ReadLinesFromFile File="$(BrandingWarningsFile)" Condition="Exists('$(BrandingWarningsFile)')">
+      <Output TaskParameter="Lines" ItemName="_BrandingWarning" />
+    </ReadLinesFromFile>
+
+    <Warning Code="VSOFTSOL-BRAND-001"
+             Text="%(_BrandingWarning.Identity)"
+             Condition="'%(_BrandingWarning.Identity)' != ''" />
+
+    <!-- The file is generated during this build, after the default *.cs glob was
+         evaluated; add it to the compilation now. -->
+    <ItemGroup>
+      <Compile Include="$(GeneratedBrandingFile)" Condition="Exists('$(GeneratedBrandingFile)')" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Safety net: if the full pipeline did not run (Stryker sandbox, an analysis-only
+       build, a partial build) and no BrandingInfo.g.cs exists yet, emit a clearly-fake
+       stub so Core still compiles. Real builds always overwrite this via GenerateBranding.
+       Core has no compile-time dependency on the values, so a stub is harmless there. -->
+  <Target Name="EnsureBrandingInfoStub"
+          Condition="'$(MSBuildProjectName)' == '$(BrandingOwnerProject)' And !Exists('$(GeneratedBrandingFile)')"
+          BeforeTargets="BeforeCompile;CoreCompile"
+          AfterTargets="GenerateBranding">
+    <ItemGroup>
+      <_StubLine Include="// &lt;auto-generated&gt; fallback stub — see build/branding.targets" />
+      <_StubLine Include="#nullable enable" />
+      <_StubLine Include="namespace VSoftSol.Syslog.Core%3B" />
+      <_StubLine Include="public static class BrandingInfo" />
+      <_StubLine Include="{" />
+      <_StubLine Include="    public const string ProductName = &quot;PLACEHOLDER PRODUCT&quot;%3B" />
+      <_StubLine Include="    public const string VendorName = &quot;PLACEHOLDER VENDOR&quot;%3B" />
+      <_StubLine Include="    public const string VendorUrl = &quot;https://example.invalid&quot;%3B" />
+      <_StubLine Include="    public const string SupportEmail = &quot;support@example.invalid&quot;%3B" />
+      <_StubLine Include="    public const string Copyright = &quot;PLACEHOLDER&quot;%3B" />
+      <_StubLine Include="    public const string PrimaryColor = &quot;#000000&quot;%3B" />
+      <_StubLine Include="    public const string AccentColor = &quot;#000000&quot;%3B" />
+      <_StubLine Include="}" />
+    </ItemGroup>
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(GeneratedBrandingFile)'))" />
+    <WriteLinesToFile File="$(GeneratedBrandingFile)" Lines="@(_StubLine)" Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(GeneratedBrandingFile)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Listeners, queues, parsers, extractors. Shell only in Phase 0. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>VSoftSol.Syslog.Ingestion</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Ingestion</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

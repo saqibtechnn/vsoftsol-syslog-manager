@@ -1,0 +1,22 @@
+REBRAND ACCEPTANCE TEST — 2026-09-05T18:50:29.9916581+03:00
+Replace branding/logo.png + brand.json, rebuild, confirm derived assets + BrandingInfo change with ZERO source edits.
+
+logo-wide.png BEFORE: E5D01EF1FB8BAF8275B51ECF6745D7C1C59F2A163DF35E13886A74928BD7280C
+BrandingInfo BEFORE : public const string ProductName = "VSoftSol Syslog Manager";
+Build succeeded.
+    0 Error(s)
+
+logo-wide.png AFTER : 062960F595F76D503A0E40EEAB5EB2C47A8CD3BB62A277451664C2C1044B8596
+BrandingInfo AFTER  : public const string ProductName = "Acme Log Hub";
+brand.css AFTER     : :root {    --brand-primary: #7A1FA2;    --brand-accent: #00897B;  }
+
+Tracked source files changed by the rebrand (expect: only branding/brand.json):
+?? build/
+?? src/
+?? tests/
+(git status of branding/):
+ M branding/logo.png
+?? branding/brand.json
+?? branding/placeholder/
+
+RESTORED BrandingInfo : public const string ProductName = "VSoftSol Syslog Manager";

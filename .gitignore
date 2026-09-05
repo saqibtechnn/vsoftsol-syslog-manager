@@ -1,0 +1,42 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+artifacts/
+*.user
+*.suo
+.vs/
+*.userprefs
+
+# Test / coverage
+[Tt]est[Rr]esults/
+coverage/
+*.coverage
+*.trx
+StrykerOutput/
+BenchmarkDotNet.Artifacts/
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# NuGet
+*.nupkg
+.nuget/
+
+# ---------------------------------------------------------------------------
+# Branding pipeline: only operator source files in branding/ are committed.
+# Every derived asset is generated at build time and must never be checked in.
+# ---------------------------------------------------------------------------
+src/VSoftSol.Syslog.Web/wwwroot/branding/
+installer/assets/
+src/VSoftSol.Syslog.Core/Generated/BrandingInfo.g.cs
+branding/.brand-cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local scratch
+/scratch-*
+

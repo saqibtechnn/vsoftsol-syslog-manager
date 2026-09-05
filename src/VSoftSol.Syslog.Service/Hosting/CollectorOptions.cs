@@ -1,0 +1,25 @@
+using System.ComponentModel.DataAnnotations;
+using VSoftSol.Syslog.Core;
+
+namespace VSoftSol.Syslog.Service.Hosting;
+
+/// <summary>
+/// Bootstrap settings needed before the database configuration surface is available.
+/// Everything else lives in the database and is edited from the web UI
+/// (CLAUDE.md Constraint 7). Phase 0 defines the shape only.
+/// </summary>
+public sealed class CollectorOptions
+{
+    public const string SectionName = "Collector";
+
+    /// <summary>Directory holding the SQLite database, spill queue, archives, and logs.</summary>
+    [Required]
+    public string DataDirectory { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        BrandingInfo.VendorName,
+        BrandingInfo.ProductName);
+
+    /// <summary>Minutes of idle time before an authenticated UI session expires.</summary>
+    [Range(5, 1440)]
+    public int UiSessionTimeoutMinutes { get; set; } = 30;
+}

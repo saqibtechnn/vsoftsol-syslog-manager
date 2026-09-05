@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Console tool for the branding pipeline (BRANDING.md). Invoked by build/branding.targets
+       before Core compiles. Deliberately depends on nothing but ImageSharp so it adds no
+       transitive risk to the product. Not shipped. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>VSoftSol.Syslog.BrandingGen</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.BrandingGen</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <!-- This project is a build dependency of Core; it must not run the branding target itself. -->
+    <_IsBrandingToolProject>true</_IsBrandingToolProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" />
+  </ItemGroup>
+
+</Project>

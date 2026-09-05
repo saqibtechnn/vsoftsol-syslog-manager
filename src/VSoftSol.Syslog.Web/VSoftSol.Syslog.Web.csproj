@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Blazor Server UI. Phase 0: a host that starts, serves one placeholder page over
+       HTTPS, and reuses the Service composition root. No feature screens. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>VSoftSol.Syslog.Web</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.Web</AssemblyName>
+    <UserSecretsId>vsoftsol-syslog-web</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+    <ProjectReference Include="..\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj" />
+  </ItemGroup>
+
+</Project>
