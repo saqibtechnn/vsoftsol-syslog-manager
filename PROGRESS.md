@@ -7,9 +7,9 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 1 — Data layer (committed; **tag pending operator decision on the insert-benchmark gate** — see Phase 1 sign-off)
-- **Last tag:** `v1.0.0-phase.0`
-- **Next phase:** 2 — Ingestion core (once Phase 1 is tagged)
+- **Last completed phase:** 1 — Data layer
+- **Last tag:** `v1.0.0-phase.1`
+- **Next phase:** 2 — Ingestion core
 - **Build status:** green — `dotnet build -c Release` warning-clean, `dotnet test` 99/99 (0 skipped, Soak excluded), `dotnet format` clean
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (BenchmarkDotNet, 3 runs, StdDev 1.0%) / ~19,300 direct — vs the 20,000 gate. I/O-bound on the VMware dev VM (23k hand-bound, 35k `synchronous=OFF` on the same box). See `docs/evidence/phase-01/benchmarks.md`.
@@ -20,7 +20,12 @@ to learn where the build stands. Keep it terse and factual.
 
 <!-- Append one block per completed phase. Newest at the top. -->
 
-### Phase 1 — Data layer — 2026-09-06 — tag `v1.0.0-phase.1` *(pending — see sign-off)*
+### Phase 1 — Data layer — 2026-09-06 — tag `v1.0.0-phase.1`
+
+> Operator decision on the insert-benchmark gate: **tagged** with the performance line
+> marked MARGINAL (I/O-bound on the VMware dev VM — 23k hand-bound / 35k `synchronous=OFF`
+> on the same box; the deferred-FTS code fix took it 3.4k → 18.8k). Re-verified on the
+> Phase 12 clean-VM acceptance run (BUILD_PLAN acceptance criterion 2). All other gates PASS.
 
 **Shipped**
 - `Microsoft.Data.Sqlite 8.0.30`; `SqliteConnectionFactory` — WAL, `synchronous=NORMAL`,
@@ -95,7 +100,8 @@ PHASE 1 SIGN-OFF
                           The 5.5x code fix (deferred FTS, 3.4k -> 18.8k) is done; the
                           residual is environmental. Re-verified on Phase 12's clean-VM
                           acceptance run (BUILD_PLAN acceptance criterion 2). See
-                          benchmarks.md.  --> operator decision required to tag.
+                          benchmarks.md.  --> operator accepted; tagged with this line
+                          marked MARGINAL and a Phase 12 re-verification commitment.
   UX gate:                N/A — no screen shipped
   Regression:             all Phase-0 tests green — yes
   Evidence committed:     docs/evidence/phase-01/
