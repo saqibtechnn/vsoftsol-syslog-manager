@@ -1,0 +1,46 @@
+# Linux parser pack (VENDOR_SUPPORT.md core eight): sshd, sudo, cron, kernel.
+# After RFC 3164 the app-name/tag is the daemon and the message is its free text.
+
+[pack]
+vendor = linux
+priority = 70
+
+[match]
+appname ~ ^(sshd|sudo|CRON|cron|crond|kernel|systemd|su|login|polkitd|dbus-daemon)$
+
+# --- sshd ---
+[regex]
+Accepted (?<auth_method>password|publickey|keyboard-interactive/pam) for (?<user>\S+) from (?<src_ip>%{IP}) port (?<src_port>[0-9]+)
+
+[regex]
+Failed password for (?:invalid user )?(?<user>\S+) from (?<src_ip>%{IP}) port (?<src_port>[0-9]+)
+
+[regex]
+Invalid user (?<user>\S+) from (?<src_ip>%{IP})(?: port (?<src_port>[0-9]+))?
+
+[regex]
+Connection (?<conn_event>closed|reset) by (?:(?:authenticating|invalid) user )?(?<user>[^\s]+) (?<src_ip>%{IP}) port (?<src_port>[0-9]+)
+
+[regex]
+Connection (?<conn_event>closed|reset) by (?<src_ip>%{IP}) port (?<src_port>[0-9]+)
+
+[regex]
+Disconnected from (?:(?:authenticating|invalid) user )?(?:user )?(?<user>[^\s]+) (?<src_ip>%{IP}) port (?<src_port>[0-9]+)
+
+# --- sudo ---
+[regex]
+\s*(?<user>\S+) : TTY=(?<tty>\S+) ; PWD=(?<pwd>\S+) ; USER=(?<target_user>\S+) ; COMMAND=(?<command>.*)$
+
+[regex]
+\s*(?<user>\S+) : (?<sudo_error>user NOT in sudoers|command not allowed|[0-9]+ incorrect password attempts) ; TTY=(?<tty>\S+)
+
+# --- cron ---
+[regex]
+\((?<user>\S+)\) CMD \((?<command>.*)\)$
+
+# --- kernel (netfilter / OOM) ---
+[regex]
+SRC=(?<src_ip>%{IP}) DST=(?<dst_ip>%{IP})(?:.*?PROTO=(?<protocol>[A-Z0-9]+))?(?:.*?SPT=(?<src_port>[0-9]+) DPT=(?<dst_port>[0-9]+))?
+
+[regex]
+Out of memory: Kill(?:ed)? process (?<pid>[0-9]+) \((?<process>[^)]+)\)

@@ -1,0 +1,28 @@
+Phase 3 coverage — dotnet test VSoftSol.Syslog.sln --collect "XPlat Code Coverage"
+(cobertura files: coverage-unittests.cobertura.xml, coverage-integration.cobertura.xml)
+
+The parsing code is exercised from BOTH suites: the RFC parsers, extractors, GROK library,
+pack parser, and 200-fixture corpus from UnitTests; the listeners, pipeline, hosted
+service, and end-to-end parse+commit from IntegrationTests. Line coverage is the UNION of
+covered lines across the two runs.
+
+  VSoftSol.Syslog.Ingestion     0.895   (89.5%)   <-- Phase 3 + Phase 2 code, UNION of both suites
+  VSoftSol.Syslog.Data          0.905   (90.5%)   (Phase 1, still green)
+  VSoftSol.Syslog.Web           0.811
+  VSoftSol.Syslog.BrandingGen   0.865
+  VSoftSol.Syslog.Service       0.663
+  VSoftSol.Syslog.Core          0.649   (records / enums, largely declarative)
+  VSoftSol.Syslog.Rules         0.000   (shell — Phase 7)
+  VSoftSol.Syslog.Reporting     0.000   (shell — Phase 10)
+
+TESTING_STANDARDS.md §3 gate (>= 80% line on Ingestion / Rules / Reporting):
+  Ingestion  = 89.5%  PASS
+  Rules      = N/A    (Phase-0 shell — enforceable in Phase 7)
+  Reporting  = N/A    (Phase-0 shell — enforceable in Phase 10)
+
+Mutation testing (>= 70% on the parser / extractors): Stryker config complete and targeted
+(stryker-config.json) but the runner does not complete on this SDK-only host (P0-2 / P3-3).
+
+Union computed with:
+  awk over both cobertura files, a line counts as covered if hits>0 in either run.
+  UNION covered=1868 total=2088 rate=0.895

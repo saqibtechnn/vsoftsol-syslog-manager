@@ -1,0 +1,32 @@
+# Palo Alto PAN-OS parser pack (VENDOR_SUPPORT.md core eight).
+# PAN-OS is comma-separated with a fixed positional schema that DIFFERS PER LOG TYPE
+# (VENDOR_SUPPORT.md trap) — parse by type, not one pattern. The type is column index 3.
+#   FUTURE_USE,receive_time,serial,TYPE,subtype,FUTURE_USE,generated_time,src,dst,...
+# One [csv] stage per type, guarded by "when = 3=<TYPE>".
+
+[pack]
+vendor = paloalto
+priority = 45
+
+[match]
+message ~ ^[0-9]*,\d{4}/\d\d/\d\d \d\d:\d\d:\d\d,[0-9A-Za-z]*,(TRAFFIC|THREAT|SYSTEM|CONFIG|HIPMATCH|GLOBALPROTECT|USERID),
+
+[csv]
+when = 3=TRAFFIC
+minfields = 31
+columns = ,pan_receive_time,pan_serial,pan_type,pan_subtype,,pan_generated_time,src_ip,dst_ip,,,rule_name,src_user,,app,,src_zone,dst_zone,,,,,session_id,,src_port,dst_port,,,,protocol,action
+
+[csv]
+when = 3=THREAT
+minfields = 31
+columns = ,pan_receive_time,pan_serial,pan_type,pan_subtype,,pan_generated_time,src_ip,dst_ip,,,rule_name,src_user,,app,,src_zone,dst_zone,,,,,session_id,,src_port,dst_port,,,,protocol,action,filename,threat_name
+
+[csv]
+when = 3=SYSTEM
+minfields = 15
+columns = ,pan_receive_time,pan_serial,pan_type,pan_subtype,,pan_generated_time,vsys,event_id,object,,,module,severity,description
+
+[csv]
+when = 3=CONFIG
+minfields = 14
+columns = ,pan_receive_time,pan_serial,pan_type,pan_subtype,,pan_generated_time,host,vsys,command,admin,client,result,config_path

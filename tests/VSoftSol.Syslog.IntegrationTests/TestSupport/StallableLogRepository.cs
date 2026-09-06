@@ -49,6 +49,9 @@ public sealed class StallableLogRepository(ILogRepository inner) : ILogRepositor
     public Task<SyslogEvent?> GetByIdAsync(long eventId, CancellationToken cancellationToken) =>
         inner.GetByIdAsync(eventId, cancellationToken);
 
+    public Task IncrementOccurrenceAsync(IReadOnlyDictionary<long, int> increments, CancellationToken cancellationToken) =>
+        inner.IncrementOccurrenceAsync(increments, cancellationToken);
+
     public IAsyncEnumerable<SyslogEvent> QueryAsync(LogQuery query, CancellationToken cancellationToken) =>
         inner.QueryAsync(query, cancellationToken);
 

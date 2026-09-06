@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using VSoftSol.Syslog.Ingestion.Parsing;
+using VSoftSol.Syslog.Ingestion.Patterns;
 
 namespace VSoftSol.Syslog.Ingestion;
 
@@ -19,6 +21,9 @@ public static class IngestionServiceCollectionExtensions
         services.AddOptions<IngestionOptions>()
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddOptions<ParsingOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IngestionStatistics>();
@@ -26,6 +31,15 @@ public static class IngestionServiceCollectionExtensions
         services.TryAddSingleton<PerSourceRateLimiter>();
         services.TryAddSingleton<DiskSpillQueue>();
         services.TryAddSingleton<FrameIntake>();
+
+        // Parsing (Phase 3): RFC parsers, runtime-loaded vendor packs, the facade, dedup.
+        services.TryAddSingleton<Rfc5424Parser>();
+        services.TryAddSingleton<Rfc3164Parser>();
+        services.TryAddSingleton<PatternPackLoader>();
+        services.TryAddSingleton<VendorExtractor>();
+        services.TryAddSingleton<MessageParser>();
+        services.TryAddSingleton<DeduplicationWindow>();
+
         services.TryAddSingleton<IngestionPipeline>();
 
         services.AddSingleton<ISyslogListener, UdpSyslogListener>();

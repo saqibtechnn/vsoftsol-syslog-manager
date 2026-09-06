@@ -1,0 +1,7 @@
+=== ParseBenchmark (pure parse+extract, no I/O) ===
+| ParseMixedCorpus | 9.556 us | 1.615 us | 0.2499 us | 0.0500 |   3.79 KB |
+  Allocated : Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)
+
+=== ingest probe (full pipeline, 2-vCPU VM) ===
+MEASURE vendor=True : 200000 frames, 200000 rows, 33.70s => 5,934 msg/sec
+MEASURE vendor=False : 200000 frames, 200000 rows, 14.70s => 13,604 msg/sec

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using VSoftSol.Syslog.Core.Abstractions;
 using VSoftSol.Syslog.Ingestion;
+using VSoftSol.Syslog.Ingestion.Parsing;
 
 namespace VSoftSol.Syslog.IntegrationTests.TestSupport;
 
@@ -18,10 +19,12 @@ public sealed class IngestionHarness : IAsyncDisposable
     private Task _pipelineTask = Task.CompletedTask;
     private readonly List<ISyslogListener> _listeners = [];
 
-    private IngestionHarness(SqliteTestDatabase db, IngestionOptions options, ILogRepository repo, TimeProvider time)
+    private IngestionHarness(
+        SqliteTestDatabase db, IngestionOptions options, ParsingOptions parsingOptions, ILogRepository repo, TimeProvider time)
     {
         Db = db;
         Options = options;
+        ParsingOptions = parsingOptions;
         _spillDir = options.SpillDirectory;
         Repository = repo;
         Stats = new IngestionStatistics();
@@ -30,10 +33,17 @@ public sealed class IngestionHarness : IAsyncDisposable
         Spill = new DiskSpillQueue(Wrap(options), NullLogger<DiskSpillQueue>.Instance);
         Intake = new FrameIntake(Channel, Spill, RateLimiter, Stats, Wrap(options),
             NullLogger<FrameIntake>.Instance, time);
-        Pipeline = new IngestionPipeline(Channel, Spill, Repository, Stats, Wrap(options),
+        (Parser, Dedup) = ParsingComposition.Build(parsingOptions, timeProvider: time);
+        Pipeline = new IngestionPipeline(Channel, Spill, Repository, Parser, Dedup, Stats, Wrap(options),
             NullLogger<IngestionPipeline>.Instance);
         Time = time;
     }
+
+    public ParsingOptions ParsingOptions { get; }
+
+    public MessageParser Parser { get; }
+
+    public DeduplicationWindow Dedup { get; }
 
     public SqliteTestDatabase Db { get; }
 
@@ -60,9 +70,11 @@ public sealed class IngestionHarness : IAsyncDisposable
     public static async Task<IngestionHarness> CreateAsync(
         Action<IngestionOptions>? configure = null,
         Func<ILogRepository, ILogRepository>? decorateRepository = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Action<ParsingOptions>? configureParsing = null)
     {
         SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
+        await db.Seeder.SeedAsync(CancellationToken.None); // the "Parse Failures" stream
         string spillDir = Path.Combine(Path.GetDirectoryName(db.DatabasePath)!, "spill");
 
         var options = new IngestionOptions
@@ -78,8 +90,11 @@ public sealed class IngestionHarness : IAsyncDisposable
         };
         configure?.Invoke(options);
 
+        var parsing = new ParsingOptions();
+        configureParsing?.Invoke(parsing);
+
         ILogRepository repo = decorateRepository is null ? db.Repository : decorateRepository(db.Repository);
-        var harness = new IngestionHarness(db, options, repo, timeProvider ?? TimeProvider.System);
+        var harness = new IngestionHarness(db, options, parsing, repo, timeProvider ?? TimeProvider.System);
         await harness.Spill.RecoverAsync(CancellationToken.None);
         return harness;
     }

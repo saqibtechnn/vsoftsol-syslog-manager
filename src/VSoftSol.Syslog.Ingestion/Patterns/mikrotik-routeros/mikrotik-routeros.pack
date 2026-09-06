@@ -1,0 +1,31 @@
+# MikroTik RouterOS parser pack (VENDOR_SUPPORT.md core eight).
+# RouterOS logs start with a comma-separated topic list, then free text:
+#   system,info,account user admin logged in from 10.0.0.5 via ssh
+#   firewall,info input: in:ether1 out:(none), src-mac aa:.., proto TCP, 1.2.3.4:5->6.7.8.9:80
+#   dhcp,info dhcp1 assigned 10.0.0.50 to AA:BB:CC:DD:EE:FF
+
+[pack]
+vendor = mikrotik-routeros
+priority = 55
+
+[match]
+message ~ ^[a-z]+(,[a-z-]+)+\s
+hostname ~ ^MikroTik$
+
+[grok]
+^(?<routeros_topics>[a-z][a-z,-]+)\s+(?<routeros_detail>.*)$
+
+[regex]
+user (?<user>\S+) logged in from (?<src_ip>%{IPV4}) via (?<via>\w+)
+
+[regex]
+login failure for user (?<user>\S+) from (?<src_ip>%{IPV4}) via (?<via>\w+)
+
+[regex]
+(?:de)?assigned (?<assigned_ip>%{IPV4}) (?:to|for|from) (?<client_mac>%{MAC})
+
+[regex]
+src-mac (?<src_mac>%{MAC}), proto (?<protocol>TCP|UDP|ICMP)(?:.*?)(?<src_ip>%{IPV4}):(?<src_port>[0-9]+)->(?<dst_ip>%{IPV4}):(?<dst_port>[0-9]+)
+
+[regex]
+(?<interface>ether[0-9]+|wlan[0-9]+|bridge[0-9]*) link (?<link_state>up|down)

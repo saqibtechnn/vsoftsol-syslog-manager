@@ -1,0 +1,38 @@
+# Cisco ASA / FTD / PIX parser pack (VENDOR_SUPPORT.md core eight).
+# Message shape after RFC 3164: %ASA-<sev>-<message-id>: <detail>.
+# The numeric message ID is the stable identifier across versions (VENDOR_SUPPORT.md trap).
+
+[pack]
+vendor = cisco-asa
+priority = 30
+
+[match]
+message ~ ^%(ASA|FTD|PIX)-[0-7]-[0-9]+
+message ~ ^%(ASA|FTD|PIX)-[a-z]+-[0-7]-[0-9]+
+
+[grok]
+^%(?<asa_platform>ASA|FTD|PIX)-(?:[a-z]+-)?(?<asa_severity>[0-7])-(?<asa_message_id>[0-9]+):\s*(?<asa_detail>.*)$
+
+[regex]
+(?<action>Built|Teardown) (?<direction>inbound|outbound) (?<protocol>TCP|UDP|ICMP) connection (?<connection_id>[0-9]+) for (?<src_zone>\S+?):(?<src_ip>%{IPV4})/(?<src_port>[0-9]+) .* to (?<dst_zone>\S+?):(?<dst_ip>%{IPV4})/(?<dst_port>[0-9]+)
+
+[regex]
+Deny (?<protocol>tcp|udp|icmp) src (?<src_zone>\S+?):(?<src_ip>%{IPV4})/(?<src_port>[0-9]+) dst (?<dst_zone>\S+?):(?<dst_ip>%{IPV4})/(?<dst_port>[0-9]+) by access-group "(?<acl_name>[^"]+)"
+
+[regex]
+(?<auth_result>Authentication|Authorization) (?<auth_outcome>succeeded|rejected) for user (?<user>\S+) from (?<src_ip>%{IPV4})
+
+[regex]
+User (?<user>\S+) logged (?<login_action>in|out) .* (?<src_ip>%{IPV4})
+
+[lookup]
+source = asa_severity
+target = asa_severity_name
+0 = emergency
+1 = alert
+2 = critical
+3 = error
+4 = warning
+5 = notification
+6 = informational
+7 = debugging

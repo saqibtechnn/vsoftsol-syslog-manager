@@ -1,0 +1,29 @@
+# Ubiquiti UniFi parser pack (VENDOR_SUPPORT.md core eight).
+# UniFi APs / switches run a Linux base; the useful signal is Wi-Fi association state
+# from hostapd and DHCP from dnsmasq.
+#   hostapd: ath0: STA aa:bb:cc:dd:ee:ff IEEE 802.11: authenticated
+#   hostapd: ath0: STA aa:bb:cc:dd:ee:ff IEEE 802.11: disassociated due to inactivity
+#   dnsmasq-dhcp: DHCPACK(br0) 10.0.0.50 aa:bb:cc:dd:ee:ff laptop
+
+[pack]
+vendor = ubiquiti-unifi
+priority = 60
+
+[match]
+appname ~ ^(hostapd|dnsmasq|dnsmasq-dhcp|mcad|stahtd|libubnt)
+hostname ~ ^(U6-|U7-|UAP|USW|USG|UDM|UXG|UCK)
+
+[regex]
+STA (?<client_mac>%{MAC}) IEEE 802\.11: (?<wifi_event>authenticated|associated|deauthenticated|disassociated|authenticating)
+
+[regex]
+STA (?<client_mac>%{MAC}) .*reason (?<wifi_reason>[0-9]+)
+
+[regex]
+DHCP(?<dhcp_type>ACK|OFFER|REQUEST|NAK|DISCOVER)\((?<dhcp_interface>[^)]+)\) (?<assigned_ip>%{IPV4}) (?<client_mac>%{MAC})(?: (?<client_hostname>\S+))?
+
+[regex]
+(?<radio>ath[0-9]+|ra[0-9]+): STA (?<client_mac>%{MAC})
+
+[regex]
+port (?<port>[0-9]+) link (?<link_state>up|down)

@@ -33,11 +33,12 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V4.2 | No IDOR; object-level checks | P | Scope-bypass suite (by id, query, sort, export) — Phases 5, 6 |
 | V4.3 | Admin interfaces need extra authz | P | Phase 4 |
 | **V5** | **Validation, sanitisation, encoding** | | |
-| V5.1 | Input validation with allow-lists | I / P | Schema CHECK constraints (facility/severity/protocol/parse_status) reject invalid rows at the store (Phase 1); config validation with `what/how-to-fix` messages — every UI phase |
-| V5.2 | Untrusted data sanitised for the sink, not on ingest | I | Repository binds every parameter (SQL sink); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4); render sinks Phases 5/9/10 |
+| V5.1 | Input validation with allow-lists | I / P | Schema CHECK constraints reject invalid rows at the store (Phase 1); the parser fallback chain never rejects a message (Constraint 4) — it validates the PRI range, the RFC 5424 version, and timestamp format and falls back to `raw` otherwise (Phase 3); config validation — every UI phase |
+| V5.2 | Untrusted data sanitised for the sink, not on ingest | I | **No sanitisation on ingest** — `<script>`, `=cmd\|`, `../../`, `${jndi:…}` stored byte-identical, asserted (Phase 3); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4); render sinks Phases 5/9/10 |
 | V5.3.4 | SQL injection prevented by parameterisation | I | `SqliteLogRepository` — CWE-89 sweep + `ToFtsPhrase` quote-doubling; `SCS0002` build gate (Phase 1) |
 | V5.3 | Output encoding per context (HTML, attr, JS, CSV, PDF) | P | Six output surfaces — Phases 5, 9, 10; CSV formula-injection guard — Phase 5 |
-| V5.5 | Safe deserialization; no arbitrary types | P | Config-bundle import — Phase 11 |
+| V5.5 | Safe deserialization; no arbitrary types | I / P | `JsonExtractor` uses `System.Text.Json` with a depth cap and no polymorphic types (Phase 3); config-bundle import — Phase 11 |
+| V5.2.x | ReDoS / regex safety | I | Every pack- and user-authorable pattern carries a mandatory match timeout; a timeout is caught and ingestion continues (Phase 3) |
 | **V6** | **Stored cryptography** | | |
 | V6.2 | Secrets encrypted at rest | P | DPAPI-backed secret store — Phase 4; never logged/diffed/exported |
 | V6.4 | Key management / rotation documented | P | Phase 12 hardening guide |

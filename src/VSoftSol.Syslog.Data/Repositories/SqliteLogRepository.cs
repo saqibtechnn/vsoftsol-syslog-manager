@@ -83,6 +83,16 @@ public sealed class SqliteLogRepository : ILogRepository
         await using SqliteCommand lastRowId = connection.CreateCommand();
         lastRowId.CommandText = "SELECT last_insert_rowid();";
 
+        // Parse failures land in the "Parse Failures" system stream (PHASE_03 item 3). The
+        // general stream-routing engine is Phase 6; this is the one hard-wired route,
+        // keyed off parse_status = 'raw'.
+        await using SqliteCommand linkParseFailure = connection.CreateCommand();
+        linkParseFailure.CommandText = """
+            INSERT OR IGNORE INTO event_streams (event_id, stream_id)
+                SELECT $event_id, stream_id FROM streams WHERE name = 'Parse Failures';
+            """;
+        SqliteParameter linkEventId = linkParseFailure.Parameters.Add("$event_id", SqliteType.Integer);
+
         // FTS is NOT written here — SearchIndexMaintainer copies new rows into events_fts
         // in the background. A per-row AFTER INSERT trigger (or an inline per-row FTS
         // insert) is ~10x slower and cannot meet the insert-throughput gate. See ADR 0009.
@@ -96,6 +106,7 @@ public sealed class SqliteLogRepository : ILogRepository
                 insert.Transaction = transaction;
                 insertField.Transaction = transaction;
                 lastRowId.Transaction = transaction;
+                linkParseFailure.Transaction = transaction;
 
                 for (int i = 0; i < count; i++)
                 {
@@ -113,8 +124,15 @@ public sealed class SqliteLogRepository : ILogRepository
                 {
                     long id = firstId + i;
                     assignedIds[offset + i] = id;
+                    SyslogEvent evt = all[offset + i];
 
-                    IReadOnlyList<EventField> fields = all[offset + i].Fields;
+                    if (evt.ParseStatus == ParseStatus.Raw)
+                    {
+                        linkEventId.Value = id;
+                        linkParseFailure.ExecuteNonQuery();
+                    }
+
+                    IReadOnlyList<EventField> fields = evt.Fields;
                     if (fields.Count == 0)
                     {
                         continue;
@@ -139,6 +157,50 @@ public sealed class SqliteLogRepository : ILogRepository
         }
 
         return assignedIds;
+    }
+
+    public async Task IncrementOccurrenceAsync(
+        IReadOnlyDictionary<long, int> increments,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(increments);
+        if (increments.Count == 0)
+        {
+            return;
+        }
+
+        await using IAsyncDisposable writeLock = await _factory.AcquireWriteLockAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteConnection connection = await _factory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction =
+            (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using SqliteCommand bump = connection.CreateCommand();
+            bump.Transaction = transaction;
+            bump.CommandText =
+                "UPDATE events SET occurrence_count = occurrence_count + $by WHERE event_id = $id;";
+            SqliteParameter byParam = bump.Parameters.Add("$by", SqliteType.Integer);
+            SqliteParameter idParam = bump.Parameters.Add("$id", SqliteType.Integer);
+
+            foreach ((long id, int by) in increments)
+            {
+                if (by <= 0)
+                {
+                    continue;
+                }
+
+                idParam.Value = id;
+                byParam.Value = by;
+                await bump.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
     }
 
     /// <summary>

@@ -1,0 +1,39 @@
+# Juniper JunOS parser pack (VENDOR_SUPPORT.md core eight).
+# JunOS after RFC 3164 (host + process[pid]:) carries a structured event tag:
+#   PROCESS[pid]: EVENT_TAG: free text
+# e.g.  mgd[1234]: UI_CMDLINE_READ_LINE: User 'root', command 'show version'
+#       rpd[1234]: RPD_OSPF_NBRDOWN: OSPF neighbor 10.0.0.2 ... state changed from Full to Down
+# The JunOS event tag is the signature; generic daemons (sshd, kernel) are left to the
+# linux pack so a plain Linux host is not mis-attributed to Juniper.
+
+[pack]
+vendor = juniper-junos
+priority = 50
+
+[match]
+message ~ ^[A-Z][A-Z0-9_]{3,}:\s
+appname ~ ^(rpd|mgd|chassisd|dcd|cosd|pfed|l2ald|eventd|kmd|mib2d|dfwd|jsrpd|snmpd)$
+
+[grok]
+^(?<junos_event>[A-Z][A-Z0-9_]+):\s+(?<junos_detail>.*)$
+
+[regex]
+User '(?<user>[^']+)', command '(?<command>[^']*)'
+
+[regex]
+[Uu]ser '(?<user>[^']+)'
+
+[regex]
+OSPF neighbor (?<neighbor_ip>%{IPV4}).*state changed from (?<old_state>\w+) to (?<new_state>\w+)
+
+[regex]
+BGP peer (?<neighbor_ip>%{IPV4}) .*changed state from (?<old_state>\w+) to (?<new_state>\w+)
+
+[regex]
+[Ll]ogin (?<login_result>attempt|failed) .*user '?(?<user>[^' ]+)'? from host '?(?<src_ip>%{IPV4})
+
+[regex]
+Session closed for user (?<user>\S+)
+
+[regex]
+(?<config_action>commit|rollback) complete

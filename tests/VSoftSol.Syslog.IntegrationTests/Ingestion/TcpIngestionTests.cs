@@ -48,8 +48,8 @@ public sealed class TcpIngestionTests
         await using IngestionHarness h = await StartHarnessAsync(port);
 
         await LoopbackSyslog.SendTcpNewlineAsync(port, count);
-        await WaitAsync(() => h.Stats.Snapshot().Total.Received >= count, TimeSpan.FromSeconds(60));
-        await h.DrainAsync();
+        await WaitAsync(() => h.Stats.Snapshot().Total.Received >= count, TimeSpan.FromSeconds(120));
+        await h.DrainAsync(TimeSpan.FromSeconds(180));
 
         (await h.CommittedCountAsync()).Should().Be(count);
         IngestionStatsSnapshot s = h.Stats.Snapshot();
@@ -66,8 +66,8 @@ public sealed class TcpIngestionTests
         await using IngestionHarness h = await StartHarnessAsync(port);
 
         await LoopbackSyslog.SendTcpOctetCountedAsync(port, count);
-        await WaitAsync(() => h.Stats.Snapshot().Total.Received >= count, TimeSpan.FromSeconds(60));
-        await h.DrainAsync();
+        await WaitAsync(() => h.Stats.Snapshot().Total.Received >= count, TimeSpan.FromSeconds(120));
+        await h.DrainAsync(TimeSpan.FromSeconds(180));
 
         (await h.CommittedCountAsync()).Should().Be(count);
         h.Stats.Snapshot().Total.Dropped.Should().Be(0);

@@ -1,0 +1,26 @@
+# Fortinet FortiGate parser pack (VENDOR_SUPPORT.md core eight).
+# FortiGate is key=value, not free text — use the KV parser, not GROK (VENDOR_SUPPORT.md).
+# e.g.  date=2026-03-01 time=10:00:00 devname="fw1" devid="FG100D" logid="0000000013"
+#       type="traffic" subtype="forward" level="notice" srcip=10.0.0.5 dstip=8.8.8.8
+#       srcport=44321 dstport=53 action="accept" ...
+
+[pack]
+vendor = fortigate
+priority = 35
+
+[match]
+message ~ (^|\s)devid="?FG
+message ~ (^|\s)logid="?[0-9]{9,}
+message ~ (^|\s)type="?(traffic|event|utm|anomaly|virus|webfilter|ips)
+
+[kv]
+
+[transform]
+rename srcip src_ip
+rename dstip dst_ip
+rename srcport src_port
+rename dstport dst_port
+rename srcintf src_interface
+rename dstintf dst_interface
+rename proto protocol_number
+rename sessionid session_id

@@ -81,7 +81,8 @@ if (mode == "run")
     var rateLimiter = new PerSourceRateLimiter(io, TimeProvider.System);
     var spill = new DiskSpillQueue(io, NullLogger<DiskSpillQueue>.Instance);
     var intake = new FrameIntake(channel, spill, rateLimiter, stats, io, NullLogger<FrameIntake>.Instance, TimeProvider.System);
-    var pipeline = new IngestionPipeline(channel, spill, repo, stats, io, NullLogger<IngestionPipeline>.Instance);
+    (var parser, var dedup) = VSoftSol.Syslog.Ingestion.Parsing.ParsingComposition.Build();
+    var pipeline = new IngestionPipeline(channel, spill, repo, parser, dedup, stats, io, NullLogger<IngestionPipeline>.Instance);
 
     await spill.RecoverAsync(CancellationToken.None);
     _ = Task.Run(() => pipeline.RunAsync(CancellationToken.None));
@@ -113,7 +114,8 @@ if (mode == "recover")
     var channel = new IngestionChannel(io);
     var rateLimiter = new PerSourceRateLimiter(io, TimeProvider.System);
     var spill = new DiskSpillQueue(io, NullLogger<DiskSpillQueue>.Instance);
-    var pipeline = new IngestionPipeline(channel, spill, repo, stats, io, NullLogger<IngestionPipeline>.Instance);
+    (var parser, var dedup) = VSoftSol.Syslog.Ingestion.Parsing.ParsingComposition.Build();
+    var pipeline = new IngestionPipeline(channel, spill, repo, parser, dedup, stats, io, NullLogger<IngestionPipeline>.Instance);
 
     await spill.RecoverAsync(CancellationToken.None);
     Task pump = Task.Run(() => pipeline.RunAsync(CancellationToken.None));
@@ -155,6 +157,9 @@ internal sealed class DelayingRepository(ILogRepository inner, int delayMs) : IL
     }
 
     public Task<SyslogEvent?> GetByIdAsync(long eventId, CancellationToken cancellationToken) => inner.GetByIdAsync(eventId, cancellationToken);
+
+    public Task IncrementOccurrenceAsync(IReadOnlyDictionary<long, int> increments, CancellationToken cancellationToken) =>
+        inner.IncrementOccurrenceAsync(increments, cancellationToken);
 
     public IAsyncEnumerable<SyslogEvent> QueryAsync(LogQuery query, CancellationToken cancellationToken) => inner.QueryAsync(query, cancellationToken);
 

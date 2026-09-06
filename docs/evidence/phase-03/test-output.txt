@@ -1,0 +1,16 @@
+=== build ===
+    0 Warning(s)
+    0 Error(s)
+
+=== test (Category!=Soak) ===
+Passed!  - Failed:     0, Passed:   362, Skipped:     0, Total:   362, Duration: 20 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+Passed!  - Failed:     0, Passed:    90, Skipped:     0, Total:    90, Duration: 45 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+
+=== format ===
+format-exit=0
+
+=== SCA ===
+13
+
+=== Soak chaos re-run (Phase 3) ===
+Passed!  - Failed:     0, Passed:     7, Skipped:     0, Total:     7, Duration: 3 m 54 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)

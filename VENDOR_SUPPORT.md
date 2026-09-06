@@ -28,9 +28,12 @@ in the product and it must not be weakened for any optimisation.
 Patterns live in `src/VSoftSol.Syslog.Ingestion/Patterns/<vendor>/`, are plain text, and
 are loaded at runtime — adding one is a file drop, not a release.
 
-**Ship in Phase 3 (core eight):**
-Cisco IOS / IOS-XE · Cisco ASA · Fortinet FortiGate · Palo Alto PAN-OS ·
-Juniper JunOS · MikroTik RouterOS · Ubiquiti UniFi · Linux (`sshd`, `sudo`, `cron`, `kernel`)
+**Ship in Phase 3 (core eight) — SHIPPED, `v1.0.0-phase.3`:**
+Cisco IOS / IOS-XE · Cisco ASA · Fortinet FortiGate (KV) · Palo Alto PAN-OS (positional
+CSV per log type) · Juniper JunOS · MikroTik RouterOS · Ubiquiti UniFi ·
+Linux (`sshd`, `sudo`, `cron`, `kernel`). Each pack: 25 committed fixtures with expected
+output in `tests/fixtures/messages/<vendor>/corpus.jsonl` (200 total). Packs are plain
+text in `src/VSoftSol.Syslog.Ingestion/Patterns/<vendor>/`, loaded at runtime (ADR 0011).
 
 **Ship in Phase 11 (extended seven):**
 Check Point Gaia · Sophos XG/XGS · SonicWall SonicOS · pfSense / OPNsense ·
@@ -252,28 +255,27 @@ Windows has no native syslog client. Two options:
 
 ## Known compatibility traps — handle these in Phase 3
 
-Each needs a fixture and a passing test.
+Each needs a fixture and a passing test. **Status after Phase 3:**
 
-- **Cisco sequence numbers and the leading `%`** — IOS prefixes a sequence number and
-  `%FACILITY-SEVERITY-MNEMONIC`. Extract the mnemonic as a field; it is the most useful
-  thing to alert on.
-- **Cisco ASA message IDs** (`%ASA-6-302013`) — the numeric ID is the stable identifier
-  across versions. Extract it.
-- **Missing year in RFC 3164 timestamps** — already covered by the Phase 3 rollover test.
-- **Devices sending local time with no timezone** — store as received, flag
-  `timestamp_ambiguous`, and let the device record carry a timezone override.
-- **FortiGate key-value format** — not free text; it is `key=value` pairs and should be
-  parsed by the KV parser, not GROK.
-- **Palo Alto CSV format** — comma-separated with a fixed positional schema that differs
-  per log type. Parse by type, not by one pattern.
-- **Check Point CEF/LEEF output** — if `cp_log_export` is set to CEF, parse as CEF.
-- **Multi-line messages** (Java stack traces, some ESXi output) — UDP splits them into
-  separate datagrams. Store each as received; do not attempt reassembly in v1, but record
-  the limitation in the User Guide.
-- **Oversized messages** — RFC 3164 caps at 1024 bytes but many vendors exceed it.
-  Accept up to the configured max, record truncation as a field, never drop.
-- **Rate-bursting devices** — a flapping interface can produce thousands of messages per
-  second from one host. This is what the Phase 2 per-source rate limiter exists for.
+- **Cisco sequence numbers and the leading `%`** — ✅ the `cisco-ios` pack extracts
+  `cisco_facility` / `cisco_severity` / `cisco_mnemonic` / `cisco_detail`; the RFC 3164
+  parser strips the sequence number and the sub-second timestamp.
+- **Cisco ASA message IDs** (`%ASA-6-302013`) — ✅ `asa_message_id` extracted by the
+  `cisco-asa` pack.
+- **Missing year in RFC 3164 timestamps** — ✅ inferred from `received_utc`, handling the
+  31 Dec / 1 Jan rollover both ways (`YearRolloverTests`). An explicit 4-digit year
+  (Cisco ASA `logging timestamp`) is honoured.
+- **Devices sending local time with no timezone** — ✅ stored as the wall-clock instant and
+  flagged `timestamp_ambiguous`. The per-device timezone override is Phase 6.
+- **FortiGate key-value format** — ✅ parsed by the KV extractor, not GROK.
+- **Palo Alto CSV format** — ✅ one `[csv]` stage per log type (`when = 3=<TYPE>`),
+  positional columns per type.
+- **Check Point CEF/LEEF output** — deferred to Phase 11 with the extended seven.
+- **Multi-line messages** — ✅ each datagram stored as its own event; no reassembly in v1
+  (User Guide limitation).
+- **Oversized messages** — ✅ accepted up to `Ingestion:MaxMessageBytes` / `Parsing:
+  MaxMessageChars`, `truncated` field set, never dropped.
+- **Rate-bursting devices** — the Phase 2 per-source rate limiter.
 
 ---
 

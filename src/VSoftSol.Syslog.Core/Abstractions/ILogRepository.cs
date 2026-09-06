@@ -33,6 +33,15 @@ public interface ILogRepository
     Task<SyslogEvent?> GetByIdAsync(long eventId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Adds <c>occurrence_count</c> to existing events instead of inserting duplicate rows
+    /// (the Phase 3 deduplication window). The key is the event id; the value is how many
+    /// additional occurrences to fold in.
+    /// </summary>
+    Task IncrementOccurrenceAsync(
+        IReadOnlyDictionary<long, int> increments,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Stream events matching <paramref name="query"/>, honouring its ordering, limit,
     /// and offset. The caller is responsible for having already applied scope filtering
     /// to the query.

@@ -10,24 +10,21 @@ using VSoftSol.Syslog.Data.Migrations;
 using VSoftSol.Syslog.Data.Repositories;
 using VSoftSol.Syslog.Data.Sqlite;
 using VSoftSol.Syslog.Ingestion;
+using VSoftSol.Syslog.Ingestion.Parsing;
 
 namespace VSoftSol.Syslog.Benchmarks;
 
 /// <summary>
-/// PHASE_02 performance gate: sustained end-to-end ingest throughput (frame received →
-/// committed) through the real channel + spill + pipeline path. Target: 5,000 msg/sec
-/// sustained. Three iterations → mean and standard deviation; per-frame end-to-end latency
-/// percentiles (p50/p95/p99) are written to <c>ingest-latency.txt</c> each iteration
-/// (TESTING_STANDARDS.md §4 — "report p50/p95/p99 alongside throughput").
+/// End-to-end ingest drain rate (frame received → parsed → committed) through the real
+/// channel + spill + pipeline path — the number compared across Phases 2/3/6/7/12
+/// (TESTING_STANDARDS.md §5). Unpaced burst; three iterations, mean and standard
+/// deviation. Per-frame latency in <c>ingest-latency.txt</c> is backlog-dominated in
+/// burst mode — steady-state parse latency is in <c>ParseBenchmark</c>.
 /// </summary>
 [SimpleJob(RunStrategy.Monitoring, warmupCount: 1, iterationCount: 3, invocationCount: 1)]
 public class IngestionBenchmark
 {
-    private const int FrameCount = 150_000;
-
-    // Sustained-rate target the phase gates on. The producer is paced to this rate so the
-    // latency percentiles measure steady-state receive→commit time, not a burst backlog.
-    private const int TargetMsgPerSecond = 8_000;
+    private const int FrameCount = 200_000;
 
     private byte[][] _payloads = [];
     private string _dir = string.Empty;
@@ -77,7 +74,8 @@ public class IngestionBenchmark
         _spill = new DiskSpillQueue(io, NullLogger<DiskSpillQueue>.Instance);
         var rl = new PerSourceRateLimiter(io, TimeProvider.System);
         _intake = new FrameIntake(_channel, _spill, rl, stats, io, NullLogger<FrameIntake>.Instance, TimeProvider.System);
-        _pipeline = new IngestionPipeline(_channel, _spill, _repo, stats, io, NullLogger<IngestionPipeline>.Instance);
+        (MessageParser parser, DeduplicationWindow dedup) = ParsingComposition.Build();
+        _pipeline = new IngestionPipeline(_channel, _spill, _repo, parser, dedup, stats, io, NullLogger<IngestionPipeline>.Instance);
         _spill.RecoverAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
@@ -114,24 +112,13 @@ public class IngestionBenchmark
         var cts = new CancellationTokenSource();
         Task pump = Task.Run(() => _pipeline!.RunAsync(cts.Token));
 
-        // Pace the producer to the sustained target rate in small bursts.
-        const int burst = 200;
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        // Unpaced burst: push everything as fast as possible and measure the drain rate
+        // (parse + batch + commit). This is the number compared across Phases 2/3/6/7/12.
         for (int i = 0; i < FrameCount; i++)
         {
             var frame = new RawFrame(DateTimeOffset.UtcNow, "198.51.100." + (i % 254 + 1), "bench",
                 Protocol.Udp, _payloads[i], truncated: false);
             await _intake!.AcceptAsync(frame, CancellationToken.None);
-
-            if ((i + 1) % burst == 0)
-            {
-                double dueMs = (i + 1) * 1000.0 / TargetMsgPerSecond;
-                double waitMs = dueMs - sw.Elapsed.TotalMilliseconds;
-                if (waitMs > 1)
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(waitMs));
-                }
-            }
         }
 
         _channel!.Complete();
@@ -166,6 +153,9 @@ public class IngestionBenchmark
             (await AppendBatchAsync([syslogEvent], cancellationToken))[0];
 
         public Task<SyslogEvent?> GetByIdAsync(long eventId, CancellationToken cancellationToken) => inner.GetByIdAsync(eventId, cancellationToken);
+
+        public Task IncrementOccurrenceAsync(IReadOnlyDictionary<long, int> increments, CancellationToken cancellationToken) =>
+            inner.IncrementOccurrenceAsync(increments, cancellationToken);
 
         public IAsyncEnumerable<SyslogEvent> QueryAsync(LogQuery query, CancellationToken cancellationToken) => inner.QueryAsync(query, cancellationToken);
 

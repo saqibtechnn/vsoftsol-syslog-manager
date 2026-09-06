@@ -1,0 +1,43 @@
+# Cisco IOS / IOS-XE parser pack (VENDOR_SUPPORT.md core eight).
+# Base RFC 3164 parsing handles the <PRI>, the optional sequence number, and the
+# "Mmm dd hh:mm:ss.mmm" timestamp. What is left in the message is
+#   %FACILITY-SEVERITY-MNEMONIC: free text
+# The mnemonic is the most useful thing to alert on (VENDOR_SUPPORT.md trap).
+
+[pack]
+vendor = cisco-ios
+priority = 40
+
+[match]
+message ~ ^%[A-Z0-9_]+-[0-7]-[A-Z0-9_]+
+message ~ ^[0-9]+:\s+%[A-Z0-9_]+-[0-7]-[A-Z0-9_]+
+
+[grok]
+^(?:%{POSINT:cisco_seq}:\s+)?%(?<cisco_facility>[A-Z0-9_]+)-(?<cisco_severity>[0-7])-(?<cisco_mnemonic>[A-Z0-9_]+):\s*(?<cisco_detail>.*)$
+
+[regex]
+Interface (?<interface>[^,]+), changed state to (?<link_state>up|down|administratively down)
+
+[regex]
+line (?<line>[a-z0-9/ ]+?) by '(?<user>[^']+)'
+
+[regex]
+Configured from (?<config_source>console|vty[0-9]+|memory) by (?<user>\S+)(?: on (?<line>\S+))?
+
+[regex]
+list (?<acl_name>\S+) (?<acl_action>permitted|denied) (?<protocol>tcp|udp|icmp|\d+) (?<src_ip>%{IPV4})\((?<src_port>\d+)\) -> (?<dst_ip>%{IPV4})\((?<dst_port>\d+)\)
+
+[regex]
+neighbor %{IPV4:neighbor_ip} (?<bgp_state>Up|Down)
+
+[lookup]
+source = cisco_severity
+target = cisco_severity_name
+0 = emergency
+1 = alert
+2 = critical
+3 = error
+4 = warning
+5 = notification
+6 = informational
+7 = debugging

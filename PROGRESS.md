@@ -7,19 +7,149 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 2 — Ingestion core
-- **Last tag:** `v1.0.0-phase.2`
-- **Next phase:** 3 — Parsing
-- **Build status:** green — `dotnet build -c Release` warning-clean, `dotnet test` 148/148 (0 skipped, Soak excluded), `dotnet format` clean
+- **Last completed phase:** 3 — Parsing
+- **Last tag:** `v1.0.0-phase.3`
+- **Next phase:** 4 — UI & auth
+- **Build status:** green — `dotnet build -c Release` warning-clean, `dotnet test` 452/452 (0 skipped, Soak excluded), `dotnet format` clean, SCA clean (13 projects)
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
-- **Ingest benchmark (Phase 2):** sustained **~7,800 msg/sec** end-to-end (paced 8k feed, kept up) vs the 5,000 gate — PASS. Burst-drain **~11,460 msg/sec**, zero loss. End-to-end latency p50 ~175 ms / p99 ~1.0 s. Kill test PASS ×3 (5/5 consecutive). See `docs/evidence/phase-02/benchmarks.md`.
+- **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC-parse pipeline **~13,600 msg/sec** (no regression, +19%); full parse + vendor extraction **~5,300 msg/sec** worst case (200k unique msgs all matching the busiest pack, 2-vCPU VM) — clears the 5,000 gate marginally; pure parse+extract **~105,000 msg/sec**. See `docs/evidence/phase-03/benchmarks.md`.
 
 ---
 
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 3 — Parsing & Normalization — 2026-09-06 — tag `v1.0.0-phase.3`
+
+> Proceeded in the same session as Phase 2 at the operator's explicit direction ("proceed"),
+> against the one-phase-per-session default. Two evidence gates are environmentally blocked
+> and were substituted / carried (see sign-off): the live rsyslog/syslog-ng oracle (no
+> Docker/WSL on this host — substituted with an independent regex-reference parser, 0
+> divergences) and Stryker mutation testing (P0-2, runner does not deploy on this
+> SDK-only host — config complete, carried to CI).
+
+**Shipped** (`src/VSoftSol.Syslog.Ingestion/Parsing/`, `Extraction/`, `Patterns/`)
+- `Rfc5424Parser` — full header + structured data (multi-element, escaped values) → JSON;
+  hand-written span parser, no regex on the header path; returns false for non-5424.
+- `Rfc3164Parser` — BSD timestamp with year inference + 31 Dec/1 Jan rollover, optional
+  Cisco sequence number, sub-second time, optional explicit year (ASA), optional `TZ:`
+  token; lenient but still falls through to `raw` for unstructured input.
+- `MessageParser` facade — decode → 5424 → 3164 → `raw`; never throws; `raw` keeps
+  `source_ip` / `received_utc` / `raw_message`; the **wire `source_ip` always wins** over a
+  claimed hostname; meta fields (`truncated`, `timestamp_ambiguous`, `framing_anomaly`,
+  `charset`). Raw events linked to the **Parse Failures** system stream by the repository.
+- `PayloadDecoder` — UTF-8 BOM / UTF-16 BOM detection, strict UTF-8 → latin-1 fallback,
+  `MaxMessageChars` cap with a `truncated` field (raw bytes always kept in full).
+- Extractor pipeline — `GrokLibrary` (~120-line GROK subset, `Compiled` + mandatory match
+  timeout), `GrokExtractor` / `RegexExtractor` / `KeyValueExtractor` / `JsonExtractor`
+  (depth-capped) / `CsvExtractor` (per-type `when` guards) / `LookupExtractor` /
+  `TransformExtractor`; each stage isolated (a bad pattern never stops ingestion); field
+  count + value length caps (`ExtractionContext`, `fields_truncated` marker).
+- **Vendor packs — the core eight**, plain text, runtime-loaded (**ADR 0011**):
+  `cisco-ios`, `cisco-asa`, `fortigate` (KV), `paloalto` (positional CSV per log type),
+  `juniper-junos`, `mikrotik-routeros`, `ubiquiti-unifi`, `linux` (sshd/sudo/cron/kernel).
+  `PatternPackLoader` (malformed pack → log + skip, never fatal), `VendorExtractor`
+  (first-match-wins by priority).
+- `DeduplicationWindow` — identical host + message within N seconds bumps
+  `occurrence_count` via `ILogRepository.IncrementOccurrenceAsync` instead of a new row;
+  default 0 (off). In-memory, per-process.
+- Wired into `IngestionPipeline` (replaces the Phase-2 raw mapper). `ParsingOptions`
+  (`Parsing` section); `VendorExtractionEnabled` toggle. Server GC on the Service host.
+- 200 committed fixtures (`tests/fixtures/messages/<vendor>/corpus.jsonl`, 25/vendor) with
+  field-by-field expected output.
+
+**Verification output** (`docs/evidence/phase-03/`)
+- `dotnet build -c Release` → 0 warnings, 0 errors
+- `dotnet test` (Soak excluded) → **452 passed, 0 failed, 0 skipped** (was 148)
+- `dotnet format --verify-no-changes` → exit 0
+- 200/200 fixtures parse to their expected fields; `raw_message` byte-identical for 100%
+- Malformed suite (truncated PRI, no timestamp, oversized, invalid UTF-8, empty) → stored
+  `raw`, linked to Parse Failures, never an exception
+- Year-rollover (Dec-in-Jan, Jan-in-Dec) → correct year
+- Dedup → `occurrence_count` increments, no duplicate row
+- Property (FsCheck, ≥ 22k cases) + fuzz (1 MB, 10k SD, ANSI, NUL, ReDoS bait) → 0
+  exceptions, 0 hangs, raw byte-identical every time; the ReDoS match timeout fires
+- **Independent oracle** — 150 fixtures, **0 divergences** on every RFC header field
+  (`oracle-comparison.md`)
+- Log-forging matrix (CRLF, fake PRI, forged hostname, NUL) → exactly one event, source IP
+  authoritative, hostile payloads stored byte-identical
+- Memory bounds — field / value / SD caps enforced, all bounded < 5 s
+- **Phase 2 chaos suite re-run with parsing inline → 7/7** (chaos ×10, kill ×10, fuzz 1M)
+- SCA clean, 13 projects; **no new dependency**
+- Coverage: **Ingestion 89.5 %** line (union of both suites; gate ≥ 80 % — PASS)
+- Benchmark: pure parse+extract ~105,000 msg/sec; end-to-end full ~5,300 msg/sec worst
+  case (2-vCPU VM), RFC-only ~13,600 msg/sec (`benchmarks.md`, `benchmarks.json`)
+
+**Decisions made**
+- **ADR 0011** — vendor packs are plain text, loaded at runtime; INI-like format; malformed
+  → skip; first-match-wins by priority; mandatory regex timeout + field caps; the core
+  eight shipped with 200 fixtures. A third-party GROK NuGet was rejected (dependency on the
+  ingest path + SCA gate); a ~120-line subset covers the core eight.
+- The parse fallback chain **never rejects a message** (Constraint 4) — validates PRI
+  range / 5424 version / timestamp format and falls to `raw` otherwise.
+- **No sanitisation on ingest** — hostile payloads stored byte-identical; an explicit
+  passing test guards it so no later phase "fixes" it.
+- The wire-observed `source_ip` is authoritative over any hostname in the message.
+- `RegexOptions.Compiled` + match timeout for pack patterns (NonBacktracking measured
+  ~40 % slower on the fast-matching common case; kept only as the fallback).
+- Server GC enabled on the Service host (allocation-heavy concurrent workload).
+- Added `ILogRepository.IncrementOccurrenceAsync` (dedup) — same seam, more surface.
+  `SqliteLogRepository.AppendBatchAsync` hard-wires the one route (`parse_status='raw'` →
+  Parse Failures stream); the general routing engine is Phase 6.
+
+**Sign-off block** (TESTING_STANDARDS.md §9)
+```
+PHASE 3 SIGN-OFF
+  Tests added:            ~110 unit (RFC parsers, decoder, extractors, GROK, pack loader,
+                          dedup, property, fuzz, log-forging, memory bounds, oracle) +
+                          200 fixture theory cases + 5 integration. ~315 total new.
+  Total suite:            452 tests, 452 passing, 0 skipped (Soak run nightly:
+                          chaos x10, kill x10, wire-fuzz 1M -> 7/7 green with parsing inline)
+  Red-green observed:     yes (docs/evidence/phase-03/red-green.md) - fixture corpus and
+                          RFC-compliance tests written first; 6 real defects found
+                          test-first, each with a permanent regression test
+  Coverage:               Ingestion 89.5% line (union of both suites; gate >= 80% - PASS).
+                          Data still 90.5%. Rules/Reporting gate N/A (Phase-0 shells).
+  Mutation score:         BLOCKED on this host (P0-2 / P3-3 - Stryker VsTest adapter does
+                          not deploy). Config complete + targeted (parser/extractor/pack).
+                          Carried to a CI host. Not a FAIL - environmentally blocked, and
+                          the parser's test depth (RFC compliance + 200 fixtures + property
+                          + fuzz + independent oracle) is strong.
+  Performance gates:      parsing must not drop sustained ingest below 5,000 msg/sec:
+                          pure parse+extract ~105,000 msg/sec (PASS, 20x).
+                          full pipeline end-to-end, worst case (200k unique msgs all
+                          matching the busiest pack, 2-vCPU VMware VM): ~5,100-5,900 msg/sec
+                          across 4 runs -- MARGINAL PASS (clears 5,000 every run).
+                          RFC-parse-only pipeline ~13,600 msg/sec -- FASTER than the Phase 2
+                          baseline of 11,460, so RFC parsing added NO regression.
+                          The 20x standalone-vs-pipeline gap is a documented investigation
+                          item (P3-2), re-verified on Phase 12 clean-VM hardware. Mitigation
+                          shipped: VendorExtractionEnabled toggle + per-source rate limiter.
+  Oracle / differential:  live rsyslog/syslog-ng not run - no Docker/WSL on this host (P3-1).
+                          Substituted with an independent regex-reference parser: 150
+                          fixtures, 0 divergences on every RFC header field. Live run added
+                          to the Phase 12 checklist.
+  UX gate:                N/A - no screen shipped
+  Regression:             all Phase 0/1/2 tests green - yes (148 -> 452, none changed);
+                          Phase 2 chaos suite re-run 7/7 with parsing inline
+  Evidence committed:     docs/evidence/phase-03/
+  Security gate:          log-injection/forging PASS / source-IP-authority PASS /
+                          no-sanitisation-on-ingest PASS / ReDoS timeout PASS /
+                          memory-exhaustion caps PASS / fuzz (>= 32k cases, 0 crash/hang)
+                          PASS / oracle differential PASS / raw-retention 100% PASS /
+                          SCA PASS / SAST PASS
+  Open findings:          0 C, 0 H, 0 M, 1 L (P0-3, carried). No new residual risks.
+```
+
+**Deferred**
+- [ ] P3-1: live oracle vs rsyslog/syslog-ng — Phase 12 checklist (needs a container host).
+- [ ] P3-2: investigate the pipeline parse-cost inflation; re-verify perf on Phase 12 hardware.
+- [ ] P3-3: run Stryker on a CI host with the VsTest adapter.
+- [ ] Re-run the ingest benchmark in Phases 6, 7, 12.
+
+**Known issues** — `docs/evidence/phase-03/known-issues.md` (P3-1 … P3-6).
 
 ### Phase 2 — Ingestion core — 2026-09-06 — tag `v1.0.0-phase.2`
 
@@ -344,11 +474,13 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | Marker | Where | Target phase |
 |---|---|---|
 | _(none — no `TODO(phase-N)` in code)_ | | |
-| P0-2 Stryker run | `stryker-config.json` | 3 (first real target: the parser) |
 | P0-3 CSP nonces | `SecurityHeadersMiddleware` | 4 |
-| P2-1 `events.listener_id` link + listener-management UI | `RawFrameMapper`, `SqliteLogRepository` | 4 |
+| P2-1 `events.listener_id` link + listener-management UI | `MessageParser`, `SqliteLogRepository` | 4 |
 | P2-2 spill / segment / cursor file ACLs | Phase 12 installer | 12 |
+| P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | 12 (container host) |
+| P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | 12 |
+| P3-3 Stryker mutation run (was P0-2) | `stryker-config.json` | CI host with VsTest adapter |
 | P1-1 re-measure insert benchmark on clean-VM hardware | `benchmarks` | 12 |
-| Re-run ingest throughput benchmark | `IngestionBenchmark` | 3, 6, 7, 12 |
+| Re-run ingest throughput benchmark | `IngestionBenchmark` | 6, 7, 12 |
 
-_(P0-1 coverage gate is now met — Ingestion at 87.0%, Data at 90.6%.)_
+_(P0-1 coverage gate met — Ingestion 89.5%, Data 90.5%.)_

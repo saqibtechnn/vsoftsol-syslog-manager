@@ -9,6 +9,11 @@
     <RootNamespace>VSoftSol.Syslog.Service</RootNamespace>
     <AssemblyName>VSoftSol.Syslog.Service</AssemblyName>
     <UserSecretsId>vsoftsol-syslog-service</UserSecretsId>
+    <!-- The collector is an allocation-heavy, concurrent producer/consumer workload
+         (listeners + parse pipeline + writer). Server GC keeps the parse path off the
+         throughput cliff on multi-core hosts. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Listeners, bounded channel, disk spill queue, ingest pipeline (Phase 2).
-       Parsers and extractors arrive in Phase 3. References Core only — the layering
-       fitness test forbids a reference to Data, Rules, or Reporting. -->
+  <!-- Listeners, bounded channel, disk spill queue, ingest pipeline (Phase 2);
+       RFC 3164/5424 parsers, extractor pipeline, runtime-loaded vendor packs (Phase 3).
+       References Core only — the layering fitness test forbids Data, Rules, or Reporting. -->
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -23,6 +23,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Vendor parser packs are plain text, loaded at runtime — adding a vendor is a file
+         drop, never a rebuild (PHASE_03 item 7). Copied next to the host executable and
+         flowed to every referencing project's output. -->
+    <None Include="Patterns\**\*.pack" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,22 +1,27 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using VSoftSol.Syslog.Core.Abstractions;
+using VSoftSol.Syslog.Core.Enums;
 using VSoftSol.Syslog.Core.Events;
+using VSoftSol.Syslog.Ingestion.Parsing;
 
 namespace VSoftSol.Syslog.Ingestion;
 
 /// <summary>
-/// Drains the in-memory channel and the disk spill queue, batches frames, and commits them
-/// through <see cref="ILogRepository"/> as <see cref="Core.Enums.ParseStatus.Raw"/> events
-/// (PHASE_02 item 5). Spill segments advance only after their frames are committed, and a
-/// commit failure spills the in-memory frames back to disk rather than dropping them, so
-/// the pipeline cannot lose an accepted message.
+/// Drains the in-memory channel and the disk spill queue, parses each frame
+/// (<see cref="MessageParser"/>: RFC 5424 → RFC 3164 → raw), applies the deduplication
+/// window, batches, and commits through <see cref="ILogRepository"/> (PHASE_02 item 5,
+/// PHASE_03 items 3 &amp; 8). Spill segments advance only after their frames are committed,
+/// and a commit failure spills the in-memory frames back to disk rather than dropping them,
+/// so the pipeline cannot lose an accepted message.
 /// </summary>
 public sealed class IngestionPipeline
 {
     private readonly IngestionChannel _channel;
     private readonly DiskSpillQueue _spill;
     private readonly ILogRepository _repository;
+    private readonly MessageParser _parser;
+    private readonly DeduplicationWindow _dedup;
     private readonly IngestionStatistics _stats;
     private readonly IngestionOptions _options;
     private readonly ILogger<IngestionPipeline> _logger;
@@ -25,6 +30,8 @@ public sealed class IngestionPipeline
         IngestionChannel channel,
         DiskSpillQueue spill,
         ILogRepository repository,
+        MessageParser parser,
+        DeduplicationWindow dedup,
         IngestionStatistics stats,
         IOptions<IngestionOptions> options,
         ILogger<IngestionPipeline> logger)
@@ -32,6 +39,8 @@ public sealed class IngestionPipeline
         _channel = channel;
         _spill = spill;
         _repository = repository;
+        _parser = parser;
+        _dedup = dedup;
         _stats = stats;
         _options = options.Value;
         _logger = logger;
@@ -158,18 +167,47 @@ public sealed class IngestionPipeline
         List<RawFrame> channelFrames, DiskSpillQueue.SpillLease? lease, CancellationToken stoppingToken)
     {
         int total = channelFrames.Count + (lease?.Frames.Count ?? 0);
-        var events = new SyslogEvent[total];
-        int i = 0;
+
+        // Parse every frame, then fold same-host/same-body repeats within the dedup window
+        // into an occurrence bump on the already-committed event instead of a new row.
+        var toInsert = new List<SyslogEvent>(total);
+        var insertKeys = new List<string>(total);
+        Dictionary<long, int>? dupIncrements = null;
+
+        void Prepare(RawFrame f)
+        {
+            SyslogEvent e = _parser.Parse(f);
+            if (_dedup.Enabled)
+            {
+                string key = MessageParser.DeduplicationKey(e);
+                long? existing = _dedup.LookupRecent(key);
+                if (existing is { } id)
+                {
+                    dupIncrements ??= [];
+                    dupIncrements[id] = dupIncrements.GetValueOrDefault(id) + 1;
+                    return;
+                }
+
+                insertKeys.Add(key);
+            }
+            else
+            {
+                insertKeys.Add(string.Empty);
+            }
+
+            toInsert.Add(e);
+        }
+
         foreach (RawFrame f in channelFrames)
         {
-            events[i++] = RawFrameMapper.ToRawEvent(f);
+            Prepare(f);
         }
 
         if (lease is not null)
         {
             foreach (RawFrame f in lease.Frames)
             {
-                events[i++] = RawFrameMapper.ToRawEvent(f);
+                Prepare(f);
             }
         }
 
@@ -178,7 +216,23 @@ public sealed class IngestionPipeline
         {
             try
             {
-                await _repository.AppendBatchAsync(events, stoppingToken).ConfigureAwait(false);
+                if (toInsert.Count > 0)
+                {
+                    IReadOnlyList<long> ids = await _repository.AppendBatchAsync(toInsert, stoppingToken).ConfigureAwait(false);
+                    if (_dedup.Enabled)
+                    {
+                        for (int k = 0; k < ids.Count; k++)
+                        {
+                            _dedup.Record(insertKeys[k], ids[k]);
+                        }
+                    }
+                }
+
+                if (dupIncrements is { Count: > 0 })
+                {
+                    await _repository.IncrementOccurrenceAsync(dupIncrements, stoppingToken).ConfigureAwait(false);
+                }
+
                 CountCommitted(channelFrames);
                 if (lease is not null)
                 {

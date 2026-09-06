@@ -1,0 +1,35 @@
+{
+  "phase": 3,
+  "environment": "Windows 11 10.0.26200 (VMware, 2 logical CPUs), .NET 8.0.30, X64 RyuJIT AVX2, Concurrent Server GC",
+  "gate": "parsing must not drop sustained ingest below 5,000 msg/sec (TESTING_STANDARDS.md §5, PHASE_03)",
+  "pure_parse_extract": {
+    "benchmark": "VSoftSol.Syslog.Benchmarks.ParseBenchmark.ParseMixedCorpus",
+    "tool": "BenchmarkDotNet 0.14.0, RunStrategy.Throughput, 3 warmup + 5 iterations",
+    "description": "RFC 5424/3164 parse + vendor extraction over a 12-message mixed corpus, every message unique, no I/O",
+    "mean_us_per_message": 9.56,
+    "stddev_pct": 2.6,
+    "allocated_bytes_per_message": 3880,
+    "msg_per_second": 104600,
+    "verdict": "PASS — 20x the 5,000 gate"
+  },
+  "end_to_end_pipeline": {
+    "probe": "tests/VSoftSol.Syslog.Benchmarks -- --ingest-probe   (warmed, 200,000 frames, real channel + spill + parse + SQLite)",
+    "note": "worst case: 200k unique messages ALL matching cisco-ios (the pack with the most stages), on the 2-vCPU VMware dev VM",
+    "with_vendor_extraction_msg_per_second": [5934, 5399, 5183, 5122],
+    "with_vendor_extraction_median": 5291,
+    "without_vendor_extraction_msg_per_second": 13604,
+    "verdict": "PASS (marginal). Clears the 5,000 gate in every run (5,100-5,900). RFC-parse-only path is 13,604 msg/sec — faster than the Phase 2 baseline of 11,460, so RFC parsing added no regression."
+  },
+  "phase2_regression_check": {
+    "phase2_burst_drain_msg_per_second": 11460,
+    "phase3_burst_drain_rfc_only_msg_per_second": 13604,
+    "phase3_burst_drain_full_parse_msg_per_second": 5291,
+    "verdict": "RFC parsing: no regression (+19%). Vendor extraction: -54% worst case on a 2-vCPU VM. Documented (known-issues P3-2), re-verified on Phase 12 hardware. Mitigation: Parsing:VendorExtractionEnabled toggle + the Phase 2 per-source rate limiter."
+  },
+  "raw_retention": {
+    "fixtures": 200,
+    "raw_byte_identical_pct": 100,
+    "property_test_cases": 32000,
+    "verdict": "PASS — raw_message byte-identical to input for 100% of fixtures, parsed or not, and for 32k FsCheck / random cases"
+  }
+}

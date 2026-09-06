@@ -1,12 +1,19 @@
 {
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/schema/stryker-config-schema.json",
   "stryker-config": {
-    "project": "VSoftSol.Syslog.Core.csproj",
+    "project": "VSoftSol.Syslog.Ingestion.csproj",
     "test-projects": [
       "tests/VSoftSol.Syslog.UnitTests/VSoftSol.Syslog.UnitTests.csproj"
     ],
     "mutate": [
-      "src/VSoftSol.Syslog.Core/Events/SyslogPriority.cs"
+      "src/VSoftSol.Syslog.Ingestion/Parsing/Rfc5424Parser.cs",
+      "src/VSoftSol.Syslog.Ingestion/Parsing/Rfc3164Parser.cs",
+      "src/VSoftSol.Syslog.Ingestion/Parsing/MessageParser.cs",
+      "src/VSoftSol.Syslog.Ingestion/Parsing/PayloadDecoder.cs",
+      "src/VSoftSol.Syslog.Ingestion/Parsing/DeduplicationWindow.cs",
+      "src/VSoftSol.Syslog.Ingestion/Extraction/*.cs",
+      "src/VSoftSol.Syslog.Ingestion/Patterns/PatternPack.cs",
+      "src/VSoftSol.Syslog.Ingestion/Patterns/PatternPackParser.cs"
     ],
     "thresholds": {
       "high": 90,
