@@ -14,7 +14,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V1.4 | Trusted enforcement points; fail closed | P | Single scope-filter chokepoint; authz denies on error — Phase 4 |
 | V1.5 | Input/output trust boundaries defined | I | THREAT_MODEL.md B1–B5 |
 | V1.6 | Threat model exists and is maintained | I | THREAT_MODEL.md, reviewed Phases 4/7/11 |
-| V1.11 | Business-logic limits documented | P | Rate limits, action budgets — Phases 2, 7 |
+| V1.11 | Business-logic limits documented | I / P | Per-source ingest rate limiter + max message size + spill size cap (Phase 2, `IngestionOptions`); rule/action budgets Phase 7 |
 | V1.14 | Segregation of components | I | `Core` I/O-free (fitness test); layered projects; two seams only |
 | **V2** | **Authentication** | | |
 | V2.1 | Password policy, no forced composition rules, length allowed | P | Phase 4 |
@@ -58,7 +58,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V10.2 | No backdoor / debug endpoint / default credential | P | Asserted by test — Phases 4, 12 |
 | V10.3 | Dependency integrity; SCA; SBOM | I | Central pinned versions, no floating ranges; `dotnet list --vulnerable` clean; CycloneDX SBOM in CI; Gitleaks full history |
 | **V11** | **Business logic** | | |
-| V11.1 | Sequential-step and rate-limit enforcement | P | Ingest rate limiter (Phase 2), rule/action budgets (Phase 7) |
+| V11.1 | Sequential-step and rate-limit enforcement | I / P | Per-source ingest token-bucket rate limiter with throttle / drop-with-counter / quarantine (Phase 2, tested); rule/action budgets (Phase 7) |
 | **V12** | **Files and resources** | | |
 | V12.1 | Upload size / type limits | P | Config-bundle import limits — Phase 11 |
 | V12.3 | No user input in file paths | P (gate) | Allow-listed destinations; path traversal tests — Phases 7, 10 |

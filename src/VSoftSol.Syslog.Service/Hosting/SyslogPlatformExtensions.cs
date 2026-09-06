@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using VSoftSol.Syslog.Data;
 using VSoftSol.Syslog.Data.Sqlite;
+using VSoftSol.Syslog.Ingestion;
 
 namespace VSoftSol.Syslog.Service.Hosting;
 
@@ -48,11 +49,27 @@ public static class SyslogPlatformExtensions
         return services;
     }
 
-    /// <summary>Registers the collector background service. The Web host does not call this.</summary>
-    public static IServiceCollection AddCollectorRuntime(this IServiceCollection services)
+    /// <summary>
+    /// Registers the collector runtime — the UDP/TCP listeners, the bounded channel, the
+    /// disk spill queue, and the ingest pipeline (Phase 2). The Web host does not call this,
+    /// so the UI process never binds a listener.
+    /// </summary>
+    public static IServiceCollection AddCollectorRuntime(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.AddHostedService<CollectorHostedService>();
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.AddSyslogIngestion();
+        services.AddOptions<IngestionOptions>()
+            .Bind(configuration.GetSection(IngestionOptions.SectionName))
+            .PostConfigure<IOptions<CollectorOptions>>((ingestion, collector) =>
+            {
+                if (string.IsNullOrWhiteSpace(ingestion.SpillDirectory))
+                {
+                    ingestion.SpillDirectory = Path.Combine(collector.Value.DataDirectory, "spill");
+                }
+            });
+
         return services;
     }
 

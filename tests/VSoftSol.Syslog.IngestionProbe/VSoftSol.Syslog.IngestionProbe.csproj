@@ -1,18 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Out-of-process ingestion host for the Phase 2 hard-kill / chaos tests. Not a test
+       project (no test SDK); the IntegrationTests project takes a build-only reference and
+       launches it with Process.Start / Process.Kill. -->
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
-    <!-- Not a test project: no test SDK is referenced, so `dotnet test` skips it.
-         Run it explicitly via `dotnet run -c Release` per CLAUDE.md commands. -->
     <IsTestProject>false</IsTestProject>
-    <NoWarn>$(NoWarn);CA1707;CA1822;CA1001</NoWarn>
+    <NoWarn>$(NoWarn);CA1031;CA2007</NoWarn>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="BenchmarkDotNet" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />

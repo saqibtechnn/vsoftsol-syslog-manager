@@ -37,17 +37,23 @@ forward, ODBC, and local script execution as rule actions (Phase 7). Not interne
 
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
-| S | Forge messages from a spoofed source IP; flood the device-discovery queue | Store `source_ip` as observed and flag it as unverified; discovery is a review queue, never auto-trust; per-source rate limiting; optional allow-list of source subnets; TLS listener gives authenticated transport | 2, 6, 11 | planned |
-| T | CRLF / embedded-newline injection to fabricate or split log entries, forge a hostname | Parse framing per RFC; never split on raw newlines post-frame; store `raw_message` verbatim and render with encoding; record a `framing_anomaly` field | 3 | planned |
-| R | Attacker denies having sent a message | `received_utc` + `source_ip` + `listener_id` + raw bytes retained; no dedup that discards origin | 2, 3 | planned |
+| S | Forge messages from a spoofed source IP; flood the device-discovery queue | Store `source_ip` as observed and flag it as unverified; discovery is a review queue, never auto-trust; per-source rate limiting; optional allow-list of source subnets; TLS listener gives authenticated transport | 2, 6, 11 | **partial** — per-source token-bucket rate limiter with throttle / drop-with-counter / quarantine behaviours (Phase 2); `source_ip` stored as observed; discovery queue Phase 6; TLS Phase 11 |
+| T | CRLF / embedded-newline injection to fabricate or split log entries, forge a hostname | Parse framing per RFC; never split on raw newlines post-frame; store `raw_message` verbatim and render with encoding; record a `framing_anomaly` field | 3 | **partial** — TCP framing is per-RFC (newline or RFC 6587 octet-counting, auto-detected); `raw_message` stored verbatim including embedded CR/LF/NUL; the parse/`framing_anomaly` field is Phase 3 |
+| R | Attacker denies having sent a message | `received_utc` + `source_ip` + `listener_id` + raw bytes retained; no dedup that discards origin | 2, 3 | **partial** — `received_utc` + `source_ip` + protocol + raw bytes retained on every frame (Phase 2); `listener_id` link Phase 4; no dedup in v1 |
 | I | — (listener receives, does not disclose) | n/a | | |
-| D | UDP flood fills disk / exhausts the queue / OOMs the process | Bounded `Channel`; disk spill queue with a hard size cap and fail-closed drop-to-disk-full policy that still never loses an *accepted* message; per-source rate limiter; configurable max message size; back-pressure metrics surfaced in the UI | 2 | planned |
+| D | UDP flood fills disk / exhausts the queue / OOMs the process | Bounded `Channel`; disk spill queue with a hard size cap and fail-closed drop-to-disk-full policy that still never loses an *accepted* message; per-source rate limiter; configurable max message size; back-pressure metrics surfaced in the UI | 2 | **implemented** — bounded channel + spill queue with `SpillMaxBytes` cap (drop-with-counter + alert, never fills the disk); per-source rate limiter; `MaxMessageBytes` guard; counters in `IngestionStatistics`. UI surfacing of the metrics is Phase 9. ADR 0010 |
 | D | ReDoS via user-authored extractor/stream/rule regex stalling the ingest path | Compile user regex with a timeout; reject catastrophic patterns at save time with a test button; run extraction off the accept path | 3, 6 | planned |
-| E | Parser memory-safety / RCE from crafted input | Managed code, no unsafe parsing; fuzz corpus (CWE Top 25) in CI from Phase 3; least-privilege service account (ADR 0006) bounds impact | 3 | planned |
+| E | Parser memory-safety / RCE from crafted input | Managed code, no unsafe parsing; fuzz corpus (CWE Top 25) in CI from Phase 3; least-privilege service account (ADR 0006) bounds impact | 3 | **partial** — wire fuzzing (random / zero-length / 64 KB / split / mixed-framing / NUL / invalid-PRI) added Phase 2: zero crashes, no hang, no socket leak, no unbounded allocation. Parser fuzz Phase 3 |
 
-**Residual risk:** UDP source spoofing cannot be eliminated for plain UDP syslog; the
-product documents this and offers TLS + source allow-lists. Accepted, stated in the
-Phase 12 hardening guide.
+**Residual risk (accepted).** Plain UDP syslog source IPs are unverifiable and trivially
+spoofable; this cannot be eliminated at the transport. Mitigations offered: the per-source
+rate limiter (which bounds any single spoofed or real source), an optional source-subnet
+allow-list (Phase 6), and a mutually-authenticated TLS listener (Phase 11) for customers
+who need authenticated transport. A hard process kill can also lose frames that were
+accepted but not yet durable (in the in-memory channel, or the ≤ `SpillFlushInterval` tail
+of the spill segment) — inherent to a non-per-message-`fsync` design and to unacknowledged
+UDP. Both are **accepted residual risks**, stated in the Phase 12 hardening guide, and
+recorded for operator sign-off in `SECURITY_REVIEW.md`.
 
 ---
 

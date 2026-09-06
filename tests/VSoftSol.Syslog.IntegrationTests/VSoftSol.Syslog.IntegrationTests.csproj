@@ -26,6 +26,8 @@
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj" />
     <ProjectReference Include="..\..\tests\VSoftSol.Syslog.CrashProbe\VSoftSol.Syslog.CrashProbe.csproj"
                       ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="..\..\tests\VSoftSol.Syslog.IngestionProbe\VSoftSol.Syslog.IngestionProbe.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

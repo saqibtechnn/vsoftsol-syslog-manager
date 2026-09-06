@@ -1,0 +1,8 @@
+frames=150000 committed=150000 latency_ms p50=282.3 p95=1130.7 p99=1348.3 max=1521.2
+frames=150000 committed=150000 latency_ms p50=95.7 p95=804.3 p99=1056.5 max=1231.9
+frames=150000 committed=150000 latency_ms p50=98.8 p95=901.9 p99=1060.9 max=1204.0
+frames=150000 committed=150000 latency_ms p50=370.0 p95=1993.4 p99=2444.1 max=2608.9
+frames=150000 committed=150000 latency_ms p50=330.7 p95=1736.2 p99=2218.3 max=2382.1
+frames=150000 committed=150000 latency_ms p50=190.9 p95=850.3 p99=1020.7 max=1164.3
+frames=150000 committed=150000 latency_ms p50=143.9 p95=827.5 p99=955.4 max=1047.8
+frames=150000 committed=150000 latency_ms p50=176.7 p95=880.2 p99=1014.1 max=1088.6

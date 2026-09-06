@@ -1,0 +1,8 @@
+=== build ===
+    0 Warning(s)
+    0 Error(s)
+=== test (non-Soak) ===
+Passed!  - Failed:     0, Passed:    63, Skipped:     0, Total:    63, Duration: 4 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 1 m 22 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+=== format ===
+format exit=0

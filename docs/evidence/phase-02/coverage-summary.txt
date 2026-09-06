@@ -1,0 +1,25 @@
+Phase 2 coverage — dotnet test --collect "XPlat Code Coverage"
+(cobertura files under docs/evidence/phase-02/coverage/)
+
+Two collections: the UnitTests run (framer / codec / rate-limiter) and the
+IntegrationTests run (listeners, channel, spill queue, pipeline, hosted service, against
+real sockets + a real SQLite file). Highest per-package line-rate across the two:
+
+  VSoftSol.Syslog.Ingestion     0.870   (87.0%)  <-- Phase 2 deliverable
+  VSoftSol.Syslog.Data          0.906   (90.6%)  (Phase 1, still green)
+  VSoftSol.Syslog.Web           0.811
+  VSoftSol.Syslog.BrandingGen   0.865
+  VSoftSol.Syslog.Service       0.663
+  VSoftSol.Syslog.Core          0.526   (schema records / enums, largely declarative)
+  VSoftSol.Syslog.Rules         0.000   (shell — Phase 7)
+  VSoftSol.Syslog.Reporting     0.000   (shell — Phase 10)
+
+TESTING_STANDARDS.md §3 gate (>= 80% line on Ingestion / Rules / Reporting):
+  Ingestion  = 87.0%  PASS  (this phase's real target)
+  Rules      = N/A    (Phase-0 shell — becomes enforceable in Phase 7)
+  Reporting  = N/A    (Phase-0 shell — becomes enforceable in Phase 10)
+
+Uncovered Ingestion lines: rare error branches (segment-delete IOException, flush-loop
+fault handler), the IPv6 bind path, and the WarnSpillFull rate-limit-log throttle. The
+graceful-shutdown-overrun path, spill torn-tail recovery, at-least-once redelivery, and
+the disk-full cap are all covered.

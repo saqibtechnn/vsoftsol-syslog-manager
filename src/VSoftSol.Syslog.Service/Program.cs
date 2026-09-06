@@ -19,7 +19,7 @@ try
     builder.Services.AddSerilog();
     builder.Services.AddWindowsService(options => options.ServiceName = BrandingInfo.ProductName);
     builder.Services.AddSyslogPlatform(builder.Configuration);
-    builder.Services.AddCollectorRuntime();
+    builder.Services.AddCollectorRuntime(builder.Configuration);
 
     using IHost host = builder.Build();
 
