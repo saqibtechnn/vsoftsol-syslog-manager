@@ -43,6 +43,10 @@
         <table class="ds-table">
             <thead>
                 <tr>
+                    @if (RowDetail is not null)
+                    {
+                        <th scope="col" class="ds-table__th--expand"><span class="ds-visually-hidden">Expand row</span></th>
+                    }
                     @foreach (TableColumn<TItem> column in VisibleColumns)
                     {
                         <th scope="col" class="@(column.Numeric ? "ds-table__th--num" : null)"
@@ -66,14 +70,14 @@
                 @if (Virtualized)
                 {
                     <Virtualize Items="SortedItems" Context="row" ItemSize="36">
-                        <tr>@RenderRow(row)</tr>
+                        @RenderRowGroup(row)
                     </Virtualize>
                 }
                 else
                 {
                     @foreach (TItem row in SortedItems)
                     {
-                        <tr>@RenderRow(row)</tr>
+                        @RenderRowGroup(row)
                     }
                 }
             </tbody>
@@ -85,12 +89,36 @@
     private HashSet<string> _visible = [];
     private string? _sortColumnId;
     private bool _sortDescending;
+    private readonly HashSet<object> _expanded = [];
+
+    private object KeyOf(TItem row) => RowKey is not null ? RowKey(row) : row!;
+
+    private bool IsExpanded(TItem row) => _expanded.Contains(KeyOf(row));
+
+    private void ToggleExpand(TItem row)
+    {
+        object key = KeyOf(row);
+        if (!_expanded.Remove(key))
+        {
+            _expanded.Add(key);
+        }
+    }
 
     [Parameter, EditorRequired] public IReadOnlyList<TableColumn<TItem>> Columns { get; set; } = [];
 
     [Parameter, EditorRequired] public IReadOnlyList<TItem> Items { get; set; } = [];
 
     [Parameter] public bool Virtualized { get; set; } = true;
+
+    /// <summary>
+    /// Optional per-row expander. When set, each row gets a disclosure control and this
+    /// fragment renders in a full-width detail row beneath it. Expansion state survives
+    /// data refreshes (UX_STANDARDS §7 — auto-refresh must not close an open row).
+    /// </summary>
+    [Parameter] public RenderFragment<TItem>? RowDetail { get; set; }
+
+    /// <summary>Optional stable key so expansion survives when <see cref="Items"/> is replaced.</summary>
+    [Parameter] public Func<TItem, object>? RowKey { get; set; }
 
     [Parameter] public RenderFragment? Toolbar { get; set; }
 
@@ -162,9 +190,33 @@
     private string SortGlyph(TableColumn<TItem> column) =>
         _sortColumnId != column.Id ? "↕" : _sortDescending ? "↓" : "↑";
 
-    private RenderFragment RenderRow(TItem row) => builder =>
+    private RenderFragment RenderRowGroup(TItem row) => builder =>
     {
         int seq = 0;
+        bool expandable = RowDetail is not null;
+        bool expanded = expandable && IsExpanded(row);
+
+        builder.OpenElement(seq++, "tr");
+        if (expanded)
+        {
+            builder.AddAttribute(seq++, "class", "ds-table__row--expanded");
+        }
+
+        if (expandable)
+        {
+            builder.OpenElement(seq++, "td");
+            builder.AddAttribute(seq++, "class", "ds-table__td--expand");
+            builder.OpenElement(seq++, "button");
+            builder.AddAttribute(seq++, "type", "button");
+            builder.AddAttribute(seq++, "class", "ds-table__expander");
+            builder.AddAttribute(seq++, "aria-expanded", expanded ? "true" : "false");
+            builder.AddAttribute(seq++, "aria-label", expanded ? "Collapse details" : "Expand details");
+            builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create(this, () => ToggleExpand(row)));
+            builder.AddContent(seq++, expanded ? "▾" : "▸");
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
         foreach (TableColumn<TItem> column in VisibleColumns)
         {
             builder.OpenElement(seq++, "td");
@@ -174,6 +226,19 @@
             }
 
             builder.AddContent(seq++, column.Cell(row));
+            builder.CloseElement();
+        }
+
+        builder.CloseElement(); // tr
+
+        if (expanded)
+        {
+            builder.OpenElement(seq++, "tr");
+            builder.AddAttribute(seq++, "class", "ds-table__detail-row");
+            builder.OpenElement(seq++, "td");
+            builder.AddAttribute(seq++, "colspan", VisibleColumns.Count() + 1);
+            builder.AddContent(seq++, RowDetail!(row));
+            builder.CloseElement();
             builder.CloseElement();
         }
     };

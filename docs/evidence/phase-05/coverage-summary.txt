@@ -1,0 +1,25 @@
+Phase 5 — coverage (union of the unit and integration suites; a line counts as covered
+if hits > 0 in either). Computed over:
+  coverage-unittests.cobertura.xml   (569 tests)
+  coverage-integration.cobertura.xml (287 tests)
+
+Gate: line coverage >= 80% on Ingestion, Rules, Reporting (TESTING_STANDARDS.md §3).
+
+  VSoftSol.Syslog.Ingestion   90.52%   (1890/2088)   PASS   (Phase 5 added no ingestion
+                                                            code; the pattern tester
+                                                            reuses GrokLibrary/GrokExtractor)
+  VSoftSol.Syslog.Reporting   93.81%   (106/113)     PASS   (was a Phase-0 shell —
+                                                            Export/SearchExportWriter +
+                                                            CsvFormulaGuard + ExportFormat)
+  VSoftSol.Syslog.Rules        0.00%   (0/1)         N/A    (still a Phase-0 shell)
+
+Non-gated:
+  VSoftSol.Syslog.Core        90.78%   (581/640)     Search/* — parser, tokenizer,
+                                                     evaluator, field registry
+  VSoftSol.Syslog.Data        87.86%   (2078/2365)   Search/* — compiler, executor, stores,
+                                                     facets
+  VSoftSol.Syslog.Web         64.77%   (1193/1842)   no gate; interactive-only branches
+                                                     (live-tail pump, autocomplete keydown)
+                                                     unreachable without a browser (P5-2)
+  VSoftSol.Syslog.Service     69.37%   (77/111)      no gate (composition root)
+  VSoftSol.Syslog.BrandingGen 86.55%   (193/223)     build tool

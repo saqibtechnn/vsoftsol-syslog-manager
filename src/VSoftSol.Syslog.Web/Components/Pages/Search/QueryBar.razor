@@ -1,0 +1,125 @@
+@* The query bar. Autocomplete on field names and known values, an inline syntax cheat
+   sheet behind '?', and the composed query the sidebar produced shown read-only so users
+   learn the syntax by seeing it (PHASE_05 items 9 & 10). *@
+@using VSoftSol.Syslog.Web.Search
+
+<div class="ds-querybar">
+    <form class="ds-querybar__form" @onsubmit="SubmitAsync" @onsubmit:preventDefault>
+        <div class="ds-querybar__inputwrap">
+            <input id="search-query" class="ds-querybar__input" type="text" autocomplete="off"
+                   placeholder="Search — e.g. failed severity:>=error host:core-sw1"
+                   value="@Value" @oninput="OnInput" @onkeydown="OnKeyDown"
+                   aria-describedby="query-help" aria-invalid="@(Error is not null)" />
+            @if (_suggestions.Count > 0)
+            {
+                <ul class="ds-querybar__suggest" role="listbox">
+                    @for (int i = 0; i < _suggestions.Count; i++)
+                    {
+                        int index = i;
+                        <li role="option" aria-selected="@(index == _activeSuggestion)">
+                            <button type="button" class="ds-querybar__suggestitem @(index == _activeSuggestion ? "is-active" : null)"
+                                    @onclick="() => ApplySuggestion(index)">@_suggestions[index]</button>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+        <button type="submit" class="ds-button ds-button--primary">Search</button>
+        <button type="button" class="ds-button ds-button--ghost ds-querybar__help" title="Query syntax"
+                aria-expanded="@_showCheatSheet" @onclick="() => _showCheatSheet = !_showCheatSheet">?</button>
+    </form>
+
+    @if (Error is not null)
+    {
+        <p id="query-help" class="ds-querybar__error" role="alert">
+            @Error
+            @if (ErrorPosition >= 0)
+            {
+                <span class="ds-muted"> (at position @(ErrorPosition + 1))</span>
+            }
+        </p>
+    }
+    else if (!string.IsNullOrWhiteSpace(Composed) && Composed != Value)
+    {
+        <p id="query-help" class="ds-querybar__composed">
+            Running: <code>@Composed</code>
+        </p>
+    }
+
+    @if (_showCheatSheet)
+    {
+        <SearchCheatSheet />
+    }
+</div>
+
+@code {
+    private List<string> _suggestions = [];
+    private int _activeSuggestion = -1;
+    private bool _showCheatSheet;
+
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string Composed { get; set; } = string.Empty;
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public int ErrorPosition { get; set; } = -1;
+    [Parameter] public IReadOnlyCollection<string> KnownValues { get; set; } = [];
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public EventCallback OnSubmit { get; set; }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        string text = e.Value?.ToString() ?? string.Empty;
+        await ValueChanged.InvokeAsync(text);
+        _suggestions = [.. SearchQueryComposer.Suggest(text, KnownValues)];
+        _activeSuggestion = _suggestions.Count > 0 ? 0 : -1;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (_suggestions.Count == 0)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _activeSuggestion = (_activeSuggestion + 1) % _suggestions.Count;
+                break;
+            case "ArrowUp":
+                _activeSuggestion = (_activeSuggestion - 1 + _suggestions.Count) % _suggestions.Count;
+                break;
+            case "Tab" when _activeSuggestion >= 0:
+                await ApplySuggestion(_activeSuggestion);
+                break;
+            case "Escape":
+                _suggestions = [];
+                break;
+        }
+    }
+
+    private async Task ApplySuggestion(int index)
+    {
+        string suggestion = _suggestions[index];
+        string current = Value;
+        int lastBreak = current.LastIndexOfAny([' ', '(', ')']);
+        string prefix = lastBreak < 0 ? string.Empty : current[..(lastBreak + 1)];
+
+        int colon = suggestion.IndexOf(':', StringComparison.Ordinal);
+        string token = current[(lastBreak + 1)..];
+        int tokenColon = token.IndexOf(':', StringComparison.Ordinal);
+
+        string next = colon >= 0 || tokenColon < 0
+            ? prefix + suggestion
+            : prefix + token[..(tokenColon + 1)] + suggestion;
+
+        _suggestions = [];
+        _activeSuggestion = -1;
+        await ValueChanged.InvokeAsync(next);
+    }
+
+    private async Task SubmitAsync()
+    {
+        _suggestions = [];
+        await OnSubmit.InvokeAsync();
+    }
+}

@@ -1,0 +1,317 @@
+@page "/search"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@implements IDisposable
+@using Microsoft.AspNetCore.WebUtilities
+@using VSoftSol.Syslog.Core.Enums
+@using VSoftSol.Syslog.Core.Events
+@using VSoftSol.Syslog.Core.Search
+@using VSoftSol.Syslog.Data.Scoping
+@using VSoftSol.Syslog.Data.Search
+@using VSoftSol.Syslog.Web.Search
+@inject ScopedEventReader Reader
+@inject SqliteSearchFacets Facets
+@inject CurrentUserAccessor Users
+@inject TimeRangeState TimeRanges
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Search — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-search">
+    <header class="ds-page__header">
+        <h1>Search</h1>
+        <div class="ds-search__headeractions">
+            <TimeRangePicker />
+            <a class="ds-button ds-button--ghost" href="/search/pattern-tester">Pattern tester</a>
+        </div>
+    </header>
+
+    <SavedSearchBar CurrentQuery="@_rawQuery"
+                    OnLoad="LoadSavedAsync"
+                    Disabled="_loading" />
+
+    <QueryBar Value="@_rawQuery"
+              Composed="@_effectiveQuery"
+              Error="@_error"
+              ErrorPosition="_errorPosition"
+              KnownValues="_knownValues"
+              ValueChanged="OnRawQueryChanged"
+              OnSubmit="RunSearchAsync" />
+
+    <div class="ds-search__body">
+        <FilterSidebar Streams="_streams" Devices="_devices"
+                       SelectedSeverities="_selSeverities"
+                       SelectedStreamNames="_selStreams"
+                       SelectedDeviceNames="_selDevices"
+                       OnChanged="OnSidebarChanged" />
+
+        <div class="ds-search__results">
+            <div class="ds-search__resultbar">
+                <span class="ds-search__count" role="status">
+                    @if (_loading)
+                    {
+                        <text>Searching…</text>
+                    }
+                    else if (_result is { Ok: true })
+                    {
+                        <text>@FormatCount(_result) matched — showing @_result.Rows.Count</text>
+                    }
+                </span>
+                <div class="ds-search__resulttools">
+                    <LiveTailPanel Query="@_effectiveQuery"
+                                   FromUtc="_from"
+                                   HighestEventId="_highestEventId"
+                                   OnRows="OnLiveRows" />
+                    <details class="ds-menu">
+                        <summary class="ds-button ds-button--ghost">Export</summary>
+                        <div class="ds-menu__list">
+                            <a href="@ExportHref("csv")" download>CSV</a>
+                            <a href="@ExportHref("json")" download>JSON</a>
+                            <a href="@ExportHref("raw")" download>Raw syslog text</a>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            @if (_loading && _rows.Count == 0)
+            {
+                <SkeletonLoader Rows="10" />
+            }
+            else if (_error is not null)
+            {
+                <EmptyState Title="That query has a problem" Explanation="@_error" Icon="⚠️" />
+            }
+            else if (_rows.Count == 0 && _result is not null)
+            {
+                <EmptyState Title="No results" Explanation="@ZeroResultExplanation()" Icon="🔍">
+                    <ChildContent>
+                        @if (CanWiden())
+                        {
+                            <button type="button" class="ds-button ds-button--primary" @onclick="WidenTimeRangeAsync">
+                                Widen to @NextWiderRange().Label
+                            </button>
+                        }
+                    </ChildContent>
+                </EmptyState>
+            }
+            else if (_rows.Count == 0)
+            {
+                <EmptyState Title="Search your logs"
+                            Explanation="Pick filters on the left, or type a query. Every message the collector has stored is searchable here."
+                            Icon="🔍" />
+            }
+            else
+            {
+                <DataTable TItem="SyslogEvent" Items="_rows" Columns="_columns" Virtualized="true"
+                           RowKey="e => e.EventId"
+                           RowDetail="EventDetailFragment" />
+            }
+        </div>
+    </div>
+</div>
+
+<ContextModal @ref="_contextModal" />
+
+@code {
+    private string _rawQuery = string.Empty;
+    private string _effectiveQuery = string.Empty;
+    private string? _error;
+    private int _errorPosition = -1;
+    private bool _loading;
+
+    private SearchResult? _result;
+    private List<SyslogEvent> _rows = [];
+    private long _highestEventId;
+    private DateTimeOffset _from;
+    private DateTimeOffset _to;
+
+    private IReadOnlyList<SqliteSearchFacets.FacetValue> _streams = [];
+    private IReadOnlyList<SqliteSearchFacets.FacetValue> _devices = [];
+    private readonly HashSet<Severity> _selSeverities = [];
+    private readonly HashSet<string> _selStreams = [];
+    private readonly HashSet<string> _selDevices = [];
+    private string[] _knownValues = [];
+
+    private ContextModal? _contextModal;
+    private IReadOnlyList<TableColumn<SyslogEvent>> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _columns = BuildColumns();
+        CurrentUser user = await Users.GetAsync();
+        _streams = await Facets.ListStreamsAsync(user.Scope, CancellationToken.None);
+        _devices = await Facets.ListDevicesAsync(user.Scope, CancellationToken.None);
+        _knownValues =
+        [
+            .. _devices.Select(d => d.Name),
+            .. _streams.Select(s => s.Name),
+        ];
+        TimeRanges.Changed += OnTimeRangeChanged;
+        await RunSearchAsync();
+    }
+
+    public void Dispose() => TimeRanges.Changed -= OnTimeRangeChanged;
+
+    private async void OnTimeRangeChanged()
+    {
+        await InvokeAsync(RunSearchAsync);
+    }
+
+    private Task OnRawQueryChanged(string value)
+    {
+        _rawQuery = value;
+        Recompose();
+        return Task.CompletedTask;
+    }
+
+    private async Task OnSidebarChanged()
+    {
+        Recompose();
+        await RunSearchAsync();
+    }
+
+    private void Recompose()
+    {
+        _effectiveQuery = SearchQueryComposer.Compose(_rawQuery, _selSeverities, _selDevices, _selStreams);
+    }
+
+    private async Task LoadSavedAsync(SavedSearch saved)
+    {
+        _rawQuery = saved.QueryText;
+        _selSeverities.Clear();
+        _selStreams.Clear();
+        _selDevices.Clear();
+        Recompose();
+        await RunSearchAsync();
+    }
+
+    private async Task RunSearchAsync()
+    {
+        Recompose();
+        _loading = true;
+        StateHasChanged();
+
+        (_from, _to) = TimeRanges.Current.Resolve(DateTimeOffset.UtcNow);
+        CurrentUser user = await Users.GetAsync();
+        var request = new SearchRequest
+        {
+            QueryText = _effectiveQuery,
+            FromUtc = _from,
+            ToUtc = _to,
+            Limit = 1000,
+        };
+
+        _result = await Reader.SearchAsync(user.Scope, request, CancellationToken.None);
+        if (_result.Ok)
+        {
+            _error = null;
+            _errorPosition = -1;
+            _rows = [.. _result.Rows];
+            _highestEventId = _rows.Count > 0 ? _rows.Max(r => r.EventId) : 0;
+        }
+        else
+        {
+            _error = _result.Error;
+            _errorPosition = _result.ErrorPosition;
+            _rows = [];
+        }
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void OnLiveRows(IReadOnlyList<SyslogEvent> newRows)
+    {
+        if (newRows.Count == 0)
+        {
+            return;
+        }
+
+        // Prepend newest first; do not disturb an open row (DataTable keeps expansion by key).
+        _rows.InsertRange(0, newRows.OrderByDescending(r => r.EventId));
+        _highestEventId = Math.Max(_highestEventId, newRows.Max(r => r.EventId));
+        if (_rows.Count > 5000)
+        {
+            _rows = [.. _rows.Take(5000)];
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OpenContextAsync(SyslogEvent anchor)
+    {
+        if (_contextModal is not null)
+        {
+            await _contextModal.OpenAsync(anchor);
+        }
+    }
+
+    private RenderFragment<SyslogEvent> EventDetailFragment => evt =>
+        @<EventDetail Event="evt" OnOpenContext="() => OpenContextAsync(evt)" />;
+
+    private IReadOnlyList<TableColumn<SyslogEvent>> BuildColumns() =>
+    [
+        new() { Header = "Time", SortValue = e => e.ReceivedUtc,
+                Cell = e => @<text>@e.ReceivedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</text> },
+        new() { Header = "Severity", SortValue = e => (int)e.Severity,
+                Cell = e => @<SeverityBadge Severity="e.Severity" /> },
+        new() { Header = "Host", SortValue = e => e.Hostname ?? string.Empty,
+                Cell = e => @<text>@(e.Hostname ?? "—")</text> },
+        new() { Header = "Source IP", HiddenByDefault = true, SortValue = e => e.SourceIp,
+                Cell = e => @<text>@e.SourceIp</text> },
+        new() { Header = "App", SortValue = e => e.AppName ?? string.Empty,
+                Cell = e => @<text>@(e.AppName ?? "—")</text> },
+        new() { Header = "Vendor", HiddenByDefault = true, SortValue = e => e.Vendor ?? string.Empty,
+                Cell = e => @<text>@(e.Vendor ?? "—")</text> },
+        new() { Header = "Message",
+                Cell = e => @<span class="ds-search__msg">@Truncate(e.Message)</span> },
+        new() { Header = "Event ID", HiddenByDefault = true, Numeric = true, SortValue = e => e.EventId,
+                Cell = e => @<text>@e.EventId</text> },
+        new() { Header = "Facility", HiddenByDefault = true, SortValue = e => (int)e.Facility,
+                Cell = e => @<text>@e.Facility</text> },
+        new() { Header = "Protocol", HiddenByDefault = true,
+                Cell = e => @<text>@e.Protocol</text> },
+    ];
+
+    private static string Truncate(string s) => s.Length <= 200 ? s : s[..200] + "…";
+
+    private string FormatCount(SearchResult r) =>
+        r.TotalCountIsLowerBound ? $"{r.TotalCount:N0}+" : $"{r.TotalCount:N0}";
+
+    private string ExportHref(string format)
+    {
+        var q = System.Web.HttpUtility.ParseQueryString(string.Empty);
+        q["q"] = _effectiveQuery;
+        q["from"] = _from.ToString("o");
+        q["to"] = _to.ToString("o");
+        q["format"] = format;
+        return "/search/export?" + q;
+    }
+
+    private string ZeroResultExplanation()
+    {
+        if (_selStreams.Count > 0 || _selDevices.Count > 0 || _selSeverities.Count > 0)
+        {
+            return "Nothing matched this query in the selected time range. Try removing a filter, or widen the time range.";
+        }
+
+        if (_effectiveQuery.Length == 0)
+        {
+            return "No messages were stored in this time range. If a device should be sending, check the collector is receiving on the right port.";
+        }
+
+        return "Nothing matched in this time range. Check spelling, try a broader term, or widen the time range.";
+    }
+
+    private bool CanWiden() => TimeRanges.Current.Relative is { } r && r < TimeSpan.FromDays(30);
+
+    private TimeRange NextWiderRange() =>
+        TimeRange.Presets.FirstOrDefault(p => p.Relative > TimeRanges.Current.Relative) ?? TimeRange.Presets[^1];
+
+    private async Task WidenTimeRangeAsync()
+    {
+        TimeRanges.Set(NextWiderRange());
+        await RunSearchAsync();
+    }
+}

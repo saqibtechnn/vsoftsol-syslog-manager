@@ -1,0 +1,122 @@
+// HardwareIntrinsics=AVX2,AES,BMI1,BMI2,FMA,LZCNT,PCLMUL,POPCNT VectorSize=256
+// Job: Job-VESZMR(InvocationCount=50, IterationCount=3, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=1)
+
+search benchmark dataset: 2,000,000 events
+WorkloadWarmup   1: 50 op, 52214129200.00 ns, 1.0443 s/op
+
+// BeforeActualRun
+WorkloadActual   1: 50 op, 50844577200.00 ns, 1.0169 s/op
+WorkloadActual   2: 50 op, 51580123100.00 ns, 1.0316 s/op
+WorkloadActual   3: 50 op, 49147821600.00 ns, 982.9564 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 50 op, 50844577200.00 ns, 1.0169 s/op
+WorkloadResult   2: 50 op, 51580123100.00 ns, 1.0316 s/op
+WorkloadResult   3: 50 op, 49147821600.00 ns, 982.9564 ms/op
+
+// AfterAll
+// Benchmark Process 5408 has exited with code 0.
+
+Mean = 1.010 s, StdErr = 0.014 s (1.43%), N = 3, StdDev = 0.025 s
+Min = 0.983 s, Q1 = 1.000 s, Median = 1.017 s, Q3 = 1.024 s, Max = 1.032 s
+IQR = 0.024 s, LowerFence = 0.963 s, UpperFence = 1.061 s
+ConfidenceInterval = [0.555 s; 1.466 s] (CI 99.9%), Margin = 0.455 s (45.04% of Mean)
+Skewness = -0.24, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 0 (0.0 %) benchmark(s) to run. Estimated finish 2026-09-08 0:25 (0h 0m from now) **
+Successfully reverted power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// ***** BenchmarkRunner: Finish  *****
+
+// * Export *
+  BenchmarkDotNet.Artifacts\results\VSoftSol.Syslog.Benchmarks.SearchBenchmark-report.csv
+  BenchmarkDotNet.Artifacts\results\VSoftSol.Syslog.Benchmarks.SearchBenchmark-report-github.md
+  BenchmarkDotNet.Artifacts\results\VSoftSol.Syslog.Benchmarks.SearchBenchmark-report.html
+
+// * Detailed results *
+SearchBenchmark.'free text, top 1000, 30-day window': Job-NCPKLY(InvocationCount=50, IterationCount=3, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=1)
+Runtime = .NET 8.0.30 (8.0.3026.36720), X64 RyuJIT AVX2; GC = Concurrent Server
+Mean = 2.725 s, StdErr = 0.035 s (1.28%), N = 3, StdDev = 0.060 s
+Min = 2.666 s, Q1 = 2.694 s, Median = 2.722 s, Q3 = 2.754 s, Max = 2.786 s
+IQR = 0.060 s, LowerFence = 2.604 s, UpperFence = 2.844 s
+ConfidenceInterval = [1.626 s; 3.823 s] (CI 99.9%), Margin = 1.098 s (40.31% of Mean)
+Skewness = 0.04, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[2.639 s ; 2.749 s) | @@
+[2.749 s ; 2.841 s) | @
+---------------------------------------------------
+
+SearchBenchmark.'field + severity filter': Job-NCPKLY(InvocationCount=50, IterationCount=3, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=1)
+Runtime = .NET 8.0.30 (8.0.3026.36720), X64 RyuJIT AVX2; GC = Concurrent Server
+Mean = 362.181 ms, StdErr = 3.962 ms (1.09%), N = 3, StdDev = 6.863 ms
+Min = 355.192 ms, Q1 = 358.816 ms, Median = 362.440 ms, Q3 = 365.675 ms, Max = 368.910 ms
+IQR = 6.859 ms, LowerFence = 348.527 ms, UpperFence = 375.963 ms
+ConfidenceInterval = [236.980 ms; 487.381 ms] (CI 99.9%), Margin = 125.200 ms (34.57% of Mean)
+Skewness = -0.04, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[348.947 ms ; 359.430 ms) | @
+[359.430 ms ; 371.920 ms) | @@
+---------------------------------------------------
+
+SearchBenchmark.'boolean text mix': Job-NCPKLY(InvocationCount=50, IterationCount=3, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=1)
+Runtime = .NET 8.0.30 (8.0.3026.36720), X64 RyuJIT AVX2; GC = Concurrent Server
+Mean = 2.466 s, StdErr = 0.016 s (0.64%), N = 3, StdDev = 0.027 s
+Min = 2.438 s, Q1 = 2.452 s, Median = 2.467 s, Q3 = 2.480 s, Max = 2.492 s
+IQR = 0.027 s, LowerFence = 2.412 s, UpperFence = 2.520 s
+ConfidenceInterval = [1.969 s; 2.962 s] (CI 99.9%), Margin = 0.496 s (20.12% of Mean)
+Skewness = -0.06, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[2.413 s ; 2.504 s) | @@@
+---------------------------------------------------
+
+SearchBenchmark.'quoted phrase': Job-NCPKLY(InvocationCount=50, IterationCount=3, RunStrategy=Monitoring, UnrollFactor=1, WarmupCount=1)
+Runtime = .NET 8.0.30 (8.0.3026.36720), X64 RyuJIT AVX2; GC = Concurrent Server
+Mean = 1.010 s, StdErr = 0.014 s (1.43%), N = 3, StdDev = 0.025 s
+Min = 0.983 s, Q1 = 1.000 s, Median = 1.017 s, Q3 = 1.024 s, Max = 1.032 s
+IQR = 0.024 s, LowerFence = 0.963 s, UpperFence = 1.061 s
+ConfidenceInterval = [0.555 s; 1.466 s] (CI 99.9%), Margin = 0.455 s (45.04% of Mean)
+Skewness = -0.24, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[0.960 s ; 1.002 s) | @
+[1.002 s ; 1.054 s) | @@
+---------------------------------------------------
+
+// * Summary *
+
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.9168) (VMware)
+Unknown processor
+.NET SDK 8.0.424
+  [Host]     : .NET 8.0.30 (8.0.3026.36720), X64 RyuJIT AVX2
+  Job-NCPKLY : .NET 8.0.30 (8.0.3026.36720), X64 RyuJIT AVX2
+
+InvocationCount=50  IterationCount=3  RunStrategy=Monitoring  
+UnrollFactor=1  WarmupCount=1  
+
+| Method                               | Mean       | Error      | StdDev   | P50        | P90        | P95        | P100       |
+|------------------------------------- |-----------:|-----------:|---------:|-----------:|-----------:|-----------:|-----------:|
+| 'free text, top 1000, 30-day window' | 2,724.7 ms | 1,098.2 ms | 60.20 ms | 2,722.1 ms | 2,773.4 ms | 2,779.8 ms | 2,786.2 ms |
+| 'field + severity filter'            |   362.2 ms |   125.2 ms |  6.86 ms |   362.4 ms |   367.6 ms |   368.3 ms |   368.9 ms |
+| 'boolean text mix'                   | 2,465.6 ms |   496.2 ms | 27.20 ms | 2,467.1 ms | 2,487.1 ms | 2,489.5 ms | 2,492.0 ms |
+| 'quoted phrase'                      | 1,010.5 ms |   455.1 ms | 24.95 ms | 1,016.9 ms | 1,028.7 ms | 1,030.1 ms | 1,031.6 ms |
+
+// * Warnings *
+Environment
+  Summary -> Benchmark was executed on the virtual machine with VMware hypervisor. Virtualization can affect the measurement result.
+
+// * Legends *
+  Mean   : Arithmetic mean of all measurements
+  Error  : Half of 99.9% confidence interval
+  StdDev : Standard deviation of all measurements
+  P50    : Percentile 50
+  P90    : Percentile 90
+  P95    : Percentile 95
+  P100   : Percentile 100
+  1 ms   : 1 Millisecond (0.001 sec)
+
+// ***** BenchmarkRunner: End *****
+Run time: 00:22:06 (1326.11 sec), executed benchmarks: 4
+
+Global total time: 00:23:22 (1402.16 sec), executed benchmarks: 4
+// * Artifacts cleanup *
+Artifacts cleanup is finished
+
+[exited with code 0]

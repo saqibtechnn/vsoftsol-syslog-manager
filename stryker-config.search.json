@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/schema/stryker-config-schema.json",
+  "_comment": "Phase 5 mutation target — the query language (parser + tokenizer + evaluator + SQL compiler). Runs on a CI host; the VsTest adapter does not deploy on the SDK-only build VM (P3-3).",
+  "stryker-config": {
+    "project": "VSoftSol.Syslog.Core.csproj",
+    "test-projects": [
+      "tests/VSoftSol.Syslog.UnitTests/VSoftSol.Syslog.UnitTests.csproj"
+    ],
+    "mutate": [
+      "src/VSoftSol.Syslog.Core/Search/SearchQueryParser.cs",
+      "src/VSoftSol.Syslog.Core/Search/FtsTokenizer.cs",
+      "src/VSoftSol.Syslog.Core/Search/QueryEvaluator.cs",
+      "src/VSoftSol.Syslog.Core/Search/SearchField.cs"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 80,
+      "break": 70
+    },
+    "reporters": ["progress", "html", "json"]
+  }
+}

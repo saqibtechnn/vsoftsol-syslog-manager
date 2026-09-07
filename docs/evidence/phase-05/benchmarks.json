@@ -1,0 +1,21 @@
+{
+  "title": "Phase 5 search latency",
+  "host": "2-vCPU VMware VM (BenchmarkDotNet flagged virtualization)",
+  "dataset": { "events": 2000000, "windowDays": 40 },
+  "query": { "windowDays": 30, "limit": 1000 },
+  "gateMs": 2000,
+  "runStrategy": "Monitoring",
+  "warmupCount": 1,
+  "iterationCount": 3,
+  "invocationCount": 50,
+  "benchmarks": [
+    { "name": "field + severity filter", "query": "host:core-sw-1 severity:>=error", "usesFts": false, "meanMs": 362.2, "p50Ms": 362.4, "p90Ms": 367.6, "p95Ms": 368.3, "p100Ms": 368.9, "stdDevMs": 6.86, "verdict": "PASS" },
+    { "name": "quoted phrase", "query": "\"failed password\"", "usesFts": true, "meanMs": 1010.5, "p50Ms": 1016.9, "p90Ms": 1028.7, "p95Ms": 1030.1, "p100Ms": 1031.6, "stdDevMs": 24.95, "verdict": "PASS" },
+    { "name": "boolean text mix", "query": "failed AND (denied OR invalid) NOT accepted", "usesFts": true, "meanMs": 2465.6, "p50Ms": 2467.1, "p90Ms": 2487.1, "p95Ms": 2489.5, "p100Ms": 2492.0, "stdDevMs": 27.20, "verdict": "MARGINAL", "note": "one combined FTS5 MATCH; was 11700 ms with a subquery per term" },
+    { "name": "free text, top 1000, 30-day window", "query": "failed", "usesFts": true, "meanMs": 2724.7, "p50Ms": 2722.1, "p90Ms": 2773.4, "p95Ms": 2779.8, "p100Ms": 2786.2, "stdDevMs": 60.20, "verdict": "MARGINAL", "note": "single very-common term (~38% of store), no filter, recency-sorted; I/O-bound on the cold FTS index read on this VM" }
+  ],
+  "carriedToPhase12": [
+    "50-million-event seed",
+    "< 2 s re-verification for the broad free-text case on clean-VM hardware"
+  ]
+}

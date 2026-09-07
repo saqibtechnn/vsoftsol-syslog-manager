@@ -1,0 +1,111 @@
+@* PHASE_05 item 9 — the filter sidebar composes the query for the user. Typing a query
+   is never required; every filter here is a checkbox or a picker. The parent shows the
+   resulting query text in the bar so the syntax is learned by seeing it. *@
+@using VSoftSol.Syslog.Core.Enums
+@using VSoftSol.Syslog.Data.Search
+
+<aside class="ds-search-sidebar" aria-label="Search filters">
+    <section class="ds-search-sidebar__group">
+        <h2 class="ds-search-sidebar__heading">Severity</h2>
+        @foreach (Severity severity in Severities)
+        {
+            <label class="ds-search-sidebar__option">
+                <input type="checkbox" checked="@SelectedSeverities.Contains(severity)"
+                       @onchange="() => ToggleSeverity(severity)" />
+                <SeverityBadge Severity="severity" />
+            </label>
+        }
+    </section>
+
+    <section class="ds-search-sidebar__group">
+        <h2 class="ds-search-sidebar__heading">Stream</h2>
+        @if (Streams.Count == 0)
+        {
+            <p class="ds-search-sidebar__empty">No streams visible to you.</p>
+        }
+        @foreach (SqliteSearchFacets.FacetValue stream in Streams)
+        {
+            <label class="ds-search-sidebar__option">
+                <input type="checkbox" checked="@SelectedStreamNames.Contains(stream.Name)"
+                       @onchange="() => ToggleStream(stream.Name)" />
+                <span>@stream.Name</span>
+            </label>
+        }
+    </section>
+
+    <section class="ds-search-sidebar__group">
+        <h2 class="ds-search-sidebar__heading">Device</h2>
+        @if (Devices.Count == 0)
+        {
+            <p class="ds-search-sidebar__empty">No devices registered yet.</p>
+        }
+        else
+        {
+            <input type="search" class="ds-input ds-input--sm" placeholder="Filter devices…"
+                   @bind="_deviceFilter" @bind:event="oninput" aria-label="Filter the device list" />
+        }
+        <div class="ds-search-sidebar__scroll">
+            @foreach (SqliteSearchFacets.FacetValue device in FilteredDevices)
+            {
+                <label class="ds-search-sidebar__option">
+                    <input type="checkbox" checked="@SelectedDeviceNames.Contains(device.Name)"
+                           @onchange="() => ToggleDevice(device.Name)" />
+                    <span>@device.Name @if (device.Extra is { Length: > 0 } ip) { <em class="ds-muted">@ip</em> }</span>
+                </label>
+            }
+        </div>
+    </section>
+
+    @if (HasAnySelection)
+    {
+        <button type="button" class="ds-button ds-button--ghost ds-search-sidebar__clear" @onclick="ClearAll">
+            Clear all filters
+        </button>
+    }
+</aside>
+
+@code {
+    private string _deviceFilter = string.Empty;
+
+    private static readonly Severity[] Severities =
+        [Severity.Emergency, Severity.Alert, Severity.Critical, Severity.Error, Severity.Warning, Severity.Notice, Severity.Informational, Severity.Debug];
+
+    [Parameter, EditorRequired] public IReadOnlyList<SqliteSearchFacets.FacetValue> Streams { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<SqliteSearchFacets.FacetValue> Devices { get; set; } = [];
+
+    [Parameter] public HashSet<Severity> SelectedSeverities { get; set; } = [];
+    [Parameter] public HashSet<string> SelectedStreamNames { get; set; } = [];
+    [Parameter] public HashSet<string> SelectedDeviceNames { get; set; } = [];
+
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool HasAnySelection =>
+        SelectedSeverities.Count > 0 || SelectedStreamNames.Count > 0 || SelectedDeviceNames.Count > 0;
+
+    private IEnumerable<SqliteSearchFacets.FacetValue> FilteredDevices =>
+        string.IsNullOrWhiteSpace(_deviceFilter)
+            ? Devices
+            : Devices.Where(d => d.Name.Contains(_deviceFilter, StringComparison.OrdinalIgnoreCase));
+
+    private Task ToggleSeverity(Severity s) => Toggle(SelectedSeverities, s);
+    private Task ToggleStream(string s) => Toggle(SelectedStreamNames, s);
+    private Task ToggleDevice(string s) => Toggle(SelectedDeviceNames, s);
+
+    private async Task Toggle<T>(HashSet<T> set, T value)
+    {
+        if (!set.Remove(value))
+        {
+            set.Add(value);
+        }
+
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task ClearAll()
+    {
+        SelectedSeverities.Clear();
+        SelectedStreamNames.Clear();
+        SelectedDeviceNames.Clear();
+        await OnChanged.InvokeAsync();
+    }
+}

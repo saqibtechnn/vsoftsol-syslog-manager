@@ -43,7 +43,12 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<IPasswordHasher, Argon2idPasswordHasher>();
         services.TryAddSingleton<SqliteUserStore>();
         services.TryAddSingleton<SqliteSessionStore>();
+        services.AddOptions<SearchOptions>().ValidateDataAnnotations();
         services.TryAddSingleton<ScopedEventReader>();
+        services.TryAddSingleton<SqliteSavedSearchStore>();
+        services.TryAddSingleton<SqliteColumnLayoutStore>();
+        services.TryAddSingleton<SqliteSearchFacets>();
+        services.TryAddSingleton<SqliteExtractorStore>();
         services.TryAddSingleton<SqliteAuditLog>();
         if (OperatingSystem.IsWindows())
         {

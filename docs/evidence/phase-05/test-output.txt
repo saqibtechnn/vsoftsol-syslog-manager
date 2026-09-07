@@ -1,0 +1,23 @@
+Phase 5 — full test run  (dotnet test, Soak trait excluded)
+=======================================================
+
+$ dotnet build -c Release
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:00:11.01
+
+$ dotnet test tests/VSoftSol.Syslog.UnitTests -c Release
+Passed!  - Failed:     0, Passed:   569, Skipped:     0, Total:   569, Duration: 18 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+
+$ dotnet test tests/VSoftSol.Syslog.IntegrationTests -c Release
+Passed!  - Failed:     0, Passed:   287, Skipped:     0, Total:   287, Duration: 5 m 58 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+
+$ dotnet test --filter "Search|Query|Export"  (both projects)
+Passed!  - Failed:     0, Passed:   186, Skipped:     0, Total:   186, Duration: 257 ms - VSoftSol.Syslog.UnitTests.dll (net8.0)
+Passed!  - Failed:     0, Passed:    85, Skipped:     0, Total:    85, Duration: 14 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+
+$ dotnet format --verify-no-changes
+exit 0 — no formatting changes needed
+
+SCA: dotnet list package --vulnerable --include-transitive -> no vulnerable packages, 13 projects (security/sca-vulnerable.txt)

@@ -1,0 +1,53 @@
+@* The expanded results-grid row: every event field and the raw message. All values are
+   rendered through Razor, which HTML-encodes them — attacker-controlled log content can
+   never become markup (PHASE_05 stored-XSS surface; SECURITY_STANDARDS "encode at render"). *@
+@using VSoftSol.Syslog.Core.Events
+
+<div class="ds-eventdetail">
+    <div class="ds-eventdetail__actions">
+        <button type="button" class="ds-button ds-button--sm" @onclick="OnOpenContext">
+            View context (± surrounding messages)
+        </button>
+    </div>
+
+    <dl class="ds-eventdetail__grid">
+        <dt>Received (UTC)</dt><dd>@Event.ReceivedUtc.UtcDateTime.ToString("O")</dd>
+        @if (Event.EventUtc is { } eu)
+        {
+            <dt>Event time (UTC)</dt><dd>@eu.UtcDateTime.ToString("O")</dd>
+        }
+        <dt>Source IP</dt><dd>@Event.SourceIp</dd>
+        <dt>Host</dt><dd>@(Event.Hostname ?? "—")</dd>
+        <dt>App</dt><dd>@(Event.AppName ?? "—")</dd>
+        <dt>Process ID</dt><dd>@(Event.ProcId ?? "—")</dd>
+        <dt>Facility / Severity</dt><dd>@Event.Facility / @Event.Severity</dd>
+        <dt>Protocol</dt><dd>@Event.Protocol</dd>
+        <dt>Parse status</dt><dd>@Event.ParseStatus</dd>
+        <dt>Vendor</dt><dd>@(Event.Vendor ?? "—")</dd>
+        @if (Event.OccurrenceCount > 1)
+        {
+            <dt>Occurrences</dt><dd>@Event.OccurrenceCount (de-duplicated)</dd>
+        }
+    </dl>
+
+    @if (Event.Fields.Count > 0)
+    {
+        <h4 class="ds-eventdetail__subhead">Extracted fields</h4>
+        <dl class="ds-eventdetail__grid">
+            @foreach (EventField field in Event.Fields)
+            {
+                <dt>@field.Name</dt><dd>@field.Value</dd>
+            }
+        </dl>
+    }
+
+    <h4 class="ds-eventdetail__subhead">Raw message</h4>
+    <pre class="ds-eventdetail__raw">@RawText</pre>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SyslogEvent Event { get; set; } = default!;
+    [Parameter] public EventCallback OnOpenContext { get; set; }
+
+    private string RawText => System.Text.Encoding.UTF8.GetString(Event.RawMessage.Span).Replace('\0', '�');
+}

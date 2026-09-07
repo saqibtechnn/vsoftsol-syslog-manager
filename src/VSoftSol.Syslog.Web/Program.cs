@@ -5,6 +5,7 @@ using VSoftSol.Syslog.Service.Hosting;
 using VSoftSol.Syslog.Service.Logging;
 using VSoftSol.Syslog.Web.Components;
 using VSoftSol.Syslog.Web.Components.DesignSystem;
+using VSoftSol.Syslog.Web.Search;
 using VSoftSol.Syslog.Web.Security;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -40,6 +41,7 @@ try
     app.UseAntiforgery();
 
     app.MapAuthEndpoints();
+    app.MapSearchEndpoints();
     app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
     app.Run();

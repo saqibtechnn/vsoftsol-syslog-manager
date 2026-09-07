@@ -7,10 +7,10 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 4 — UI Shell & Authentication
-- **Last tag:** `v1.0.0-phase.4`
-- **Next phase:** 5 — Search
-- **Build status:** green — `dotnet build -c Release` warning-clean (13 projects), `dotnet test` **589/589** (0 skipped, Soak excluded), `dotnet format` clean, SCA clean (13 projects)
+- **Last completed phase:** 5 — Search & Investigation
+- **Last tag:** `v1.0.0-phase.5`
+- **Next phase:** 6 — Devices & Streams
+- **Build status:** green — `dotnet build -c Release` warning-clean (13 projects), `dotnet test` **856/856** (569 unit + 287 integration, 0 skipped, Soak excluded), `dotnet format` clean, SCA clean (13 projects)
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
 - **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC-parse pipeline **~13,600 msg/sec** (no regression, +19%); full parse + vendor extraction **~5,300 msg/sec** worst case (200k unique msgs all matching the busiest pack, 2-vCPU VM) — clears the 5,000 gate marginally; pure parse+extract **~105,000 msg/sec**. See `docs/evidence/phase-03/benchmarks.md`.
@@ -20,6 +20,209 @@ to learn where the build stands. Keep it terse and factual.
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 5 — Search & Investigation — 2026-09-07 — tag `v1.0.0-phase.5`
+
+> Proceeded in the same session as Phases 2–4 at the operator's explicit direction
+> ("continue Phase 5"), against the one-phase-per-session default. One validation item is
+> environmentally blocked and was substituted + carried: the **50-million-event search
+> benchmark** — on the 2-vCPU VMware VM a 50M seed is a ~1.5 h operation with
+> noise-dominated percentiles (same class as P1-1). The `< 2 s` gate was measured against a
+> persistent **2,000,000-event** dataset with the full p50/p95/p99 methodology; the literal
+> 50M run is carried to the Phase 12 clean-VM acceptance run.
+
+**Shipped**
+
+*Query language (`VSoftSol.Syslog.Core/Search/`) — pure, no I/O*
+- `SearchQueryParser` — free text, quoted phrases, `field:value`, `field:>value` and the
+  other ordering operators, `field:!=value`, trailing `*` wildcards, `AND`/`OR`/`NOT`
+  (+ leading `-`), parentheses. Hand-written lexer + recursive descent (precedence
+  `NOT > AND > OR`, adjacency = implicit AND). **Never throws** on user input — a malformed
+  query returns a `SearchParseResult` failure with a plain-English message and a character
+  position. 4096-char cap, checked before lexing.
+- `SearchFields` — the field **allow-list** (message, host, source_ip, app, proc_id,
+  msg_id, severity, facility, vendor, protocol, parse_status, device, stream, event_id,
+  received, event_time, plus dynamic `field.<name>`). Unknown field → error, not a no-op.
+  Severity / facility names normalise to codes; protocol / parse_status / timestamp / number
+  values validated at parse time.
+- `FtsTokenizer` — reproduces SQLite `unicode61 remove_diacritics 2 tokenchars '.:-_/@'`
+  (explicit Latin fold table — the runtime is `InvariantGlobalization`, so `string.Normalize`
+  is a no-op).
+- `QueryEvaluator` — the naive in-memory matcher that doubles as the **golden oracle**.
+  Mirrors SQLite three-valued logic (NULL columns, `NOT EXISTS`) so its result set is
+  identical to the SQL path.
+
+*SQL compilation + execution (`VSoftSol.Syslog.Data/Search/`)*
+- `SearchCompiler` (`internal`) — AST + sidebar filters + `UserScope` → one parameterised
+  `WHERE` body + `ORDER BY`. Every user value is a bound parameter. `NOT` compiles to
+  `NOT (IFNULL(x, 0))` for oracle parity + better UX. FTS terms → `events_fts MATCH` with a
+  quoted phrase param; `event_fields` refs → `EXISTS`; wildcards → FTS phrase-prefix or
+  `LIKE … ESCAPE`. Sort field is an **enum**, never a raw string.
+- `ScopedEventReader` gains `SearchAsync` (page + ceiling-capped count), `SearchStreamAsync`
+  (export, two-connection page-hydrated streaming, `ExportMaxRows` cap), `PollLiveAsync`
+  (live tail — forward from an `event_id` watermark). All go through the existing scope
+  chokepoint; `ILogRepository` is **not** extended (ADR 0013). `EventRowMapper` extracted
+  so the executor and `SqliteLogRepository` project the schema identically.
+- `SqliteSavedSearchStore` / `SqliteColumnLayoutStore` / `SqliteExtractorStore` — migration
+  `003`; every mutation re-checks ownership (IDOR). `SqliteSearchFacets` — the sidebar's
+  device / stream lists, scope-filtered.
+- `SearchOptions` (`Search` section) — `MaxPageSize` 5 000, `ExportMaxRows` 100 000,
+  `LiveTailBatchSize` 500, `ContextMaxNeighbours` 500, `ExactCountCeiling` 10 000.
+
+*Export (`VSoftSol.Syslog.Reporting/Export/`)*
+- `SearchExportWriter` — streamed CSV / JSON / raw syslog text. `CsvFormulaGuard` prefixes
+  `= + - @ TAB CR` cells with `'` **on export only** (stored value byte-identical). JSON via
+  `JavaScriptEncoder.Default` (`<>&'` escaped). Fills the Phase-0 Reporting shell.
+
+*Web (`VSoftSol.Syslog.Web/`)*
+- `Search.razor` (`/search`, InteractiveServer) — filter sidebar (severity / stream /
+  device, **typing never required**), query bar showing the composed query + `?` cheat
+  sheet + field/value autocomplete (↓↑ Tab Esc), virtualized `DataTable` with a new
+  **expandable row** (`RowDetail`, expansion survives refresh) showing every `event_fields`
+  entry + the raw message, one-click **context view** modal (±N same host, N configurable,
+  default 50), **live tail** (`PeriodicTimer` on the circuit, pausable, "N while paused"
+  counter, buffer cap), **saved searches** bar (save / load / share), **export** menu, and a
+  teaching empty state that explains *why* zero results (no match / no data / scope) with a
+  one-click **widen time range**.
+- `PatternTester.razor` (`/search/pattern-tester`, Operate) — paste a sample, write GROK or
+  regex, see extracted fields live (reuses the Phase 3 `GrokLibrary` + `GrokExtractor`),
+  save as a `user_extractors` row.
+- `GET /search/export` — auth (`ViewData`), streamed, `ExportMaxRows`-capped, writes
+  `AuditActions.Export`. `SearchQueryComposer` (pure) turns sidebar selections into query text.
+- `DataTable` extended with `RowDetail` / `RowKey` (additive; Phase 4 callers unaffected).
+
+**Verification output** (`docs/evidence/phase-05/`)
+- `dotnet build -c Release` → 0 warnings, 0 errors (13 projects)
+- `dotnet test` → **856 passed, 0 failed, 0 skipped** (was 589; +267)
+- `dotnet format --verify-no-changes` → exit 0
+- SCA → no vulnerable packages, 13 projects; **no new dependency**
+- `dotnet test --filter "Search|Query|Export"` → PASS
+- **Golden oracle** — `SearchOracleTests`: 500 generated queries over a 700-event corpus,
+  **0 divergences** between the brute-force `QueryEvaluator` and the compiled SQL
+  (`oracle-divergence.md`)
+- **Query-language matrix** — `SearchQueryParserTests`: 65+ cases (every operator,
+  precedence, implicit AND, parens, wildcards, malformed → error-not-exception, injection
+  strings, 10 KB / over-length, unicode)
+- **Injection sweep** — `SearchInjectionTests` / `SearchCompilerTests`: SQL fragments,
+  FTS5 abuse, nested quotes, unicode, 10 KB, stacked statements → parameterisation holds,
+  no data mutated, no exception, malformed → user error, no full scan
+- **Query plans** — `SearchQueryPlanTests`: 10 common shapes, `EXPLAIN QUERY PLAN` uses an
+  index, never `SCAN events`; FTS shapes hit `events_fts`
+- **Scope** — `SearchScopeTests`: a stream-A-scoped user's search cannot reach a stream-B
+  event via free text, field term, wildcard, negation, naming the stream, or match-all;
+  export stream + live tail are equally scoped
+- **Stored XSS** — `StoredXssMatrixTests`: 10 OWASP filter-evasion payloads stored
+  byte-identical, rendered encoded on the grid + JSON export
+- **CSV formula injection** — safe in the CSV, byte-identical in the DB (`SearchExportSecurityTests`)
+- **IDOR** — `SavedSearchStoreTests`: non-owner cannot read a private saved search or
+  edit/delete a shared one, nor touch another user's column layouts
+- **Export DoS** — a 50M-row request stays streamed and is capped
+- **Pagination** — 50-page walk, no duplicated or skipped rows
+- **Web** — `/search` needs auth and renders the sidebar + query bar; pattern tester is
+  Operate-only; export endpoint authenticates, streams CSV, writes the audit log, 400s a
+  bad query (`SearchWebTests`)
+- Coverage (union of both suites): Ingestion **90.5 %** (PASS; Phase 5 touched no ingest
+  code), Reporting **93.8 %** (PASS; was a Phase-0 shell), Rules N/A (shell). Core 90.8 %,
+  Data 87.9 %, Web 64.8 % (no gate).
+- **Search latency** — 2,000,000-event persistent dataset, 30-day window, ≤ 1000 rows, on
+  the 2-vCPU VMware VM (`benchmarks.md`): field-filtered `host:… severity:>=error`
+  **362 ms** (PASS, 5.5×), quoted phrase **1,010 ms** (PASS, 2×), boolean text mix
+  **2,466 ms** (MARGINAL — was 11,700 ms before the FTS-combine fix), bare very-common term
+  `failed` **2,725 ms** (MARGINAL, I/O-bound on the cold FTS-index read — same class as
+  P1-1). `EXPLAIN QUERY PLAN` for all 10 common shapes uses an index, never `SCAN events`.
+  50M seed + `< 2 s` re-verification for the broad free-text case carried to Phase 12 (P5-1).
+
+**Decisions made**
+- **ADR 0013** — query AST + reference evaluator in `Core`; SQL compilation in `Data`
+  (`internal`); export formatters in `Reporting`. No new seam — `ScopedEventReader` gains
+  search methods, `ILogRepository` is untouched.
+- `NOT` compiles to `NOT (IFNULL(x, 0))` — SQLite's `NOT NULL` is NULL (row excluded) but
+  the oracle's `!false` is true; the coercion makes them agree and is the better UX
+  (`NOT host:web01` includes events with no host recorded).
+- Free-text search is FTS5 token/prefix matching (not substring); the oracle replicates the
+  exact tokenizer so the two paths are provably identical. Documented in the cheat sheet.
+- Severity comparisons operate on the numeric code (0 = most severe); `severity:>=error`
+  means "error and more severe". Stated in the cheat sheet.
+- Total-row count is capped at `ExactCountCeiling` (shown as "N+") so the indicator stays
+  cheap on a huge hot window.
+- User-authored extractors are stored now; applying them at ingest is Phase 6 (P5-3).
+- `DataTable` extended in place (`RowDetail`) rather than forking a second table
+  (UX_STANDARDS §6).
+- The compiler folds every pure-text term into **one FTS5 boolean MATCH** (not a subquery
+  per term); full result pages skip the redundant count scan and report a lower bound.
+  These two changes took the boolean-text benchmark from 11.7 s to 2.5 s.
+
+**Sign-off block** (TESTING_STANDARDS.md §9)
+```
+PHASE 5 SIGN-OFF
+  Tests added:            ~200 unit (parser matrix 65+, FTS tokenizer, oracle evaluator,
+                          SQL compiler, export formatters, query composer) +
+                          ~67 integration (golden-oracle 500-query differential, execution,
+                          scope-bypass, injection sweep, query plans, saved-search IDOR,
+                          stored-XSS matrix, export security, web routes). ~267 total new.
+  Total suite:            856 tests, 856 passing, 0 skipped (569 unit + 287 integration).
+  Red-green observed:     yes (docs/evidence/phase-05/red-green.md) — the three query-
+                          language entry points, the SQL compiler, the export writer, and
+                          migration 003 were each shipped as a throw / held-back script and
+                          observed red (157 + 14 + 26 + 11 + 6 cases) before implementation.
+                          Two GREEN-phase code fixes (NOT/NULL parity via IFNULL; FTS
+                          diacritic fold table for invariant-globalization) each got a
+                          permanent test.
+  Coverage:               union of both suites — Ingestion 90.5% (gate >= 80% — PASS; no
+                          ingest-path code changed), Reporting 93.8% (Export module; was a
+                          Phase-0 shell — PASS), Rules N/A (shell). Core 90.8%, Data 87.9%,
+                          Web 64.8% (no gate). coverage-summary.txt.
+  Mutation score:         BLOCKED on this SDK-only host (P3-3). stryker-config.search.json
+                          added, targeting SearchQueryParser / FtsTokenizer / QueryEvaluator
+                          / SearchField. Compensating depth: 65-case parser matrix + a
+                          500-query brute-force differential oracle (0 divergences) +
+                          injection sweep + EXPLAIN QUERY PLAN assertions.
+  Performance gates:      search latency, 2,000,000-event dataset, 30-day window, <= 1000
+                          rows, 2-vCPU VMware VM (benchmarks.md):
+                            field + severity filter   362 ms  PASS (5.5x headroom)
+                            quoted phrase           1,010 ms  PASS (2x headroom)
+                            boolean text mix        2,466 ms  MARGINAL (was 11,700 ms)
+                            bare common term        2,725 ms  MARGINAL (36% over; I/O-bound
+                                                              on the cold FTS-index read —
+                                                              BDN flags the VM; same class
+                                                              as P1-1, operator-accepted)
+                          EXPLAIN QUERY PLAN: 10 common shapes, all index-backed, never
+                          SCAN events. 50M-event seed + broad-free-text < 2 s
+                          re-verification carried to the Phase 12 clean-VM run (P5-1).
+  UX gate:                PASS — 5/5 (docs/evidence/phase-05/ux-gate.md). Cold-eyes task
+                          "every auth failure from one switch, last 24 h, without typing"
+                          = 5 clicks, 0 characters. Every zero-result state explains why +
+                          offers one-click widen. axe-core / AT traversal / 1366x768
+                          screenshot carried to Phase 12 (no browser — P5-2).
+  Regression:             all Phase 0-4 tests green — yes (589 -> 856, none weakened).
+                          DataTable gained an optional RowDetail param (additive; Phase 4
+                          callers unaffected — asserted by the existing DataTable tests).
+  Evidence committed:     docs/evidence/phase-05/ (+ security/)
+  Security gate:          query-injection sweep PASS (SQL / FTS5 / unicode / 10 KB /
+                          stacked statements — parameterisation holds, no data mutated) /
+                          golden-oracle differential PASS (500 queries, 0 divergences) /
+                          scope-bypass via sort·wildcard·negation·export PASS / stored-XSS
+                          matrix PASS (10 OWASP payloads x grid + JSON export, encoded at
+                          render, byte-identical in storage) / CSV formula injection PASS
+                          (export-only, byte-identical in DB) / IDOR (saved searches +
+                          column layouts) PASS / export DoS PASS (streamed + capped) /
+                          query-plan assertions PASS / export audited PASS / SAST PASS /
+                          SCA PASS (no new dependency) / secrets PASS.
+                          DAST (ZAP) NOT RUN — no browser (P4-1), compensating pipeline
+                          assertions run against real Kestrel over HTTPS.
+  Open findings:          0 C, 0 H, 0 M, 0 L. Carried info items: P5-1 (50M benchmark),
+                          P5-2 (axe-core), P5-3 (user extractors at ingest -> Phase 6),
+                          P5-4 (EventRowMapper unify), P3-3 (Stryker), P4-1 (DAST).
+```
+
+**Deferred**
+- [ ] P5-1: 50M-event search benchmark — Phase 12 clean-VM acceptance run.
+- [ ] P5-2: axe-core + live keyboard/AT traversal + 1366×768 screenshot for the search screens — Phase 12.
+- [ ] P5-3: wire `user_extractors` into the ingest `ExtractorPipeline` — Phase 6.
+- [ ] P5-4: unify `SqliteLogRepository` onto `EventRowMapper`.
+- [ ] Re-run the ingest throughput benchmark — Phase 6.
+
+**Known issues** — `docs/evidence/phase-05/known-issues.md` (P5-1 … P5-4, carried P3-3, P4-1).
 
 ### Phase 4 — UI Shell & Authentication — 2026-09-07 — tag `v1.0.0-phase.4`
 
@@ -650,6 +853,15 @@ by the phase prompt; the five-point gate applies from Phase 4.
 
 ## Open decisions needing the operator
 
+- **Phase 5 sign-off** — the search-latency gate is `MARGINAL` for two of four query
+  shapes on the 2-vCPU VMware VM: a bare very-common free-text term (2.7 s vs 2 s) and a
+  boolean-text query (2.5 s — down from 11.7 s after the FTS-combine fix). Field-filtered
+  and phrase queries — the workflow the sidebar composes and the UX cold-eyes task uses —
+  pass with 2–5.5× headroom. `EXPLAIN QUERY PLAN` proves every shape is index-backed. The
+  literal 50M-event seed and the `< 2 s` re-verification for the broad free-text case are
+  carried to the Phase 12 clean-VM acceptance run — **the same disposition the operator
+  accepted for the Phase 1 insert benchmark (P1-1) and the Phase 3 pipeline number (P3-2)**.
+  Operator to accept at the `v1.0.0-phase.5` tag.
 - **Phase 4 sign-off** — two validation items (OWASP ZAP DAST, axe-core a11y) could not be
   run on this browser-less host and are carried to Phase 12 / CI with compensating
   pipeline-level assertions. Operator to accept at the `v1.0.0-phase.4` tag, as with the
@@ -667,14 +879,18 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | _(none — no `TODO(phase-N)` in code)_ | | |
 | ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
 | P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | 6 |
+| P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | 12 (clean-VM) |
+| P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | 12 |
+| P5-3 wire `user_extractors` into the ingest `ExtractorPipeline` | `Ingestion` / `Web` config | 6 |
+| P5-4 unify `SqliteLogRepository` onto `EventRowMapper` | `Data` | any |
 | P2-2 spill / segment / cursor file ACLs | Phase 12 installer | 12 |
 | P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | 12 (container host) |
 | P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | 12 |
-| P3-3 Stryker mutation run (was P0-2) | `stryker-config.json` | CI host with VsTest adapter |
+| P3-3 Stryker mutation run (was P0-2; +`stryker-config.search.json` for the query language) | `stryker-config*.json` | CI host with VsTest adapter |
 | P4-1 OWASP ZAP DAST against the running UI | `Web` | 12 / CI |
 | P4-2 axe-core a11y scan + live keyboard/AT traversal + 1366×768 screenshot | `Web` | 12 |
 | P4-3 re-evaluate a Blazor component-test lib (AngleSharp advisory) | test stack | when fixed upstream |
 | P1-1 re-measure insert benchmark on clean-VM hardware | `benchmarks` | 12 |
 | Re-run ingest throughput benchmark | `IngestionBenchmark` | 6, 7, 12 |
 
-_(P0-1 coverage gate met — Ingestion 88.4%, Data 86.2%.)_
+_(P0-1 coverage gate met — Ingestion 90.5%, Reporting 93.8%, Data 87.9%.)_

@@ -7,7 +7,7 @@
     <!-- Not a test project: no test SDK is referenced, so `dotnet test` skips it.
          Run it explicitly via `dotnet run -c Release` per CLAUDE.md commands. -->
     <IsTestProject>false</IsTestProject>
-    <NoWarn>$(NoWarn);CA1707;CA1822;CA1001</NoWarn>
+    <NoWarn>$(NoWarn);CA1707;CA1822;CA1001;CA5394;SCS0005</NoWarn>
     <!-- Match the production Service host so the ingest benchmark reflects real GC behaviour. -->
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>

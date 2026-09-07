@@ -1,0 +1,111 @@
+@* PHASE_05 item 6 — saved searches: named, owned, optionally shared. Stores the query,
+   not the results. (Promote-to-widget / promote-to-alert land in Phases 8 & 9.) *@
+@using VSoftSol.Syslog.Data.Search
+@inject SqliteSavedSearchStore Store
+@inject CurrentUserAccessor Users
+@inject ToastService Toast
+
+<div class="ds-savedsearch">
+    <label class="ds-savedsearch__load">
+        Saved searches
+        <select @onchange="OnSelectAsync" value="@_selectedId" disabled="@Disabled">
+            <option value="">— load a saved search —</option>
+            @foreach (SavedSearch s in _saved)
+            {
+                <option value="@s.Id">@s.Name @(s.OwnedByCurrentUser ? string.Empty : "(shared)")</option>
+            }
+        </select>
+    </label>
+
+    <button type="button" class="ds-button ds-button--ghost" @onclick="() => _saving = true" disabled="@Disabled">
+        Save current…
+    </button>
+
+    @if (_saving)
+    {
+        <div class="ds-savedsearch__form">
+            <input type="text" placeholder="Name this search" @bind="_newName" aria-label="Saved search name" />
+            <label><input type="checkbox" @bind="_shareIt" /> Share with everyone (read-only)</label>
+            <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync">Save</button>
+            <button type="button" class="ds-button ds-button--ghost" @onclick="() => _saving = false">Cancel</button>
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<SavedSearch> _saved = [];
+    private string _selectedId = string.Empty;
+    private bool _saving;
+    private string _newName = string.Empty;
+    private bool _shareIt;
+    private long _userId;
+
+    [Parameter, EditorRequired] public string CurrentQuery { get; set; } = string.Empty;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<SavedSearch> OnLoad { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userId = await ResolveUserIdAsync();
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _saved = _userId > 0
+            ? await Store.ListForUserAsync(_userId, CancellationToken.None)
+            : [];
+    }
+
+    private async Task OnSelectAsync(ChangeEventArgs e)
+    {
+        _selectedId = e.Value?.ToString() ?? string.Empty;
+        if (long.TryParse(_selectedId, out long id))
+        {
+            SavedSearch? loaded = await Store.GetAsync(id, _userId, CancellationToken.None);
+            if (loaded is not null)
+            {
+                await OnLoad.InvokeAsync(loaded);
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName))
+        {
+            Toast.Warning("Give the search a name before saving.");
+            return;
+        }
+
+        try
+        {
+            await Store.CreateAsync(_userId, _newName.Trim(), CurrentQuery, timeRangeJson: null, _shareIt, CancellationToken.None);
+            Toast.Success($"Saved “{_newName.Trim()}”.");
+            _saving = false;
+            _newName = string.Empty;
+            _shareIt = false;
+            await RefreshAsync();
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException)
+        {
+            Toast.Error("You already have a saved search with that name.");
+        }
+    }
+
+    private async Task<long> ResolveUserIdAsync()
+    {
+        CurrentUser user = await Users.GetAsync();
+        // The username claim is unique; the store keys on user_id, resolved here once.
+        return user.IsAuthenticated ? await LookupAsync(user.UserName) : 0;
+    }
+
+    [Inject] private VSoftSol.Syslog.Data.Users.SqliteUserStore UserStore { get; set; } = default!;
+
+    private async Task<long> LookupAsync(string username)
+    {
+        VSoftSol.Syslog.Data.Users.UserAccount? account =
+            await UserStore.FindByUsernameAsync(username, CancellationToken.None);
+        return account?.UserId ?? 0;
+    }
+}

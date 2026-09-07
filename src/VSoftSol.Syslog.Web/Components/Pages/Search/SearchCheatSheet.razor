@@ -1,0 +1,15 @@
+@* Inline syntax reference (PHASE_05 item 10). Plain-English, no RFC knowledge required. *@
+<div class="ds-cheatsheet" role="note">
+    <dl>
+        <dt><code>failed login</code></dt><dd>both words appear (in order for a quoted phrase)</dd>
+        <dt><code>"login failed"</code></dt><dd>that exact phrase</dd>
+        <dt><code>auth*</code></dt><dd>starts with <em>auth</em></dd>
+        <dt><code>host:core-sw1</code></dt><dd>a specific field equals a value</dd>
+        <dt><code>severity:&gt;=error</code></dt><dd>error and more severe</dd>
+        <dt><code>field.srcport:22</code></dt><dd>an extracted field</dd>
+        <dt><code>a AND b</code> · <code>a OR b</code> · <code>NOT a</code> · <code>-a</code></dt><dd>combine terms</dd>
+        <dt><code>(a OR b) AND c</code></dt><dd>group with parentheses</dd>
+    </dl>
+    <p class="ds-muted">Fields: message, host, source_ip, app, vendor, severity, facility, protocol,
+        parse_status, device, stream, event_id, plus <code>field.&lt;name&gt;</code>.</p>
+</div>

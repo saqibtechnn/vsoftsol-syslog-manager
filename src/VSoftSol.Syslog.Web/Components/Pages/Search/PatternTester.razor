@@ -1,0 +1,167 @@
+@page "/search/pattern-tester"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using System.Text.RegularExpressions
+@using VSoftSol.Syslog.Data.Search
+@using VSoftSol.Syslog.Ingestion.Extraction
+@inject SqliteExtractorStore Store
+@inject CurrentUserAccessor Users
+@inject ToastService Toast
+
+<PageTitle>Pattern tester — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-pattern">
+    <header class="ds-page__header">
+        <h1>Pattern tester</h1>
+        <a class="ds-button ds-button--ghost" href="/search">Back to search</a>
+    </header>
+
+    <p class="ds-muted">
+        Paste a message a device actually sent, write a GROK or regular-expression pattern, and see the
+        fields it extracts. When it looks right, save it so the collector can extract those fields going forward.
+    </p>
+
+    <div class="ds-pattern__grid">
+        <div class="ds-pattern__col">
+            <FormField Label="Sample message" FieldId="pt-sample" Help="One real log line — copy it from the raw view of an event.">
+                <textarea id="pt-sample" class="ds-textarea" rows="4" @bind="_sample" @bind:event="oninput"></textarea>
+            </FormField>
+
+            <fieldset class="ds-pattern__kind">
+                <legend>Pattern type</legend>
+                <label><input type="radio" name="kind" checked="@(_kind == "grok")" @onchange='() => SetKind("grok")' /> GROK</label>
+                <label><input type="radio" name="kind" checked="@(_kind == "regex")" @onchange='() => SetKind("regex")' /> Regular expression</label>
+            </fieldset>
+
+            <FormField Label="Pattern" FieldId="pt-pattern"
+                       Help="@(_kind == "grok" ? "e.g. %{IPV4:src} %{WORD:action}" : "Use named groups: (?<src>\\d+\\.\\d+\\.\\d+\\.\\d+)")"
+                       ErrorText="@_compileError">
+                <input id="pt-pattern" class="ds-input ds-input--mono" type="text" @bind="_pattern" @bind:event="oninput" />
+            </FormField>
+        </div>
+
+        <div class="ds-pattern__col">
+            <h2 class="ds-pattern__resulthead">Extracted fields</h2>
+            @if (_compileError is not null)
+            {
+                <EmptyState Title="Pattern won't compile" Explanation="@_compileError" Icon="⚠️" />
+            }
+            else if (_fields.Count == 0)
+            {
+                <EmptyState Title="No fields yet"
+                            Explanation="Nothing matched. Adjust the pattern, or check the sample line is representative."
+                            Icon="🧪" />
+            }
+            else
+            {
+                <table class="ds-table">
+                    <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                    <tbody>
+                        @foreach ((string name, string value) in _fields)
+                        {
+                            <tr><td><code>@name</code></td><td>@value</td></tr>
+                        }
+                    </tbody>
+                </table>
+
+                <div class="ds-pattern__save">
+                    <input type="text" placeholder="Name this extractor" @bind="_saveName" aria-label="Extractor name" />
+                    <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync">Save as extractor</button>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (_saved.Count > 0)
+    {
+        <section class="ds-pattern__existing">
+            <h2>Saved extractors</h2>
+            <ul>
+                @foreach (UserExtractor x in _saved)
+                {
+                    <li><strong>@x.Name</strong> <span class="ds-chip">@x.Kind</span> <code>@x.Pattern</code></li>
+                }
+            </ul>
+            <p class="ds-muted">These are applied by the collector's extraction pipeline once stream routing is configured (Phase 6).</p>
+        </section>
+    }
+</div>
+
+@code {
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(250);
+
+    private string _sample = string.Empty;
+    private string _kind = "grok";
+    private string _pattern = string.Empty;
+    private string _saveName = string.Empty;
+    private string? _compileError;
+    private List<(string Name, string Value)> _fields = [];
+    private IReadOnlyList<UserExtractor> _saved = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    protected override void OnParametersSet() => Evaluate();
+
+    private void SetKind(string kind)
+    {
+        _kind = kind;
+        Evaluate();
+    }
+
+    private void Evaluate()
+    {
+        _compileError = null;
+        _fields = [];
+
+        if (string.IsNullOrWhiteSpace(_pattern) || string.IsNullOrEmpty(_sample))
+        {
+            return;
+        }
+
+        try
+        {
+            Regex regex = _kind == "grok"
+                ? new GrokLibrary(MatchTimeout).Compile(_pattern)
+                : new Regex(_pattern, RegexOptions.CultureInvariant, MatchTimeout);
+
+            var context = new ExtractionContext(_sample.Trim(), "0.0.0.0", null, null, maxFields: 100, maxValueLength: 4096);
+            new GrokExtractor(regex, _kind).Apply(context);
+            _fields = [.. context.Fields.Select(f => (f.Key, f.Value))];
+        }
+        catch (GrokCompilationException ex)
+        {
+            _compileError = ex.Message;
+        }
+        catch (RegexParseException ex)
+        {
+            _compileError = ex.Message;
+        }
+        catch (ArgumentException ex)
+        {
+            _compileError = ex.Message;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_saveName))
+        {
+            Toast.Warning("Give the extractor a name.");
+            return;
+        }
+
+        if (_compileError is not null || _fields.Count == 0)
+        {
+            Toast.Warning("Get the pattern extracting at least one field before saving.");
+            return;
+        }
+
+        CurrentUser user = await Users.GetAsync();
+        await Store.SaveAsync(_saveName.Trim(), _kind, _pattern, _sample.Trim(), user.UserName, CancellationToken.None);
+        Toast.Success($"Saved extractor “{_saveName.Trim()}”.");
+        _saveName = string.Empty;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync() => _saved = await Store.ListAsync(CancellationToken.None);
+}

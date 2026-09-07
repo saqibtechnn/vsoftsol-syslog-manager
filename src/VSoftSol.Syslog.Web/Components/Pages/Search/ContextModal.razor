@@ -1,0 +1,94 @@
+@* PHASE_05 item 4 — the context view. From any event, one click opens the ±N surrounding
+   messages from the same host. N is configurable (default 50). Goes through the scope
+   chokepoint, so out-of-scope neighbours are never shown. *@
+@using VSoftSol.Syslog.Core.Events
+@using VSoftSol.Syslog.Data.Scoping
+@using VSoftSol.Syslog.Data.Search
+@inject ScopedEventReader Reader
+@inject CurrentUserAccessor Users
+
+<Modal @bind-Visible="_visible" Title="@Title">
+    <ChildContent>
+        <div class="ds-context">
+            <div class="ds-context__controls">
+                <label>
+                    Messages each side
+                    <select @onchange="OnRangeChanged" value="@_range">
+                        <option value="25">± 25</option>
+                        <option value="50">± 50</option>
+                        <option value="100">± 100</option>
+                        <option value="250">± 250</option>
+                    </select>
+                </label>
+            </div>
+
+            @if (_loading)
+            {
+                <SkeletonLoader Rows="6" />
+            }
+            else if (_rows.Count == 0)
+            {
+                <EmptyState Title="No surrounding messages"
+                            Explanation="Nothing else from this host is within reach, or the neighbours are outside your visible scope."
+                            Icon="↕️" />
+            }
+            else
+            {
+                <table class="ds-table ds-context__table">
+                    <thead>
+                        <tr><th>Time</th><th>Severity</th><th>Message</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (SyslogEvent e in _rows)
+                        {
+                            <tr class="@(e.EventId == _anchorId ? "ds-context__anchor" : null)">
+                                <td>@e.ReceivedUtc.ToLocalTime().ToString("HH:mm:ss.fff")</td>
+                                <td><SeverityBadge Severity="e.Severity" /></td>
+                                <td class="ds-context__msg">@e.Message</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </ChildContent>
+</Modal>
+
+@code {
+    private bool _visible;
+    private bool _loading;
+    private int _range = 50;
+    private long _anchorId;
+    private string? _anchorHost;
+    private IReadOnlyList<SyslogEvent> _rows = [];
+
+    private string Title => _anchorHost is { Length: > 0 }
+        ? $"Context — {_anchorHost}"
+        : "Context";
+
+    public async Task OpenAsync(SyslogEvent anchor)
+    {
+        _anchorId = anchor.EventId;
+        _anchorHost = anchor.Hostname ?? anchor.SourceIp;
+        _visible = true;
+        await LoadAsync();
+    }
+
+    private async Task OnRangeChanged(ChangeEventArgs e)
+    {
+        _range = int.TryParse(e.Value?.ToString(), out int n) ? n : 50;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        CurrentUser user = await Users.GetAsync();
+        _rows = await Reader.GetContextAsync(user.Scope, _anchorId, _range, _range, CancellationToken.None);
+
+        _loading = false;
+        StateHasChanged();
+    }
+}

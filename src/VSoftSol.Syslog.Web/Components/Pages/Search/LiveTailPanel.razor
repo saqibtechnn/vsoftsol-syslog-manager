@@ -1,0 +1,161 @@
+@* PHASE_05 item 5 — live tail. Server-side push of new matching events with the active
+   filter applied, pausable, with a buffer cap and a visible "N while paused" counter.
+   Uses a PeriodicTimer on the Blazor circuit — no extra transport. *@
+@implements IAsyncDisposable
+@using VSoftSol.Syslog.Core.Events
+@using VSoftSol.Syslog.Data.Scoping
+@using VSoftSol.Syslog.Data.Search
+@inject ScopedEventReader Reader
+@inject CurrentUserAccessor Users
+@inject TimeProvider Clock
+
+<div class="ds-livetail">
+    @if (!_running)
+    {
+        <button type="button" class="ds-button ds-button--ghost" @onclick="StartAsync">▶ Live tail</button>
+    }
+    else
+    {
+        <button type="button" class="ds-button ds-button--ghost" @onclick="Stop">■ Stop tail</button>
+        @if (_paused)
+        {
+            <button type="button" class="ds-button ds-button--primary" @onclick="ResumeAsync">
+                Resume@(_pausedCount > 0 ? $" ({_pausedCount} new)" : string.Empty)
+            </button>
+        }
+        else
+        {
+            <button type="button" class="ds-button ds-button--ghost" @onclick="Pause">⏸ Pause</button>
+            <span class="ds-livetail__pulse" aria-hidden="true"></span>
+            <span class="ds-livetail__status" role="status">streaming — @_deliveredCount this session</span>
+        }
+    }
+</div>
+
+@code {
+    private const int BufferCap = 2000;
+
+    private bool _running;
+    private bool _paused;
+    private int _pausedCount;
+    private int _deliveredCount;
+    private long _watermark;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _cts;
+    private readonly List<SyslogEvent> _pausedBuffer = [];
+
+    [Parameter, EditorRequired] public string Query { get; set; } = string.Empty;
+    [Parameter] public DateTimeOffset FromUtc { get; set; }
+    [Parameter] public long HighestEventId { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<SyslogEvent>> OnRows { get; set; }
+
+    private async Task StartAsync()
+    {
+        _running = true;
+        _paused = false;
+        _pausedCount = 0;
+        _deliveredCount = 0;
+        _watermark = HighestEventId;
+        _cts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        _ = PumpAsync(_cts.Token);
+        await Task.CompletedTask;
+    }
+
+    private void Pause() => _paused = true;
+
+    private async Task ResumeAsync()
+    {
+        _paused = false;
+        if (_pausedBuffer.Count > 0)
+        {
+            IReadOnlyList<SyslogEvent> flush = [.. _pausedBuffer];
+            _pausedBuffer.Clear();
+            _pausedCount = 0;
+            _deliveredCount += flush.Count;
+            await OnRows.InvokeAsync(flush);
+        }
+    }
+
+    private void Stop()
+    {
+        _running = false;
+        _timer?.Dispose();
+        _timer = null;
+        _cts?.Cancel();
+        _pausedBuffer.Clear();
+        _pausedCount = 0;
+    }
+
+    private async Task PumpAsync(CancellationToken token)
+    {
+        try
+        {
+            while (_timer is not null && await _timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+            {
+                CurrentUser user = await Users.GetAsync();
+                var request = new SearchRequest
+                {
+                    QueryText = Query,
+                    FromUtc = FromUtc,
+                    ToUtc = Clock.GetUtcNow().AddYears(1),
+                };
+
+                IReadOnlyList<SyslogEvent> fresh =
+                    await Reader.PollLiveAsync(user.Scope, request, _watermark, token).ConfigureAwait(false);
+                if (fresh.Count == 0)
+                {
+                    continue;
+                }
+
+                _watermark = fresh.Max(f => f.EventId);
+
+                await InvokeAsync(async () =>
+                {
+                    if (_paused)
+                    {
+                        _pausedBuffer.AddRange(fresh);
+                        if (_pausedBuffer.Count > BufferCap)
+                        {
+                            _pausedBuffer.RemoveRange(0, _pausedBuffer.Count - BufferCap);
+                        }
+
+                        _pausedCount = _pausedBuffer.Count;
+                    }
+                    else
+                    {
+                        _deliveredCount += fresh.Count;
+                        await OnRows.InvokeAsync(fresh);
+                    }
+
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // stopped
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Stop();
+        if (_cts is not null)
+        {
+            await CastAndDispose(_cts);
+        }
+
+        static async ValueTask CastAndDispose(IDisposable resource)
+        {
+            if (resource is IAsyncDisposable async)
+            {
+                await async.DisposeAsync();
+            }
+            else
+            {
+                resource.Dispose();
+            }
+        }
+    }
+}
