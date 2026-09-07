@@ -1,3 +1,4 @@
+@inject NonceAccessor Nonce
 <!DOCTYPE html>
 <html lang="en">
 
@@ -8,17 +9,20 @@
     <link rel="icon" href="branding/favicon.ico" sizes="any" />
     <link rel="stylesheet" href="branding/brand.css" />
     <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="ds.css" />
+    <link rel="stylesheet" href="VSoftSol.Syslog.Web.styles.css" />
     <HeadOutlet />
 </head>
 
 <body>
     <Routes />
-    <div id="blazor-error-ui">
+    <div id="blazor-error-ui" class="ds-error-ui">
         An unexpected error has occurred.
         <a href="" class="reload">Reload</a>
-        <a class="dismiss">🗙</a>
+        <a class="dismiss" role="button" tabindex="0">Dismiss</a>
     </div>
-    <script src="_framework/blazor.web.js"></script>
+    <script src="_framework/blazor.web.js" nonce="@Nonce.Value"></script>
+    <script src="js/app.js" nonce="@Nonce.Value"></script>
 </body>
 
 </html>

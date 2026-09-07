@@ -14,6 +14,11 @@ public sealed class SyslogWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _dataDirectory =
         Path.Combine(Path.GetTempPath(), "vsoftsol-web-" + Guid.NewGuid().ToString("N"));
 
+    public SyslogWebApplicationFactory() =>
+        // Serve the test server over https so the Secure auth cookie is accepted by the
+        // client's cookie container (PHASE_04: the cookie is Secure / HttpOnly / SameSite=Strict).
+        ClientOptions.BaseAddress = new Uri("https://localhost");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(_dataDirectory);

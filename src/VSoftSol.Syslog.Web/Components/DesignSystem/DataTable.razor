@@ -1,0 +1,180 @@
+@* The one table component (PHASE_04 design system; UX_STANDARDS.md §6). Virtualized,
+   sortable, with a column chooser and a teaching empty state. Every later phase's list
+   view uses this — no forked table. *@
+@typeparam TItem
+
+<div class="ds-table-wrap">
+    <div class="ds-table-toolbar">
+        @if (Toolbar is not null)
+        {
+            <div class="ds-table-toolbar__custom">@Toolbar</div>
+        }
+        <div class="ds-table-toolbar__spacer"></div>
+        <details class="ds-column-chooser">
+            <summary class="ds-button ds-button--ghost">Columns</summary>
+            <div class="ds-column-chooser__menu">
+                @foreach (TableColumn<TItem> column in Columns)
+                {
+                    <label class="ds-column-chooser__item">
+                        <input type="checkbox" checked="@_visible.Contains(column.Id)"
+                               @onchange="() => ToggleColumn(column.Id)" />
+                        <span>@column.Header</span>
+                    </label>
+                }
+            </div>
+        </details>
+    </div>
+
+    @if (RowCount == 0)
+    {
+        <div class="ds-table-empty">
+            @if (EmptyState is not null)
+            {
+                @EmptyState
+            }
+            else
+            {
+                <EmptyState Title="@EmptyTitle" Explanation="@EmptyExplanation" Icon="🗒️" />
+            }
+        </div>
+    }
+    else
+    {
+        <table class="ds-table">
+            <thead>
+                <tr>
+                    @foreach (TableColumn<TItem> column in VisibleColumns)
+                    {
+                        <th scope="col" class="@(column.Numeric ? "ds-table__th--num" : null)"
+                            aria-sort="@AriaSort(column)">
+                            @if (column.SortValue is not null)
+                            {
+                                <button type="button" class="ds-table__sort" @onclick="() => SortBy(column)">
+                                    <span>@column.Header</span>
+                                    <span class="ds-table__sort-icon" aria-hidden="true">@SortGlyph(column)</span>
+                                </button>
+                            }
+                            else
+                            {
+                                @column.Header
+                            }
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @if (Virtualized)
+                {
+                    <Virtualize Items="SortedItems" Context="row" ItemSize="36">
+                        <tr>@RenderRow(row)</tr>
+                    </Virtualize>
+                }
+                else
+                {
+                    @foreach (TItem row in SortedItems)
+                    {
+                        <tr>@RenderRow(row)</tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private HashSet<string> _visible = [];
+    private string? _sortColumnId;
+    private bool _sortDescending;
+
+    [Parameter, EditorRequired] public IReadOnlyList<TableColumn<TItem>> Columns { get; set; } = [];
+
+    [Parameter, EditorRequired] public IReadOnlyList<TItem> Items { get; set; } = [];
+
+    [Parameter] public bool Virtualized { get; set; } = true;
+
+    [Parameter] public RenderFragment? Toolbar { get; set; }
+
+    [Parameter] public RenderFragment? EmptyState { get; set; }
+
+    [Parameter] public string EmptyTitle { get; set; } = "Nothing to show yet";
+
+    [Parameter] public string EmptyExplanation { get; set; } = "When there is data, it will appear here.";
+
+    private int RowCount => Items.Count;
+
+    private IEnumerable<TableColumn<TItem>> VisibleColumns => Columns.Where(c => _visible.Contains(c.Id));
+
+    private List<TItem> SortedItems
+    {
+        get
+        {
+            if (_sortColumnId is null)
+            {
+                return [.. Items];
+            }
+
+            TableColumn<TItem>? column = Columns.FirstOrDefault(c => c.Id == _sortColumnId);
+            if (column?.SortValue is null)
+            {
+                return [.. Items];
+            }
+
+            IEnumerable<TItem> ordered = _sortDescending
+                ? Items.OrderByDescending(column.SortValue)
+                : Items.OrderBy(column.SortValue);
+            return [.. ordered];
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_visible.Count == 0)
+        {
+            _visible = [.. Columns.Where(c => !c.HiddenByDefault).Select(c => c.Id)];
+        }
+    }
+
+    private void ToggleColumn(string id)
+    {
+        if (!_visible.Remove(id))
+        {
+            _visible.Add(id);
+        }
+    }
+
+    private void SortBy(TableColumn<TItem> column)
+    {
+        if (_sortColumnId == column.Id)
+        {
+            _sortDescending = !_sortDescending;
+        }
+        else
+        {
+            _sortColumnId = column.Id;
+            _sortDescending = false;
+        }
+    }
+
+    private string? AriaSort(TableColumn<TItem> column) =>
+        _sortColumnId != column.Id ? (column.SortValue is not null ? "none" : null)
+        : _sortDescending ? "descending" : "ascending";
+
+    private string SortGlyph(TableColumn<TItem> column) =>
+        _sortColumnId != column.Id ? "↕" : _sortDescending ? "↓" : "↑";
+
+    private RenderFragment RenderRow(TItem row) => builder =>
+    {
+        int seq = 0;
+        foreach (TableColumn<TItem> column in VisibleColumns)
+        {
+            builder.OpenElement(seq++, "td");
+            if (column.Numeric)
+            {
+                builder.AddAttribute(seq++, "class", "ds-table__td--num");
+            }
+
+            builder.AddContent(seq++, column.Cell(row));
+            builder.CloseElement();
+        }
+    };
+}

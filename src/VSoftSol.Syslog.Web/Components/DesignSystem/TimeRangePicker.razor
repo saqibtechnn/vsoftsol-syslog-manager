@@ -1,0 +1,29 @@
+@* Global time-range picker (PHASE_04 build item 10; UX_STANDARDS.md §6 — fixed position,
+   means the same thing everywhere). *@
+@implements IDisposable
+@inject TimeRangeState State
+
+<details class="ds-timerange">
+    <summary class="ds-timerange__summary" aria-label="Time range">
+        <span class="ds-timerange__icon" aria-hidden="true">🕒</span>
+        <span>@State.Current.Label</span>
+    </summary>
+    <div class="ds-timerange__menu" role="menu">
+        @foreach (TimeRange preset in TimeRange.Presets)
+        {
+            <button type="button" role="menuitemradio" aria-checked="@(preset == State.Current)"
+                    class="ds-timerange__item @(preset == State.Current ? "ds-timerange__item--active" : null)"
+                    @onclick="() => State.Set(preset)">
+                @preset.Label
+            </button>
+        }
+    </div>
+</details>
+
+@code {
+    protected override void OnInitialized() => State.Changed += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => State.Changed -= OnChanged;
+}

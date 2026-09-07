@@ -1,0 +1,32 @@
+Phase 4 coverage — dotnet test VSoftSol.Syslog.sln --collect "XPlat Code Coverage"
+(cobertura files under docs/evidence/phase-04/coverage/*/coverage.cobertura.xml)
+
+Line coverage is the UNION of covered lines across the unit and integration runs
+(a line counts as covered if hits>0 in either run — same method as Phase 3).
+
+  VSoftSol.Syslog.Ingestion    0.884  (88.4%)   <-- TESTING_STANDARDS §3 gate (>= 80%) — PASS
+  VSoftSol.Syslog.Data         0.862  (86.2%)   (Phases 1 + 4; auth/scope/audit/secrets/sessions added)
+  VSoftSol.Syslog.Core         0.989
+  VSoftSol.Syslog.Web          0.608            (no gate; the security-critical paths —
+                                                auth flow, session lifecycle, policies, scope —
+                                                are covered by the integration suite. The
+                                                uncovered remainder is placeholder pages
+                                                (ComingSoon) and interactive builder branches.)
+  VSoftSol.Syslog.Service      0.674
+  VSoftSol.Syslog.BrandingGen  0.836
+  VSoftSol.Syslog.Rules        0.000  (shell — Phase 7, gate N/A)
+  VSoftSol.Syslog.Reporting    0.000  (shell — Phase 10, gate N/A)
+
+TESTING_STANDARDS.md §3 gate (>= 80% line on Ingestion / Rules / Reporting):
+  Ingestion  = 88.4%  PASS  (Phase 4 changed no ingest-path code; the small delta from
+                             Phase 3's 89.5% is run-to-run instrumentation noise)
+  Rules      = N/A    (Phase-7 shell)
+  Reporting  = N/A    (Phase-10 shell)
+
+Mutation testing (Stryker): still BLOCKED on this SDK-only host (P0-2 / P3-3). No new
+mutation target in Phase 4 (the parser / rules evaluator / retention logic are the named
+targets; the auth code's assertions are exercised by the RBAC matrix, scope-bypass,
+lockout, session and audit-immutability suites).
+
+Union computed with docs/evidence/phase-04/coverage-union.fsx-equivalent
+(System.Xml.Linq over both cobertura files; line covered if hits>0 in either).

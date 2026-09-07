@@ -1,0 +1,22 @@
+@* Shell placeholder for a nav destination whose feature ships in a later phase. Carries
+   the page's real <PageTitle> and empty state so the nav is navigable now and the
+   authorization matrix has a route to check. *@
+
+<PageTitle>@Area — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>@Area</h1>
+    </header>
+    <EmptyState Title="@($"{Area} is coming in a later phase")"
+                Explanation="@Explanation"
+                Icon="@Icon" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Area { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired] public string Explanation { get; set; } = string.Empty;
+
+    [Parameter] public string Icon { get; set; } = "🧱";
+}

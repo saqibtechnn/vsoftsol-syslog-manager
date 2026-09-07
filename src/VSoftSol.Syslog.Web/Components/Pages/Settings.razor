@@ -1,0 +1,25 @@
+@page "/settings"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@inject NavigationManager Nav
+<PageTitle>Settings — @BrandingInfo.ProductName</PageTitle>
+<div class="ds-page">
+    <header class="ds-page__header"><h1>Settings</h1></header>
+    <div class="ds-cardgrid">
+        <a class="ds-card ds-card--link" href="/settings/users">
+            <h2>Users &amp; access</h2>
+            <p>Accounts, roles, and per-user stream / device-group scope.</p>
+        </a>
+        <div class="ds-card ds-card--muted">
+            <h2>Listeners</h2>
+            <p>UDP / TCP / TLS listener ports — Phase 6.</p>
+        </div>
+        <div class="ds-card ds-card--muted">
+            <h2>Retention</h2>
+            <p>Per-stream retention tiers and archival — Phase 10.</p>
+        </div>
+        <a class="ds-card ds-card--link" href="/audit">
+            <h2>Audit log</h2>
+            <p>Every login, configuration change, and export.</p>
+        </a>
+    </div>
+</div>

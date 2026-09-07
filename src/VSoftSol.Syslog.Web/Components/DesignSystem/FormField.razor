@@ -1,0 +1,46 @@
+@* Form field wrapper (PHASE_04 design system; UX_STANDARDS.md §4: inline validation that
+   says what is wrong and how to fix it, plus one-sentence field help). *@
+
+<div class="ds-field @(HasError ? "ds-field--error" : null)">
+    <label class="ds-field__label" for="@FieldId">
+        @Label
+        @if (Required)
+        {
+            <span class="ds-field__required" aria-hidden="true">*</span>
+            <span class="ds-visually-hidden">(required)</span>
+        }
+        @if (!string.IsNullOrEmpty(Help))
+        {
+            <span class="ds-field__help" title="@Help" aria-label="@Help" role="img">?</span>
+        }
+    </label>
+    <div class="ds-field__control">
+        @ChildContent
+    </div>
+    @if (HasError)
+    {
+        <p class="ds-field__message" id="@($"{FieldId}-error")" role="alert">@ErrorText</p>
+    }
+    else if (!string.IsNullOrEmpty(Hint))
+    {
+        <p class="ds-field__hint" id="@($"{FieldId}-hint")">@Hint</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired] public string FieldId { get; set; } = string.Empty;
+
+    [Parameter] public bool Required { get; set; }
+
+    [Parameter] public string? Help { get; set; }
+
+    [Parameter] public string? Hint { get; set; }
+
+    [Parameter] public string? ErrorText { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool HasError => !string.IsNullOrEmpty(ErrorText);
+}

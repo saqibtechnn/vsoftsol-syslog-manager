@@ -1,0 +1,191 @@
+@page "/settings/users"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@inject UserAdminService Admin
+@inject CurrentUserAccessor CurrentUserAccessor
+@inject ToastService Toasts
+@using VSoftSol.Syslog.Data.Users
+
+<PageTitle>Users &amp; access — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Users &amp; access</h1>
+        <button type="button" class="ds-button ds-button--primary" @onclick="StartCreate">Add user</button>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else if (_users.Count == 0)
+    {
+        <EmptyState Title="No users yet" Icon="👤"
+                    Explanation="Add the people who will operate this collector. Each gets a role and, optionally, a limited view of specific streams or device groups.">
+            <PrimaryAction>
+                <button type="button" class="ds-button ds-button--primary" @onclick="StartCreate">Add the first user</button>
+            </PrimaryAction>
+        </EmptyState>
+    }
+    else
+    {
+        <DataTable TItem="UserAccount" Items="_users" Columns="_columns" Virtualized="false" />
+    }
+</div>
+
+<Modal @bind-Visible="_editorOpen" Title="@(_editing.UserId == 0 ? "Add user" : $"Edit {_editing.Username}")">
+    <ChildContent>
+        <FormShell Model="_editing" FormName="user-editor" SubmitLabel="@(_editing.UserId == 0 ? "Create user" : "Save changes")"
+                   OnValidSubmit="SaveAsync" OnCancel="() => _editorOpen = false" Busy="_saving">
+            <Basic>
+                <FormField Label="Username" FieldId="u-username" Required="true"
+                           ErrorText="@_errors.GetValueOrDefault(nameof(EditorModel.Username))">
+                    <input id="u-username" class="ds-field__input" @bind="_editing.Username"
+                           disabled="@(_editing.UserId != 0)" autocomplete="off" />
+                </FormField>
+                <FormField Label="Display name" FieldId="u-display" Required="true">
+                    <input id="u-display" class="ds-field__input" @bind="_editing.DisplayName" autocomplete="off" />
+                </FormField>
+                <FormField Label="Role" FieldId="u-role" Required="true"
+                           Help="Administrator: everything. Operator: rules, alerts, dashboards. Read-Only: view within scope. Auditor: audit log and reports.">
+                    <select id="u-role" class="ds-field__input" @bind="_editing.Role">
+                        @foreach (Role role in Enum.GetValues<Role>())
+                        {
+                            <option value="@role">@role</option>
+                        }
+                    </select>
+                </FormField>
+                @if (_editing.UserId == 0)
+                {
+                    <FormField Label="Temporary password" FieldId="u-pw" Required="true"
+                               Hint="At least 12 characters. The user is forced to change it at first sign-in."
+                               ErrorText="@_errors.GetValueOrDefault(nameof(EditorModel.TemporaryPassword))">
+                        <input id="u-pw" type="password" class="ds-field__input" @bind="_editing.TemporaryPassword" autocomplete="new-password" />
+                    </FormField>
+                }
+                else
+                {
+                    <FormField Label="Account" FieldId="u-enabled">
+                        <label class="ds-check"><input id="u-enabled" type="checkbox" @bind="_editing.Enabled" /> Enabled</label>
+                    </FormField>
+                }
+            </Basic>
+            <Advanced>
+                <FormField Label="Visible streams" FieldId="u-streams"
+                           Help="Comma-separated stream ids. Leave blank for all streams.">
+                    <input id="u-streams" class="ds-field__input" @bind="_editing.StreamIdsCsv" placeholder="all streams" />
+                </FormField>
+                <FormField Label="Visible device groups" FieldId="u-groups"
+                           Help="Comma-separated device-group ids. Leave blank for all groups.">
+                    <input id="u-groups" class="ds-field__input" @bind="_editing.GroupIdsCsv" placeholder="all groups" />
+                </FormField>
+            </Advanced>
+        </FormShell>
+    </ChildContent>
+</Modal>
+
+@code {
+    private bool _loading = true;
+    private bool _editorOpen;
+    private bool _saving;
+    private string _actor = string.Empty;
+    private IReadOnlyList<UserAccount> _users = [];
+    private EditorModel _editing = new();
+    private readonly Dictionary<string, string> _errors = [];
+    private IReadOnlyList<TableColumn<UserAccount>> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = (await CurrentUserAccessor.GetAsync()).UserName;
+        _columns =
+        [
+            new() { Header = "Username", SortValue = u => u.Username, Cell = u => @<text>@u.Username</text> },
+            new() { Header = "Display name", SortValue = u => u.DisplayName, Cell = u => @<text>@u.DisplayName</text> },
+            new() { Header = "Role", SortValue = u => u.Role.ToString(), Cell = u => @<text>@u.Role</text> },
+            new() { Header = "Scope", Cell = u => @<text>@ScopeLabel(u)</text> },
+            new() { Header = "Status", SortValue = u => u.IsEnabled ? 0 : 1,
+                    Cell = u => @<span class="ds-chip @(u.IsEnabled ? "ds-chip--ok" : "ds-chip--muted")">@(u.IsEnabled ? "Enabled" : "Disabled")</span> },
+            new() { Header = "", Cell = u => @<button type="button" class="ds-button ds-button--ghost" @onclick="() => StartEdit(u)">Edit</button> },
+        ];
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _users = await Admin.ListAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private void StartCreate()
+    {
+        _errors.Clear();
+        _editing = new EditorModel { Role = Role.ReadOnly, Enabled = true };
+        _editorOpen = true;
+    }
+
+    private void StartEdit(UserAccount u)
+    {
+        _errors.Clear();
+        _editing = new EditorModel
+        {
+            UserId = u.UserId,
+            Username = u.Username,
+            DisplayName = u.DisplayName,
+            Role = u.Role,
+            Enabled = u.IsEnabled,
+            StreamIdsCsv = string.Join(',', u.VisibleStreamIds),
+            GroupIdsCsv = string.Join(',', u.VisibleDeviceGroupIds),
+        };
+        _editorOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            AdminResult result = _editing.UserId == 0
+                ? await Admin.CreateAsync(_actor, _editing.Username, _editing.DisplayName, _editing.Role,
+                    _editing.TemporaryPassword, ParseIds(_editing.StreamIdsCsv), ParseIds(_editing.GroupIdsCsv), CancellationToken.None)
+                : await Admin.UpdateAsync(_actor, _editing.UserId, _editing.DisplayName, _editing.Role, _editing.Enabled,
+                    ParseIds(_editing.StreamIdsCsv), ParseIds(_editing.GroupIdsCsv), CancellationToken.None);
+
+            if (result.Ok)
+            {
+                Toasts.Success(result.Message);
+                _editorOpen = false;
+                await ReloadAsync();
+            }
+            else
+            {
+                Toasts.Error(result.Message);
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string ScopeLabel(UserAccount u) =>
+        u.VisibleStreamIds.Count == 0 && u.VisibleDeviceGroupIds.Count == 0
+            ? "All data"
+            : $"{u.VisibleStreamIds.Count} stream(s), {u.VisibleDeviceGroupIds.Count} group(s)";
+
+    private static List<long> ParseIds(string csv) =>
+        [.. csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+              .Select(s => long.TryParse(s, out long id) ? id : (long?)null).Where(id => id is not null).Select(id => id!.Value)];
+
+    public sealed class EditorModel
+    {
+        public long UserId { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public Role Role { get; set; } = Role.ReadOnly;
+        public bool Enabled { get; set; } = true;
+        public string TemporaryPassword { get; set; } = string.Empty;
+        public string StreamIdsCsv { get; set; } = string.Empty;
+        public string GroupIdsCsv { get; set; } = string.Empty;
+    }
+}

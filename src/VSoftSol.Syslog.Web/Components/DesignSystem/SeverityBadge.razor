@@ -1,0 +1,34 @@
+@* Severity badge (PHASE_04 build item 12: severity colour tokens defined once, ALWAYS
+   paired with a text label — colour is never the only carrier of meaning). *@
+
+<span class="ds-severity ds-severity--@Key" title="@Description">
+    <span class="ds-severity__dot" aria-hidden="true"></span>
+    <span class="ds-severity__label">@Label</span>
+</span>
+
+@code {
+    [Parameter, EditorRequired] public Severity Severity { get; set; }
+
+    private string Key => Severity switch
+    {
+        Severity.Emergency or Severity.Alert or Severity.Critical => "critical",
+        Severity.Error => "error",
+        Severity.Warning => "warning",
+        Severity.Notice or Severity.Informational => "info",
+        _ => "debug",
+    };
+
+    private string Label => Severity switch
+    {
+        Severity.Emergency => "Emergency",
+        Severity.Alert => "Alert",
+        Severity.Critical => "Critical",
+        Severity.Error => "Error",
+        Severity.Warning => "Warning",
+        Severity.Notice => "Notice",
+        Severity.Informational => "Info",
+        _ => "Debug",
+    };
+
+    private string Description => $"Severity {(int)Severity} — {Label}";
+}

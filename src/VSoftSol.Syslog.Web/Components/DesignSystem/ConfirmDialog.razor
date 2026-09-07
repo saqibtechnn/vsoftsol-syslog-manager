@@ -1,0 +1,74 @@
+@* Confirmation dialog (PHASE_04 design system; UX_STANDARDS.md §4: a destructive action
+   names what will be lost, and requires typed confirmation only when the loss is
+   unrecoverable). *@
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="@Title" DismissOnBackdrop="false">
+    <ChildContent>
+        <p class="ds-confirm__body">@Body</p>
+        @if (RequireTypedConfirmation is not null)
+        {
+            <label class="ds-field">
+                <span class="ds-field__label">Type <strong>@RequireTypedConfirmation</strong> to confirm</span>
+                <input class="ds-field__input" @bind="_typed" @bind:event="oninput" autocomplete="off" />
+            </label>
+        }
+    </ChildContent>
+    <Footer>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="Cancel">@CancelLabel</button>
+        <button type="button" class="ds-button ds-button--danger" disabled="@(!CanConfirm)" @onclick="Confirm">
+            @ConfirmLabel
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    private string _typed = string.Empty;
+
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired] public string Body { get; set; } = string.Empty;
+
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm";
+
+    [Parameter] public string CancelLabel { get; set; } = "Cancel";
+
+    [Parameter] public string? RequireTypedConfirmation { get; set; }
+
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool CanConfirm =>
+        RequireTypedConfirmation is null ||
+        string.Equals(_typed.Trim(), RequireTypedConfirmation, StringComparison.Ordinal);
+
+    private async Task Confirm()
+    {
+        if (!CanConfirm)
+        {
+            return;
+        }
+
+        await OnConfirm.InvokeAsync();
+        await Hide();
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancel.InvokeAsync();
+        await Hide();
+    }
+
+    private async Task Hide()
+    {
+        _typed = string.Empty;
+        if (VisibleChanged.HasDelegate)
+        {
+            await VisibleChanged.InvokeAsync(false);
+        }
+    }
+}

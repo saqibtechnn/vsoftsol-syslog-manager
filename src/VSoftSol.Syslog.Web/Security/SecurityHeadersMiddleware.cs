@@ -1,28 +1,19 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
 namespace VSoftSol.Syslog.Web.Security;
 
 /// <summary>
-/// Baseline response security headers. Phase 4 tightens the CSP (removes
-/// <c>'unsafe-inline'</c> from <c>style-src</c>, adds nonces) and asserts every header
-/// with a test; this is the Phase 0 floor so nothing ships header-less.
+/// Response security headers, asserted by <c>SecurityHeadersTests</c> (PHASE_04 "Security
+/// headers — asserted by test, not by inspection"). The CSP has no <c>'unsafe-inline'</c>
+/// (closes P0-3): a fresh per-response nonce is issued for the few framework inline
+/// <c>&lt;script&gt;</c> / <c>&lt;style&gt;</c> blocks and exposed to the page via
+/// <see cref="HttpContext.Items"/> / <see cref="NonceAccessor"/>.
 /// </summary>
-internal sealed class SecurityHeadersMiddleware
+public sealed class SecurityHeadersMiddleware
 {
-    // TODO(phase-4): replace 'unsafe-inline' style-src with per-response nonces and
-    // assert the full header set (CSP, HSTS, X-Content-Type-Options, Referrer-Policy,
-    // frame-ancestors) with an automated test.
-    private const string ContentSecurityPolicy =
-        "default-src 'self'; " +
-        "img-src 'self' data:; " +
-        "font-src 'self'; " +
-        "style-src 'self' 'unsafe-inline'; " +
-        "script-src 'self'; " +
-        "connect-src 'self'; " +
-        "base-uri 'self'; " +
-        "form-action 'self'; " +
-        "frame-ancestors 'none'";
+    internal const string NonceItemKey = "csp-nonce";
 
     private readonly RequestDelegate _next;
 
@@ -30,16 +21,45 @@ internal sealed class SecurityHeadersMiddleware
 
     public Task InvokeAsync(HttpContext context)
     {
+        string nonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+        context.Items[NonceItemKey] = nonce;
+
         IHeaderDictionary headers = context.Response.Headers;
-        headers["Content-Security-Policy"] = ContentSecurityPolicy;
+        headers["Content-Security-Policy"] =
+            "default-src 'self'; " +
+            "base-uri 'self'; " +
+            "object-src 'none'; " +
+            "frame-ancestors 'none'; " +
+            "form-action 'self'; " +
+            "img-src 'self' data:; " +
+            "font-src 'self'; " +
+            "connect-src 'self'; " +
+            $"style-src 'self' 'nonce-{nonce}'; " +
+            $"script-src 'self' 'nonce-{nonce}'";
         headers["X-Content-Type-Options"] = "nosniff";
         headers["Referrer-Policy"] = "no-referrer";
         headers["X-Frame-Options"] = "DENY";
         headers["Cross-Origin-Opener-Policy"] = "same-origin";
+        headers["Cross-Origin-Resource-Policy"] = "same-origin";
+        headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()";
         headers.Remove("X-Powered-By");
         headers.Remove("Server");
         return _next(context);
     }
+}
+
+/// <summary>Exposes the current request's CSP nonce to Razor components.</summary>
+public sealed class NonceAccessor
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public NonceAccessor(IHttpContextAccessor httpContextAccessor) => _httpContextAccessor = httpContextAccessor;
+
+    public string Value =>
+        _httpContextAccessor.HttpContext?.Items.TryGetValue(SecurityHeadersMiddleware.NonceItemKey, out object? v) == true
+        && v is string nonce
+            ? nonce
+            : string.Empty;
 }
 
 internal static class SecurityHeadersMiddlewareExtensions

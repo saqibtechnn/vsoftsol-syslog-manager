@@ -1,0 +1,63 @@
+@* App header (PHASE_04 build items 7, 10, 13): brand, global search, time-range picker,
+   notification centre, shortcut help, and the user menu with sign-out. *@
+
+<header class="ds-header">
+    <a class="ds-header__brand" href="/dashboards" aria-label="@BrandingInfo.ProductName home">
+        <BrandLogo />
+    </a>
+
+    <form class="ds-header__search" role="search" action="/search" method="get">
+        <input id="global-search" name="q" type="search" class="ds-header__search-input"
+               placeholder="Search messages…  ( / )" aria-label="Search messages" autocomplete="off" />
+    </form>
+
+    <div class="ds-header__tools">
+        <TimeRangePicker />
+        <NotificationCenter />
+        <button type="button" class="ds-icon-button" aria-label="Keyboard shortcuts" @onclick="() => _showShortcuts = true">?</button>
+
+        <details class="ds-usermenu">
+            <summary class="ds-usermenu__summary">
+                <span class="ds-usermenu__avatar" aria-hidden="true">@Initials</span>
+                <span class="ds-usermenu__name">@DisplayName</span>
+            </summary>
+            <div class="ds-usermenu__panel">
+                <p class="ds-usermenu__role">@RoleLabel</p>
+                <a class="ds-usermenu__item" href="/account">Your account</a>
+                <a class="ds-usermenu__item" href="/about">About</a>
+                <form method="post" action="/auth/logout">
+                    <AntiforgeryToken />
+                    <button type="submit" class="ds-usermenu__item ds-usermenu__item--button">Sign out</button>
+                </form>
+            </div>
+        </details>
+    </div>
+</header>
+
+<ShortcutHelp @bind-Visible="_showShortcuts" />
+
+@code {
+    private bool _showShortcuts;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string DisplayName { get; set; } = string.Empty;
+
+    private string RoleLabel { get; set; } = string.Empty;
+
+    private string Initials =>
+        string.IsNullOrWhiteSpace(DisplayName) ? "?" :
+        string.Concat(DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(p => char.ToUpperInvariant(p[0])));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var user = new CurrentUser((await AuthState).User);
+        DisplayName = user.DisplayName;
+        RoleLabel = user.Role?.ToString() ?? string.Empty;
+    }
+}

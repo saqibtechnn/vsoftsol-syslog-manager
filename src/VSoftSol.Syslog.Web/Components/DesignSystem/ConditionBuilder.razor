@@ -1,0 +1,139 @@
+@* Visual condition builder (PHASE_04 design system; UX_STANDARDS.md §3 — the default for
+   rules / alerts / stream conditions, never a raw expression editor as the only option).
+   Recursive: a group renders its children, each of which is a comparison row or a nested
+   group. Reused by Phases 6, 7, 8. *@
+
+<div class="ds-condition-group ds-condition-group--@Group.Join.ToString().ToLowerInvariant()">
+    <div class="ds-condition-group__header">
+        <div class="ds-condition-join" role="group" aria-label="Join">
+            <button type="button" class="ds-chip @(Group.Join == ConditionJoin.And ? "ds-chip--active" : null)"
+                    @onclick="() => SetJoin(ConditionJoin.And)">ALL of</button>
+            <button type="button" class="ds-chip @(Group.Join == ConditionJoin.Or ? "ds-chip--active" : null)"
+                    @onclick="() => SetJoin(ConditionJoin.Or)">ANY of</button>
+        </div>
+        @if (OnRemove.HasDelegate)
+        {
+            <button type="button" class="ds-icon-button" aria-label="Remove group" @onclick="OnRemove">✕</button>
+        }
+    </div>
+
+    <div class="ds-condition-group__children">
+        @foreach (ConditionNode child in Group.Children)
+        {
+            @if (child is ConditionGroup nested)
+            {
+                <ConditionBuilder Group="nested" Fields="Fields" GroupChanged="NotifyChanged"
+                                  OnRemove="() => Remove(child)" />
+            }
+            else if (child is ConditionComparison comparison)
+            {
+                <div class="ds-condition-row">
+                    <select class="ds-field__input" value="@comparison.Field"
+                            @onchange="e => SetField(comparison, e.Value?.ToString())" aria-label="Field">
+                        <option value="">Select a field…</option>
+                        @foreach (ConditionField field in Fields)
+                        {
+                            <option value="@field.Name">@field.Label</option>
+                        }
+                    </select>
+                    <select class="ds-field__input" value="@comparison.Operator"
+                            @onchange="e => SetOperator(comparison, e.Value?.ToString())" aria-label="Operator">
+                        @foreach (ConditionOperator op in Enum.GetValues<ConditionOperator>())
+                        {
+                            <option value="@op">@OperatorLabel(op)</option>
+                        }
+                    </select>
+                    @if (TakesValue(comparison.Operator))
+                    {
+                        <input class="ds-field__input" value="@comparison.Value"
+                               @oninput="e => SetValue(comparison, e.Value?.ToString())"
+                               placeholder="Value" aria-label="Value" />
+                    }
+                    <button type="button" class="ds-icon-button" aria-label="Remove condition" @onclick="() => Remove(child)">✕</button>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="ds-condition-group__actions">
+        <button type="button" class="ds-button ds-button--ghost" @onclick="AddComparison">+ Condition</button>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="AddGroup">+ Group</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ConditionGroup Group { get; set; } = default!;
+
+    [Parameter] public IReadOnlyList<ConditionField> Fields { get; set; } = [];
+
+    [Parameter] public EventCallback GroupChanged { get; set; }
+
+    [Parameter] public EventCallback OnRemove { get; set; }
+
+    private static bool TakesValue(ConditionOperator op) => op is not (ConditionOperator.Exists or ConditionOperator.NotExists);
+
+    private static string OperatorLabel(ConditionOperator op) => op switch
+    {
+        ConditionOperator.Equals => "equals",
+        ConditionOperator.NotEquals => "does not equal",
+        ConditionOperator.Contains => "contains",
+        ConditionOperator.NotContains => "does not contain",
+        ConditionOperator.StartsWith => "starts with",
+        ConditionOperator.EndsWith => "ends with",
+        ConditionOperator.Matches => "matches (regex)",
+        ConditionOperator.GreaterThan => "is greater than",
+        ConditionOperator.LessThan => "is less than",
+        ConditionOperator.InList => "is one of",
+        ConditionOperator.Exists => "exists",
+        ConditionOperator.NotExists => "does not exist",
+        _ => op.ToString(),
+    };
+
+    private Task SetJoin(ConditionJoin join)
+    {
+        Group.Join = join;
+        return NotifyChanged();
+    }
+
+    private Task AddComparison()
+    {
+        Group.Children.Add(new ConditionComparison());
+        return NotifyChanged();
+    }
+
+    private Task AddGroup()
+    {
+        Group.Children.Add(new ConditionGroup());
+        return NotifyChanged();
+    }
+
+    private Task Remove(ConditionNode node)
+    {
+        Group.Children.Remove(node);
+        return NotifyChanged();
+    }
+
+    private Task SetField(ConditionComparison c, string? value)
+    {
+        c.Field = value ?? string.Empty;
+        return NotifyChanged();
+    }
+
+    private Task SetOperator(ConditionComparison c, string? value)
+    {
+        if (Enum.TryParse(value, out ConditionOperator op))
+        {
+            c.Operator = op;
+        }
+
+        return NotifyChanged();
+    }
+
+    private Task SetValue(ConditionComparison c, string? value)
+    {
+        c.Value = value ?? string.Empty;
+        return NotifyChanged();
+    }
+
+    private Task NotifyChanged() => GroupChanged.HasDelegate ? GroupChanged.InvokeAsync() : Task.CompletedTask;
+}

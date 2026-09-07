@@ -1,15 +1,7 @@
 @page "/"
+@attribute [Authorize]
+@inject NavigationManager Nav
 
-<PageTitle>Welcome — @BrandingInfo.ProductName</PageTitle>
-
-<section class="placeholder">
-    <h1>@BrandingInfo.ProductName</h1>
-    <p>
-        The service host is running. This placeholder page confirms the Blazor Server UI
-        starts over HTTPS and shares the collector's dependency-injection container.
-    </p>
-    <p class="muted">
-        @BrandingInfo.Copyright &middot;
-        <a href="@BrandingInfo.VendorUrl" rel="noopener noreferrer" target="_blank">@BrandingInfo.VendorName</a>
-    </p>
-</section>
+@code {
+    protected override void OnInitialized() => Nav.NavigateTo("/dashboards", forceLoad: false, replace: true);
+}

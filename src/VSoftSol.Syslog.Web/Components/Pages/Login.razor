@@ -1,0 +1,73 @@
+@page "/login"
+@layout BareLayout
+@attribute [AllowAnonymous]
+@inject AuthSessionService Auth
+@inject NavigationManager Nav
+@inject IHttpContextAccessor Http
+
+<PageTitle>Sign in — @BrandingInfo.ProductName</PageTitle>
+
+<h1 class="ds-bare__title">Sign in</h1>
+
+@if (_status is { } status && status != SignInStatus.Success)
+{
+    <div class="ds-alert ds-alert--error" role="alert">
+        @(status switch
+        {
+            SignInStatus.LockedOut => "This account is temporarily locked after too many failed attempts. Try again later.",
+            SignInStatus.Disabled => "This account is disabled. Contact your administrator.",
+            _ => "The username or password is incorrect.",
+        })
+    </div>
+}
+
+<EditForm Model="Model" FormName="login" OnValidSubmit="SubmitAsync" class="ds-form">
+    <DataAnnotationsValidator />
+
+    <FormField Label="Username" FieldId="login-username" Required="true">
+        <InputText id="login-username" class="ds-field__input" @bind-Value="Model.Username"
+                   autocomplete="username" autofocus />
+    </FormField>
+
+    <FormField Label="Password" FieldId="login-password" Required="true">
+        <InputText id="login-password" type="password" class="ds-field__input" @bind-Value="Model.Password"
+                   autocomplete="current-password" />
+    </FormField>
+
+    <ValidationSummary class="ds-form__summary" />
+
+    <div class="ds-form__actions">
+        <button type="submit" class="ds-button ds-button--primary ds-button--block">Sign in</button>
+    </div>
+</EditForm>
+
+@code {
+    [SupplyParameterFromForm] private LoginModel Model { get; set; } = new();
+
+    [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
+
+    private SignInStatus? _status;
+
+    private async Task SubmitAsync()
+    {
+        HttpContext http = Http.HttpContext!;
+        _status = await Auth.PasswordSignInAsync(http, Model.Username, Model.Password, http.RequestAborted);
+
+        if (_status == SignInStatus.Success)
+        {
+            Nav.NavigateTo(SafeReturnUrl(), forceLoad: true);
+        }
+    }
+
+    private string SafeReturnUrl() =>
+        !string.IsNullOrEmpty(ReturnUrl) && Uri.TryCreate(ReturnUrl, UriKind.Relative, out _) ? ReturnUrl! : "/dashboards";
+
+    public sealed class LoginModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your username.")]
+        public string Username { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

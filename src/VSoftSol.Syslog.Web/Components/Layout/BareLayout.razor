@@ -1,0 +1,18 @@
+@inherits LayoutComponentBase
+
+@* Centered card layout for pre-shell pages: login, forced password change, access denied,
+   and the error page. Branding on every one (BRANDING.md). *@
+
+<div class="ds-bare">
+    <div class="ds-bare__card">
+        <div class="ds-bare__brand">
+            <BrandLogo ShowName="true" />
+        </div>
+        @Body
+        <p class="ds-bare__footer">
+            @BrandingInfo.Copyright &middot;
+            <a href="@BrandingInfo.VendorUrl" rel="noopener noreferrer" target="_blank">@BrandingInfo.VendorName</a>
+        </p>
+    </div>
+    <ToastHost />
+</div>

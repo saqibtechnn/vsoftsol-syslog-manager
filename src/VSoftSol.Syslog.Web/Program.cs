@@ -4,6 +4,7 @@ using Serilog;
 using VSoftSol.Syslog.Service.Hosting;
 using VSoftSol.Syslog.Service.Logging;
 using VSoftSol.Syslog.Web.Components;
+using VSoftSol.Syslog.Web.Components.DesignSystem;
 using VSoftSol.Syslog.Web.Security;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -18,6 +19,8 @@ try
 
     builder.Services.AddRazorComponents().AddInteractiveServerComponents();
     builder.Services.AddSyslogPlatform(builder.Configuration);
+    builder.Services.AddSyslogWebSecurity(builder.Configuration);
+    builder.Services.AddSyslogDesignSystem();
     builder.Services.AddHsts(options => options.MaxAge = TimeSpan.FromDays(365));
 
     WebApplication app = builder.Build();
@@ -31,8 +34,12 @@ try
     app.UseHttpsRedirection();
     app.UseSecurityHeaders();
     app.UseStaticFiles();
+
+    app.UseAuthentication();
+    app.UseAuthorization();
     app.UseAntiforgery();
 
+    app.MapAuthEndpoints();
     app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
     app.Run();

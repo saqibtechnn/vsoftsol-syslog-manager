@@ -7,7 +7,14 @@ Every accepted Medium or Low needs an operator sign-off here — not Claude Code
 
 | ID | Finding | Severity | Disposition | Operator sign-off |
 |---|---|---|---|---|
-| P0-3 | CSP allows `'unsafe-inline'` on `style-src` (Blazor error UI) | Low | Accepted for Phase 0; fixed in Phase 4 with nonces | _pending_ |
+| P0-3 | CSP allows `'unsafe-inline'` on `style-src` (Blazor error UI) | Low | **CLOSED in Phase 4** — CSP rewritten with a per-response nonce, no `unsafe-inline`/`unsafe-eval`; asserted by `SecurityHeadersTests` | n/a (resolved) |
+
+## Phase 4 — environmental carry (not a finding)
+
+| ID | Item | Severity | Disposition | Operator sign-off |
+|---|---|---|---|---|
+| P4-1 | OWASP ZAP DAST not executed (no Docker/browser on the build host) | Info | Carried to Phase 12 / CI. Compensating xUnit assertions run header/cookie/CSRF/session checks against the real Kestrel pipeline over HTTPS. Same class as P3-1 (rsyslog oracle). | _pending_ |
+| P4-2 | axe-core a11y scan + live keyboard/AT traversal not executed (no browser) | Info | Carried to Phase 12. Structural a11y verified in source + rendered HTML (labels, roles, focus ring, native controls, `aria-live`). | _pending_ |
 
 ## Phase 2 — accepted residual risks (not findings; inherent to the design)
 
@@ -25,7 +32,7 @@ No Critical or High findings are open.
 | Critical | 0 | — |
 | High | 0 | — |
 | Medium | 0 | v1.0.0 |
-| Low | 1 (P0-3) | v1.0.0 (scheduled Phase 4) |
+| Low | 0 (P0-3 closed in Phase 4) | — |
 
 Accepted residual risks (P2-R1, P2-R2) are design properties, not defects, and do not
 count against the "no open Critical/High" tag gate.

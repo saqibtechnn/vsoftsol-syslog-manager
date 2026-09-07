@@ -1,0 +1,114 @@
+@* Form shell (PHASE_04 design system; UX_STANDARDS.md §3 Basic/Advanced disclosure,
+   §5 visible confirmation + unsaved-changes guard). One form component for the product. *@
+@implements IDisposable
+@inject IJSRuntime Js
+@inject NavigationManager Nav
+
+<EditForm EditContext="_editContext" OnValidSubmit="HandleValidSubmit" FormName="@FormName" class="ds-form">
+    <DataAnnotationsValidator />
+    @if (ShowValidationSummary)
+    {
+        <ValidationSummary class="ds-form__summary" />
+    }
+
+    <div class="ds-form__section">
+        @Basic
+    </div>
+
+    @if (Advanced is not null)
+    {
+        <details class="ds-form__advanced">
+            <summary>Advanced</summary>
+            <div class="ds-form__section">
+                @Advanced
+            </div>
+        </details>
+    }
+
+    <div class="ds-form__actions">
+        @if (ExtraActions is not null)
+        {
+            @ExtraActions
+        }
+        @if (OnCancel.HasDelegate)
+        {
+            <button type="button" class="ds-button ds-button--ghost" @onclick="OnCancel">@CancelLabel</button>
+        }
+        <button type="submit" class="ds-button ds-button--primary" disabled="@Busy">@SubmitLabel</button>
+    </div>
+</EditForm>
+
+@code {
+    private EditContext _editContext = default!;
+    private object? _model;
+    private IDisposable? _locationGuard;
+    private bool _dirty;
+
+    [Parameter, EditorRequired] public object Model { get; set; } = default!;
+
+    [Parameter, EditorRequired] public RenderFragment Basic { get; set; } = default!;
+
+    [Parameter] public RenderFragment? Advanced { get; set; }
+
+    [Parameter] public RenderFragment? ExtraActions { get; set; }
+
+    [Parameter] public EventCallback OnValidSubmit { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    [Parameter] public string SubmitLabel { get; set; } = "Save";
+
+    [Parameter] public string CancelLabel { get; set; } = "Cancel";
+
+    [Parameter] public string FormName { get; set; } = "form";
+
+    [Parameter] public bool ShowValidationSummary { get; set; } = true;
+
+    [Parameter] public bool Busy { get; set; }
+
+    [Parameter] public bool GuardUnsavedChanges { get; set; } = true;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_model, Model))
+        {
+            _model = Model;
+            _editContext = new EditContext(Model);
+            _editContext.OnFieldChanged += (_, _) => _dirty = true;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        if (GuardUnsavedChanges)
+        {
+            _locationGuard = Nav.RegisterLocationChangingHandler(async ctx =>
+            {
+                if (_dirty && !await ConfirmLeave())
+                {
+                    ctx.PreventNavigation();
+                }
+            });
+        }
+    }
+
+    private async Task<bool> ConfirmLeave()
+    {
+        try
+        {
+            return await Js.InvokeAsync<bool>("confirm", "You have unsaved changes. Leave this page?");
+        }
+        catch (JSException)
+        {
+            return true;
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        _dirty = false;
+        await OnValidSubmit.InvokeAsync();
+    }
+
+    public void Dispose() => _locationGuard?.Dispose();
+}

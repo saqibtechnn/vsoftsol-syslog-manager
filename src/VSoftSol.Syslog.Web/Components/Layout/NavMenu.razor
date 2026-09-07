@@ -1,0 +1,19 @@
+@* Primary navigation (PHASE_04 build item 10). Items the current role cannot use are
+   hidden, not shown-and-denied. *@
+
+<nav class="ds-nav" aria-label="Primary">
+    <ul>
+        @foreach (NavItem item in NavItems.Primary)
+        {
+            <AuthorizeView Policy="@item.Policy" Context="_">
+                <li>
+                    <NavLink class="ds-nav__link" href="@item.Href"
+                             Match="@(item.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
+                        <span class="ds-nav__icon" aria-hidden="true">@item.Icon</span>
+                        <span class="ds-nav__label">@item.Label</span>
+                    </NavLink>
+                </li>
+            </AuthorizeView>
+        }
+    </ul>
+</nav>

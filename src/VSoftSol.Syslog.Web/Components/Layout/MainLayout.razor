@@ -1,7 +1,38 @@
 @inherits LayoutComponentBase
+@inject NavigationManager Nav
 
-<div class="app-shell">
-    <main>
-        @Body
-    </main>
-</div>
+@* Authenticated application shell (PHASE_04 build item 7). A user who still must change
+   their password is redirected there before seeing anything else. *@
+
+<AuthorizeView Context="auth">
+    <Authorized>
+        @{ RedirectIfMustChangePassword(auth); }
+        <div class="ds-shell">
+            <AppHeader />
+            <div class="ds-shell__body">
+                <aside class="ds-shell__nav">
+                    <NavMenu />
+                </aside>
+                <main class="ds-shell__main" id="main-content">
+                    @Body
+                </main>
+            </div>
+            <ToastHost />
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="ds-shell__redirect">Redirecting to sign in…</div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private void RedirectIfMustChangePassword(AuthenticationState auth)
+    {
+        bool mustChange = auth.User.HasClaim(SyslogClaimTypes.MustChangePassword, "1");
+        string current = new Uri(Nav.Uri).AbsolutePath;
+        if (mustChange && !current.StartsWith("/account", StringComparison.OrdinalIgnoreCase))
+        {
+            Nav.NavigateTo("/account/change-password", forceLoad: false);
+        }
+    }
+}

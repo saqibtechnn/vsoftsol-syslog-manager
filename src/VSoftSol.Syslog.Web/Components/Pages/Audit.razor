@@ -1,0 +1,59 @@
+@page "/audit"
+@attribute [Authorize(Policy = AuthPolicies.ViewAudit)]
+@rendermode InteractiveServer
+@inject VSoftSol.Syslog.Data.Audit.SqliteAuditLog AuditLog
+
+<PageTitle>Audit log — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Audit log</h1>
+        @if (_verification is { } v)
+        {
+            <span class="ds-chip @(v.Intact ? "ds-chip--ok" : "ds-chip--danger")">
+                @(v.Intact ? $"chain intact — {v.EntriesChecked} entries" : $"chain broken at #{v.FirstBrokenAuditId}")
+            </span>
+        }
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="8" />
+    }
+    else
+    {
+        <DataTable TItem="VSoftSol.Syslog.Data.Audit.AuditRecord" Items="_rows" Columns="_columns"
+                   EmptyTitle="No audit entries yet"
+                   EmptyExplanation="Every login, configuration change, user action, and export will be recorded here." />
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private IReadOnlyList<VSoftSol.Syslog.Data.Audit.AuditRecord> _rows = [];
+    private VSoftSol.Syslog.Data.Audit.AuditChainVerification? _verification;
+    private IReadOnlyList<TableColumn<VSoftSol.Syslog.Data.Audit.AuditRecord>> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _columns =
+        [
+            new() { Header = "When", Numeric = false, SortValue = r => r.OccurredUtc,
+                    Cell = r => @<text>@r.OccurredUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</text> },
+            new() { Header = "Actor", SortValue = r => r.Actor ?? "",
+                    Cell = r => @<text>@(r.Actor ?? "system")</text> },
+            new() { Header = "Action", SortValue = r => r.Action,
+                    Cell = r => @<code>@r.Action</code> },
+            new() { Header = "Entity", HiddenByDefault = false,
+                    Cell = r => @<text>@(r.EntityType is null ? "" : $"{r.EntityType} {r.EntityId}")</text> },
+            new() { Header = "Source IP", HiddenByDefault = true,
+                    Cell = r => @<text>@(r.SourceIp ?? "")</text> },
+            new() { Header = "Detail", HiddenByDefault = true,
+                    Cell = r => @<text>@(r.Detail ?? "")</text> },
+        ];
+
+        _rows = await AuditLog.QueryAsync(new VSoftSol.Syslog.Data.Audit.AuditQuery { Limit = 500 }, CancellationToken.None);
+        _verification = await AuditLog.VerifyChainAsync(CancellationToken.None);
+        _loading = false;
+    }
+}

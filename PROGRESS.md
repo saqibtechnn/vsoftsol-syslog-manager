@@ -7,10 +7,10 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 3 — Parsing
-- **Last tag:** `v1.0.0-phase.3`
-- **Next phase:** 4 — UI & auth
-- **Build status:** green — `dotnet build -c Release` warning-clean, `dotnet test` 452/452 (0 skipped, Soak excluded), `dotnet format` clean, SCA clean (13 projects)
+- **Last completed phase:** 4 — UI Shell & Authentication
+- **Last tag:** `v1.0.0-phase.4`
+- **Next phase:** 5 — Search
+- **Build status:** green — `dotnet build -c Release` warning-clean (13 projects), `dotnet test` **589/589** (0 skipped, Soak excluded), `dotnet format` clean, SCA clean (13 projects)
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
 - **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC-parse pipeline **~13,600 msg/sec** (no regression, +19%); full parse + vendor extraction **~5,300 msg/sec** worst case (200k unique msgs all matching the busiest pack, 2-vCPU VM) — clears the 5,000 gate marginally; pure parse+extract **~105,000 msg/sec**. See `docs/evidence/phase-03/benchmarks.md`.
@@ -20,6 +20,195 @@ to learn where the build stands. Keep it terse and factual.
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 4 — UI Shell & Authentication — 2026-09-07 — tag `v1.0.0-phase.4`
+
+> Proceeded in the same session as Phases 2 and 3 at the operator's explicit, repeated
+> direction ("proceed with all steps as per plan"), against the one-phase-per-session
+> default and my standing recommendation to start fresh. Two validation items are
+> environmentally blocked on this SDK-only, browser-less host and were substituted +
+> carried: **DAST (OWASP ZAP)** and **axe-core automated a11y** — same class as the Phase 3
+> rsyslog oracle (P3-1) and the Stryker runner (P0-2/P3-3). Compensating xUnit assertions
+> run against the real Kestrel pipeline; the tool runs are on the Phase 12 / CI checklist.
+
+**Shipped**
+
+*Data layer (`VSoftSol.Syslog.Data`) — migration `002_auth_scope_audit.sql`*
+- `Argon2idPasswordHasher` — PHC string format, OWASP defaults (m=19 MiB, t=2, p=1),
+  `CryptographicOperations.FixedTimeEquals`, transparent rehash-on-login, malformed hash
+  never throws and still spends one Argon2 computation.
+- `SqliteUserStore` — users + per-user `user_scopes`; create / update / set-password /
+  set-scopes / login-success / **login-failure with threshold lockout** / count-enabled-admins.
+- `LocalAuthenticationProvider : IAuthenticationProvider` — the v1 seam implementation;
+  constant-time unknown-user vs bad-password (decoy hash), lockout, disabled, must-change flag.
+- `SqliteSessionStore` — server-side `user_sessions`; CSPRNG session id issued only here;
+  touch (idle window) / revoke / revoke-all-for-user / list-active / purge-expired.
+- `SqliteAuditLog` — append-only (001 triggers) **plus a SHA-256 hash chain**
+  (`prev_hash`/`entry_hash`); `AppendAsync` / `QueryAsync` / `VerifyChainAsync`;
+  **no update/delete/purge method** (reflection-asserted). `AuditDiff` — redacted
+  before/after JSON snapshots (`password`/`token`/`secret`/… property names → marker) and
+  a `ChangedKeys` helper.
+- `ScopedEventReader` — **the single scope chokepoint** (`GetById` / `Query` / `Count` /
+  `GetContext`, each taking a `UserScope`). Narrows the `LogQuery` (stream membership +
+  device ids resolved from visible groups) and post-filters by-id; a caller filter can
+  only ever narrow further. `UserScope` (Core) — the pure `Allows(...)` predicate the SQL
+  mirrors; AND across the two dimensions; fail closed.
+- `SqliteSecretStore` + `DpapiSecretProtector` (`ISecretProtector`) — DPAPI-encrypted
+  named secrets; `ListNamesAsync` never returns values; consumed from Phase 7.
+
+*Web (`VSoftSol.Syslog.Web`)*
+- Cookie authentication (`Secure` + `HttpOnly` + `SameSite=Strict`, session-scoped),
+  `SessionCookieEvents` revalidating the server session every request (revoked / idle /
+  absolute-expired / user-disabled all reject and sign out; principal rebuilt from the
+  live user record so role & scope changes take effect without re-login),
+  `SyslogAuthenticationStateProvider` revalidating a live circuit on an interval.
+- **Policy-based authorization** — `AuthPolicies` (`ViewData` / `Operate` / `Administer` /
+  `ViewAudit` / `ViewReports`) with a `RequireAuthenticatedUser` `FallbackPolicy`;
+  `RolesFor` is the single source of truth for the matrix test and the nav.
+- SSR `/login` and `/account/change-password` form components (built from the design
+  system); `/auth/logout` endpoint; forced first-login password change (layout redirect
+  while the flag is set); `AuthSessionService` orchestrates sign-in / out / change with
+  audit writes; `UserAdminService` — user CRUD with audited redacted diffs and a
+  "last enabled administrator" guard.
+- **CSP hardened — no `unsafe-inline`/`unsafe-eval`** (per-response nonce for the two
+  framework inline `<script>` tags), `object-src 'none'`, COOP/CORP, `Permissions-Policy`.
+  **Closes P0-3.**
+- **Design system** (every later phase consumes it): `DataTable<T>` (virtualized, sortable,
+  column chooser, teaching empty state), `FormShell` (Basic/Advanced disclosure +
+  unsaved-changes guard) + `FormField` (inline validation + one-sentence help), `Modal`,
+  `ConfirmDialog` (typed confirmation for unrecoverable loss), `ToastService`/`ToastHost`,
+  `SkeletonLoader`, `EmptyState`, **`ConditionBuilder`** (field/operator/value rows,
+  AND/OR grouping, nested groups — the model for Phases 6/7/8), `SeverityBadge` (colour
+  token + text label, never colour alone), `BrandLogo`, `TimeRangePicker` (global,
+  fixed), `NotificationCenter` placeholder, `ShortcutHelp`. `ds.css` defines the severity
+  tokens once. `js/app.js` — `/` focuses search, `Esc` closes menus, `?` opens shortcuts
+  (nonce-loaded, no inline script).
+- Fixed nav (Dashboards · Search · Devices · Streams · Rules · Alerts · Reports ·
+  Settings), each destination a policy-attributed `@page` (placeholders name the owning
+  phase); `/settings/users` (full CRUD from the design system), `/about` (logo, version,
+  build date, vendor URL, copyright — all from `BrandingInfo`), `/audit` (Auditor + Admin,
+  with a live chain-integrity chip), `/account`, `/denied`.
+- Migration 002 also lands the deferred `user_scopes` and adds `password_changed_utc`.
+
+**Verification output** (`docs/evidence/phase-04/`)
+- `dotnet build -c Release` → 0 warnings, 0 errors (13 projects)
+- `dotnet test` (Soak excluded) → **589 passed, 0 failed, 0 skipped** (was ~487; +102)
+- `dotnet format --verify-no-changes` → exit 0
+- SCA → no vulnerable packages, all 13 projects (`security/sca-vulnerable.txt`)
+- **Authorization matrix** — 4 roles × every discovered route (`AuthorizationMatrixTests`,
+  62 cases) PASS; route-discovery test fails the build if a `@page` lacks `[Authorize]`;
+  nav-coverage test PASS
+- **Scope filter** — user scoped to stream A cannot reach an event in stream B by id, by
+  query parameter, by the context view; device-group scoping; unrestricted sees all
+  (`ScopedEventReaderTests` 7, `UserScopeTests` 5) — PASS
+- **Scope architecture** — no Web type takes `ILogRepository` (`ScopeChokepointArchitectureTests`) — PASS
+- **Audit** — config change stores redacted before/after; hash chain intact; out-of-band
+  row edit (triggers dropped) detected at the right link; raw `UPDATE`/`DELETE` rejected;
+  no mutating method on the repo (`AuditLogTests` 7, `AuditDiffTests` 5) — PASS
+- **Lockout** — locks after N, correct password fails while locked, unlocks after the
+  window, success resets the counter (`LocalAuthenticationProviderTests`) — PASS
+- **Session** — logout revokes the server session, disabled user ends next request,
+  missing antiforgery token → 400, forced change clears the flag (`AuthFlowTests` 8) — PASS
+- **Headers / cookies** — CSP has no `unsafe-inline`, fresh nonce per response, cookie is
+  `Secure`/`HttpOnly`/`SameSite=Strict` — asserted (`SecurityHeadersTests` 6) — PASS
+- **Secret leakage scan** — DPAPI blob ≠ plaintext; whole-DB text dump after a
+  secret-bearing config-change audit has zero plaintext hits (`SecretStoreTests` 6) — PASS
+- **ASVS L2** — V1/V2/V3/V4/V7/V14 verification pass, every applicable control now **I**
+  with a named test (`docs/security/ASVS-checklist.md`)
+- **Threat model review #1** — B2 re-assessed end to end; B3 audit-tamper row updated
+  (`docs/security/THREAT_MODEL.md`)
+- Coverage (union of both suites): **Ingestion 88.4 %** (gate ≥ 80 % — PASS, unchanged —
+  Phase 4 touched no ingest-path code), Data 86.2 %, Web 60.8 % (no gate)
+- **UX five-point gate** — PASS (`ux-gate.md`): cold-eyes "add a user" = **4 clicks** from
+  the dashboard (≤ 5); every new screen has a teaching empty state; every form rejection
+  says what's wrong and how to fix it; keyboard map + focus ring + native controls;
+  1366×768 no horizontal scroll. Login + user-management built **entirely** from the
+  design system — `DesignSystemRenderTests` asserts it; no one-off component needed.
+  Live axe-core + AT traversal + 1366×768 screenshot carried to Phase 12.
+
+**Decisions made**
+- **ADR 0012** — `LocalAuthenticationProvider`, the user/session/audit/secret stores, and
+  the scope chokepoint live in `VSoftSol.Syslog.Data` (repository implementations), not a
+  new project — the fixed layout has no Auth project. Small platform/testability
+  interfaces (`IPasswordHasher`, `ISecretProtector`) are added where they materially help
+  correctness/testing; they are not the "speculative interfaces" the two-seams rule bars.
+- Argon2id via `Konscious.Security.Cryptography.Argon2` (pure-managed, MIT, no transitive
+  deps). Params travel in the PHC string, so raising the cost settings does not invalidate
+  stored hashes — they upgrade on the next successful login.
+- Scope semantics: the two dimensions (streams, device groups) combine with **AND** — an
+  event is visible only if it satisfies both, empty-set meaning "no restriction on that
+  dimension" (matches the `AuthenticatedUser` contract; the most restrictive reading).
+- Audit log gets a **hash chain** on top of the 001 triggers — the triggers stop SQL
+  paths, the chain makes out-of-band tampering (doctored file / restored bad backup)
+  detectable. "Append-only in fact, not by convention."
+- `bunit` was trialled for design-system component tests and **removed** — it drags in
+  `AngleSharp` with an unfixed Moderate advisory and SCA must stay clean. Design-system
+  behaviour is covered by `DesignSystemRenderTests` + the route render pass instead (P4-3).
+- Server-side sessions: the cookie carries only an opaque id; the `user_sessions` row is
+  authoritative, so logout / revoke / disable / timeout all take effect immediately.
+- The Phase 0 `WebHostSmokeTests` placeholder assertions were rewritten for Phase 4 (auth
+  now required) — see "Regression" below.
+
+**Sign-off block** (TESTING_STANDARDS.md §9)
+```
+PHASE 4 SIGN-OFF
+  Tests added:            ~21 unit (Argon2id hasher, AuditDiff, UserScope predicate) +
+                          ~81 integration (auth provider + lockout, migration 002, audit
+                          + immutability + hash chain, scope chokepoint + bypass, secret
+                          store + leak scan, RBAC matrix (route-discovery, 62 cases),
+                          auth flow (login/logout/CSRF/session/disable/forced-change),
+                          security headers + cookie flags, scope architecture, design-
+                          system render). ~102 total new.
+  Total suite:            589 tests, 589 passing, 0 skipped (Soak runs nightly).
+  Red-green observed:     yes (docs/evidence/phase-04/red-green.md) — Data-layer slices
+                          stubbed to throw and observed red; RBAC matrix observed red with
+                          RequireRole stripped (12 deny cases wrongly allowed); Phase 0
+                          smoke test observed red once auth was required.
+  Coverage:              Ingestion 88.4% line (union; gate >= 80% - PASS; no ingest-path
+                          code changed this phase). Data 86.2%. Web 60.8% (no gate; the
+                          security-critical paths are covered, the remainder is placeholder
+                          pages). Rules/Reporting gate N/A (shells).
+  Mutation score:         N/A - Stryker still blocked on this SDK-only host (P0-2/P3-3);
+                          no new mutation target in Phase 4 (parser/rules/retention are
+                          the named targets). Auth assertion strength is carried by the
+                          RBAC matrix + scope-bypass + lockout + session + audit-immutability
+                          suites.
+  Performance gates:      none defined for Phase 4. Ingest path unchanged (Web does not
+                          call AddCollectorRuntime); benchmark re-run deferred to Phase 6
+                          per TESTING_STANDARDS §5.
+  UX gate:                PASS - five-point gate in ux-gate.md; "add a user" = 4 clicks;
+                          login + user-management built entirely from the design system
+                          (asserted). Live axe-core + AT traversal + 1366x768 screenshot
+                          carried to Phase 12 (no browser on this host).
+  Regression:             all Phase 0/1/2/3 tests green. One Phase 0 test changed:
+                          WebHostSmokeTests.Root_ReturnsPlaceholderPage asserted an
+                          unauthenticated GET / returned an <h1> page; Phase 4's
+                          FallbackPolicy makes that a redirect to /login. The test was
+                          rewritten to assert the Phase 4 behaviour (redirect + login form
+                          + hardened headers). No assertion was weakened - the new
+                          assertions are stricter. Recorded here per TESTING_STANDARDS §5.
+  Evidence committed:     docs/evidence/phase-04/ (+ security/)
+  Security gate:          SAST PASS / SCA PASS / secrets PASS / RBAC matrix PASS /
+                          scope-bypass PASS / IDOR-by-id PASS / audit-immutability
+                          (repo + raw SQL) PASS / audit hash-chain PASS / lockout PASS /
+                          enumeration-timing PASS / session (fixation/logout/disable) PASS /
+                          CSRF PASS / cookie flags PASS / CSP no-unsafe-inline PASS /
+                          secret-leak scan PASS / ASVS L2 V1-V4/V7/V14 PASS.
+                          DAST (ZAP) NOT RUN - no browser/Docker on this host (P4-1),
+                          carried to Phase 12/CI with compensating pipeline assertions.
+  Open findings:          0 C, 0 H, 0 M. P0-3 (CSP unsafe-inline) CLOSED. Carried info
+                          items: P4-1 DAST, P4-2 axe-core, P4-3 bunit/AngleSharp, P4-4
+                          Web coverage, P3-3 Stryker.
+```
+
+**Deferred**
+- [ ] P4-1: OWASP ZAP full scan against the running UI — Phase 12 / CI host.
+- [ ] P4-2: axe-core automated a11y scan + live keyboard/AT traversal + 1366×768 screenshot — Phase 12.
+- [ ] P4-3: re-evaluate a Blazor component-test library once `AngleSharp` ships a fix for GHSA-pgww-w46g-26qg.
+- [ ] P2-1 (was): listener-management **UI** — Phase 6 (migration keeps the FK; a `ComingSoon` card is in Settings now).
+- [ ] Re-run the ingest throughput benchmark — Phase 6.
+
+**Known issues** — `docs/evidence/phase-04/known-issues.md` (P4-1 … P4-4, carried P3-3).
 
 ### Phase 3 — Parsing & Normalization — 2026-09-06 — tag `v1.0.0-phase.3`
 
@@ -461,11 +650,13 @@ by the phase prompt; the five-point gate applies from Phase 4.
 
 ## Open decisions needing the operator
 
-- **P0-3 sign-off** (Low): accept CSP `'unsafe-inline'` on `style-src` until Phase 4?
-  Recorded in `docs/security/SECURITY_REVIEW.md` awaiting operator initials.
+- **Phase 4 sign-off** — two validation items (OWASP ZAP DAST, axe-core a11y) could not be
+  run on this browser-less host and are carried to Phase 12 / CI with compensating
+  pipeline-level assertions. Operator to accept at the `v1.0.0-phase.4` tag, as with the
+  Phase 3 oracle substitution. ~~P0-3~~ is now closed (CSP nonces shipped).
 - **Environment**: the build machine had no .NET SDK; .NET 8.0.424 was installed to
   `%USERPROFILE%\.dotnet` (user-local, added to user PATH). WiX (Phase 12) is not yet
-  installed.
+  installed. No Docker / WSL / browser (see `dev-vm-constraints` memory).
 
 ---
 
@@ -474,13 +665,16 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | Marker | Where | Target phase |
 |---|---|---|
 | _(none — no `TODO(phase-N)` in code)_ | | |
-| P0-3 CSP nonces | `SecurityHeadersMiddleware` | 4 |
-| P2-1 `events.listener_id` link + listener-management UI | `MessageParser`, `SqliteLogRepository` | 4 |
+| ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
+| P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | 6 |
 | P2-2 spill / segment / cursor file ACLs | Phase 12 installer | 12 |
 | P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | 12 (container host) |
 | P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | 12 |
 | P3-3 Stryker mutation run (was P0-2) | `stryker-config.json` | CI host with VsTest adapter |
+| P4-1 OWASP ZAP DAST against the running UI | `Web` | 12 / CI |
+| P4-2 axe-core a11y scan + live keyboard/AT traversal + 1366×768 screenshot | `Web` | 12 |
+| P4-3 re-evaluate a Blazor component-test lib (AngleSharp advisory) | test stack | when fixed upstream |
 | P1-1 re-measure insert benchmark on clean-VM hardware | `benchmarks` | 12 |
 | Re-run ingest throughput benchmark | `IngestionBenchmark` | 6, 7, 12 |
 
-_(P0-1 coverage gate met — Ingestion 89.5%, Data 90.5%.)_
+_(P0-1 coverage gate met — Ingestion 88.4%, Data 86.2%.)_

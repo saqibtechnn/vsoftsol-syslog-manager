@@ -1,8 +1,12 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using VSoftSol.Syslog.Core.Abstractions;
 using VSoftSol.Syslog.Data;
+using VSoftSol.Syslog.Data.Security;
 using VSoftSol.Syslog.Data.Sqlite;
+using VSoftSol.Syslog.Data.Users;
 using VSoftSol.Syslog.Ingestion;
 
 namespace VSoftSol.Syslog.Service.Hosting;
@@ -43,8 +47,19 @@ public static class SyslogPlatformExtensions
                 }
             });
 
-        // IAuthenticationProvider implementation lands in Phase 4.
-        // services.AddScoped<IAuthenticationProvider, LocalAuthenticationProvider>();
+        // Authentication (Phase 4). The local Argon2id provider is the v1 implementation of
+        // the IAuthenticationProvider seam; an AD/LDAP provider replaces it without touching
+        // the UI or the authorization layer.
+        services.AddOptions<Argon2idOptions>()
+            .Bind(configuration.GetSection(Argon2idOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<AuthenticationOptions>()
+            .Bind(configuration.GetSection(AuthenticationOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.TryAddSingleton<LocalAuthenticationProvider>();
+        services.TryAddSingleton<IAuthenticationProvider>(sp => sp.GetRequiredService<LocalAuthenticationProvider>());
 
         return services;
     }

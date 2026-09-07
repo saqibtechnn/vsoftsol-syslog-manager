@@ -1,0 +1,21 @@
+@* Keyboard shortcut list (PHASE_04 build item 11 — "?" opens the shortcut list). *@
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="Keyboard shortcuts">
+    <ChildContent>
+        <dl class="ds-shortcuts">
+            <div><dt><kbd>/</kbd></dt><dd>Focus the search box</dd></div>
+            <div><dt><kbd>Esc</kbd></dt><dd>Close a dialog or menu</dd></div>
+            <div><dt><kbd>Enter</kbd></dt><dd>Submit the current form</dd></div>
+            <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move through the results grid</dd></div>
+            <div><dt><kbd>?</kbd></dt><dd>Open this shortcut list</dd></div>
+            <div><dt><kbd>g</kbd> then <kbd>d</kbd></dt><dd>Go to Dashboards</dd></div>
+            <div><dt><kbd>g</kbd> then <kbd>s</kbd></dt><dd>Go to Search</dd></div>
+        </dl>
+    </ChildContent>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+}

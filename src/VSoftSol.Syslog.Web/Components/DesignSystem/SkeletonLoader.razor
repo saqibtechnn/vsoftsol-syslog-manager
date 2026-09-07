@@ -1,0 +1,16 @@
+@* Skeleton loader (PHASE_04 design system; UX_STANDARDS.md §7: show skeletons, don't block).
+   Widths come from CSS utility classes, never inline styles (CSP has no 'unsafe-inline'). *@
+
+<div class="ds-skeleton" role="status" aria-live="polite" aria-label="Loading">
+    @for (int i = 0; i < Rows; i++)
+    {
+        <div class="ds-skeleton__row ds-skeleton__row--w@(Varied ? (i % 3) + 1 : 0)"></div>
+    }
+    <span class="ds-visually-hidden">Loading…</span>
+</div>
+
+@code {
+    [Parameter] public int Rows { get; set; } = 5;
+
+    [Parameter] public bool Varied { get; set; } = true;
+}

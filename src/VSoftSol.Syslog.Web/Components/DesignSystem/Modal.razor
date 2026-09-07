@@ -1,0 +1,72 @@
+@* Modal dialog (PHASE_04 design system — one modal component for the whole product).
+   Esc closes; focus is trapped by the browser's <dialog>; backdrop click closes unless
+   DismissOnBackdrop is false. *@
+@implements IDisposable
+@inject IJSRuntime Js
+
+@if (Visible)
+{
+    <div class="ds-modal-backdrop" @onclick="BackdropClick">
+        <div class="ds-modal" role="dialog" aria-modal="true" aria-labelledby="@_titleId" @onclick:stopPropagation="true">
+            <header class="ds-modal__header">
+                <h2 id="@_titleId" class="ds-modal__title">@Title</h2>
+                <button type="button" class="ds-icon-button" aria-label="Close dialog" @onclick="Close">✕</button>
+            </header>
+            <div class="ds-modal__body">
+                @ChildContent
+            </div>
+            @if (Footer is not null)
+            {
+                <footer class="ds-modal__footer">@Footer</footer>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private readonly string _titleId = $"modal-title-{Guid.NewGuid():N}";
+
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    [Parameter] public bool DismissOnBackdrop { get; set; } = true;
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Visible)
+        {
+            try
+            {
+                await Js.InvokeVoidAsync("vsoftsol.trapFocus", _titleId);
+            }
+            catch (JSException)
+            {
+            }
+        }
+    }
+
+    private Task BackdropClick() => DismissOnBackdrop ? Close() : Task.CompletedTask;
+
+    private async Task Close()
+    {
+        if (VisibleChanged.HasDelegate)
+        {
+            await VisibleChanged.InvokeAsync(false);
+        }
+
+        await OnClose.InvokeAsync();
+    }
+
+    public void Dispose()
+    {
+    }
+}

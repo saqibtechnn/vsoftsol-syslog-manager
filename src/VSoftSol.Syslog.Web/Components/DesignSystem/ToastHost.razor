@@ -1,0 +1,60 @@
+@* Toast surface (PHASE_04 design system). One instance, mounted in the app shell. *@
+@implements IDisposable
+@inject ToastService Toasts
+
+<div class="ds-toast-host" aria-live="polite" aria-atomic="false">
+    @foreach (Toast toast in Toasts.Current)
+    {
+        <div class="ds-toast ds-toast--@toast.Level.ToString().ToLowerInvariant()" role="@Role(toast.Level)">
+            <div class="ds-toast__content">
+                @if (!string.IsNullOrEmpty(toast.Title))
+                {
+                    <span class="ds-toast__title">@toast.Title</span>
+                }
+                <span class="ds-toast__message">@toast.Message</span>
+            </div>
+            <button type="button" class="ds-icon-button" aria-label="Dismiss notification"
+                    @onclick="() => Toasts.Dismiss(toast.Id)">✕</button>
+        </div>
+    }
+</div>
+
+@code {
+    private readonly Dictionary<Guid, System.Timers.Timer> _timers = [];
+
+    protected override void OnInitialized() => Toasts.Changed += OnChanged;
+
+    private void OnChanged()
+    {
+        foreach (Toast toast in Toasts.Current)
+        {
+            if (toast.Duration > TimeSpan.Zero && !_timers.ContainsKey(toast.Id))
+            {
+                var timer = new System.Timers.Timer(toast.Duration.TotalMilliseconds) { AutoReset = false };
+                Guid id = toast.Id;
+                timer.Elapsed += (_, _) => InvokeAsync(() => Toasts.Dismiss(id));
+                _timers[id] = timer;
+                timer.Start();
+            }
+        }
+
+        foreach (Guid stale in _timers.Keys.Where(k => Toasts.Current.All(t => t.Id != k)).ToList())
+        {
+            _timers[stale].Dispose();
+            _timers.Remove(stale);
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static string Role(ToastLevel level) => level is ToastLevel.Error or ToastLevel.Warning ? "alert" : "status";
+
+    public void Dispose()
+    {
+        Toasts.Changed -= OnChanged;
+        foreach (System.Timers.Timer timer in _timers.Values)
+        {
+            timer.Dispose();
+        }
+    }
+}

@@ -3,6 +3,10 @@
 Phase 0 deliverable (SECURITY_STANDARDS.md §3). STRIDE per trust boundary. Reviewed and
 updated at Phases 4, 7, and 11.
 
+**Review log:** Phase 0 — initial. **Phase 4 — review #1 done** (B2 re-assessed end to
+end now the UI/auth exist; B3 audit-tamper row updated for the hash chain; no boundary
+added or removed). Next: Phase 7 (outbound actions), Phase 11 (hardening).
+
 **Method:** STRIDE = Spoofing, Tampering, Repudiation, Information disclosure, Denial of
 service, Elevation of privilege.
 
@@ -62,15 +66,20 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 **Assets:** admin session; configuration; the audit log; scoped log visibility.
 **Entry points:** HTTPS endpoints, SignalR circuit, auth cookie, anti-forgery token.
 
+> **Threat-model review #1 (Phase 4).** The UI and auth now exist; every B2 row below is
+> re-assessed against the shipped code. Render-side XSS (grid / export / PDF) stays with
+> Phases 5/9/10 — no rendering of log payloads ships in Phase 4.
+
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
-| S | Credential stuffing / brute force; session fixation; username enumeration | Argon2id hashing; account lockout; constant-time path for unknown-user vs bad-password (`AuthenticationResult` hides the distinction from callers); regenerate session on login; generic error text | 4 | planned |
-| T | CSRF; parameter/verb tampering to reach other data | Anti-forgery on all state-changing requests; policy-based authorization; single scope-filter chokepoint for every query | 4, 5 | planned |
-| R | Admin denies making a config change | Append-only audit log with actor, timestamp, source IP, and before/after JSON diff; no update/delete path in the repository | 4 | planned |
-| I | Stored XSS from a log payload rendered to an admin (grid, context view, live tail, export, PDF); secrets leaking into logs or audit diffs | Encode at render on every surface, never sanitise on ingest; CSP without `unsafe-inline` (Phase 4; Phase 0 ships a baseline CSP with `unsafe-inline` on `style-src` only, tracked); DPAPI-encrypted secrets never logged or diffed | 4, 5, 9, 10 | partial (baseline headers in Phase 0) |
+| S | Credential stuffing / brute force; session fixation; username enumeration | Argon2id (PHC, OWASP params, `FixedTimeEquals`); configurable account lockout; every failure path spends one Argon2 computation against a decoy so timing cannot distinguish unknown-user from bad-password; session id minted server-side on every login (a client-supplied id is never honoured); generic error text on the login page | 4 | **implemented** — `LocalAuthenticationProviderTests` (lockout, locked-with-correct-password, expiry, reset, timing ≤2×); `AuthFlowTests` (generic error, no cookie on failure) |
+| T | CSRF; parameter/verb tampering to reach other data | `UseAntiforgery` on every state-changing request (SSR forms carry the token); policy-based authz; `ScopedEventReader` is the single query chokepoint and a caller-supplied filter can only narrow, never widen | 4, 5 | **implemented** — `AuthFlowTests.Login_WithoutAntiforgeryToken_IsRejected` (400); `ScopedEventReaderTests` (query-param / sort bypass denied) |
+| R | Admin denies making a config change | Append-only audit log — actor, UTC timestamp, source IP, redacted before/after JSON; **no** update/delete method on `SqliteAuditLog` (reflection-asserted); SHA-256 hash chain detects out-of-band edits | 4 | **implemented** — `AuditLogTests` (before/after, chain intact, broken-link detection, raw UPDATE/DELETE rejected) |
+| I | Stored XSS from a log payload rendered to an admin; secrets leaking into logs or audit diffs | Encode at render on every surface, never sanitise on ingest; **CSP with no `unsafe-inline` / `unsafe-eval`** (per-response nonce), `object-src 'none'`; DPAPI-encrypted secrets, `AuditDiff` redaction, name-list never returns values | 4, 5, 9, 10 | **partial** — CSP hardened + asserted, secret-leak scan clean (Phase 4). Render-side encoding of log payloads is Phases 5/9/10 (no such rendering ships in Phase 4) |
 | I | CSV/formula injection when an exported CSV is opened in Excel | Prefix `= + - @` cells per OWASP; documented | 5 | planned |
-| D | A malformed query or huge result set blocks the UI | Query timeout; virtualized grid; skeleton/partial results; background execution for > 5 s | 5 | planned |
-| E | Vertical escalation between roles; horizontal IDOR across streams/device groups | Exhaustive authorization-matrix test generated from route discovery — a new route without a policy fails the build; scope filter denies by default (fail closed) | 4, 5, 6 | planned |
+| D | A malformed query or huge result set blocks the UI | Query timeout; virtualized grid (`DataTable` uses `<Virtualize>`); skeleton/partial results; background execution for > 5 s | 5 | **partial** — `DataTable` virtualization + `SkeletonLoader` shipped; query timeout / background execution Phase 5 |
+| E | Vertical escalation between roles; horizontal IDOR across streams/device groups | Exhaustive authorization matrix generated from route discovery — a new route without a policy fails the test; `FallbackPolicy` requires auth; scope filter denies by default | 4, 5, 6 | **implemented** — `AuthorizationMatrixTests` (4 roles × every route × discovery + nav-coverage); `ScopeChokepointArchitectureTests` (Web cannot reference `ILogRepository`); IDOR across entities re-checked per phase as entities land |
+| S | Stolen / fixated auth cookie replayed after the user logs out | The cookie bears only an opaque session id; `SessionCookieEvents` revalidates the server row every request; logout and admin action revoke it; idle + absolute timeout | 4 | **implemented** — `AuthFlowTests` (logout revokes server-side; disabled user ends next request) |
 
 ---
 
@@ -81,7 +90,7 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
 | T | SQL injection via any field that reaches a query | Parameterized queries only (`SqliteLogRepository` binds every value); `SCS0002` taint analysis is the enforced build-error guard, `CA2100` advisory; CWE-89 sweep test | 1 | **implemented** |
-| T | Direct tampering with the DB file / audit rows | `audit_log` `UPDATE`/`DELETE` blocked by `BEFORE` triggers (`001_initial.sql`) — append-only *in fact*; data-directory ACL to the service account by the installer (ADR 0006) | 1 (triggers), 4, 6, 12 | **partial** — triggers in place; ACL Phase 12 |
+| T | Direct tampering with the DB file / audit rows | `audit_log` `UPDATE`/`DELETE` blocked by `BEFORE` triggers (`001_initial.sql`); Phase 4 adds a SHA-256 hash chain (`prev_hash`/`entry_hash`) so an edit made after dropping the triggers — or via a doctored backup — is still detectable by `VerifyChainAsync`; data-directory ACL to the service account by the installer (ADR 0006) | 1 (triggers), 4 (chain), 12 (ACL) | **partial** — triggers + hash chain in place and tested; file ACL Phase 12 |
 | T | Corrupt store after a crash mid-write | WAL + `synchronous=NORMAL`; `kill -9` ×20 leaves `integrity_check = ok` and every committed row intact | 1 | **implemented** (`WalCrashConsistencyTests`) |
 | I | Someone with file access reads archived data | Documented limitation; archive-at-rest encryption option (Phase 10/12) | 10, 12 | planned |
 | I | Message payload leaking into internal logs | Repository logs no payloads; error paths carry no body text — asserted | 1 | **implemented** |

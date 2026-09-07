@@ -1,0 +1,71 @@
+@page "/account"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject CurrentUserAccessor CurrentUserAccessor
+@inject VSoftSol.Syslog.Data.Users.SqliteUserStore Users
+@inject VSoftSol.Syslog.Data.Users.SqliteSessionStore Sessions
+@inject TimeProvider Clock
+
+<PageTitle>Your account — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-page--narrow">
+    <header class="ds-page__header"><h1>Your account</h1></header>
+
+    <section class="ds-card">
+        <h2>@_displayName</h2>
+        <p class="ds-muted">@_role &middot; @_username</p>
+        <p>@_scopeSummary</p>
+        <a class="ds-button ds-button--primary" href="/account/change-password">Change password</a>
+    </section>
+
+    <section class="ds-card">
+        <h2>Active sessions</h2>
+        @if (_sessions.Count == 0)
+        {
+            <SkeletonLoader Rows="2" />
+        }
+        else
+        {
+            <ul class="ds-sessionlist">
+                @foreach (var s in _sessions)
+                {
+                    <li>
+                        <span>@(s.SourceIp ?? "unknown address")</span>
+                        <span class="ds-muted">last active @s.LastSeenUtc.ToLocalTime().ToString("g")</span>
+                        @if (s.SessionId == _currentSessionId)
+                        {
+                            <span class="ds-chip ds-chip--active">this session</span>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+</div>
+
+@code {
+    private string _displayName = string.Empty;
+    private string _username = string.Empty;
+    private string _role = string.Empty;
+    private string _scopeSummary = string.Empty;
+    private string? _currentSessionId;
+    private IReadOnlyList<VSoftSol.Syslog.Data.Users.UserSession> _sessions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        CurrentUser user = await CurrentUserAccessor.GetAsync();
+        _displayName = user.DisplayName;
+        _username = user.UserName;
+        _role = user.Role?.ToString() ?? string.Empty;
+        _currentSessionId = user.SessionId;
+        _scopeSummary = user.Scope.IsUnrestricted
+            ? "You can see all streams and device groups."
+            : "Your view is limited to specific streams / device groups assigned by an administrator.";
+
+        var account = await Users.FindByUsernameAsync(_username, CancellationToken.None);
+        if (account is not null)
+        {
+            _sessions = await Sessions.ListActiveForUserAsync(account.UserId, Clock.GetUtcNow(), CancellationToken.None);
+        }
+    }
+}

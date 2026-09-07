@@ -1,0 +1,18 @@
+@* Branding consumption (PHASE_04 build item 13; BRANDING.md). Wide logo that collapses to
+   the square mark on narrow viewports. All strings from BrandingInfo, images from the
+   build-generated wwwroot/branding folder — no literals. *@
+
+<span class="ds-brand @(Compact ? "ds-brand--compact" : null)">
+    <img class="ds-brand__wide" src="branding/logo-wide.png" alt="@BrandingInfo.ProductName" width="160" height="40" />
+    <img class="ds-brand__mark" src="branding/logo.png" alt="@BrandingInfo.ProductName" width="32" height="32" />
+    @if (ShowName)
+    {
+        <span class="ds-brand__name">@BrandingInfo.ProductName</span>
+    }
+</span>
+
+@code {
+    [Parameter] public bool Compact { get; set; }
+
+    [Parameter] public bool ShowName { get; set; }
+}

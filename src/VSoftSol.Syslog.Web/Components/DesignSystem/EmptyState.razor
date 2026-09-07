@@ -1,0 +1,31 @@
+@* Empty-state component (PHASE_04 design system; UX_STANDARDS.md §4 "Empty states teach").
+   Takes a title, an explanation, and one primary action. Never a blank panel. *@
+
+<div class="ds-empty" role="status">
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <div class="ds-empty__icon" aria-hidden="true">@Icon</div>
+    }
+    <h2 class="ds-empty__title">@Title</h2>
+    <p class="ds-empty__explanation">@Explanation</p>
+    @if (PrimaryAction is not null)
+    {
+        <div class="ds-empty__action">@PrimaryAction</div>
+    }
+    @if (ChildContent is not null)
+    {
+        <div class="ds-empty__extra">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired] public string Explanation { get; set; } = string.Empty;
+
+    [Parameter] public string? Icon { get; set; }
+
+    [Parameter] public RenderFragment? PrimaryAction { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}
