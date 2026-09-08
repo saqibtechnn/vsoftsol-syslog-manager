@@ -1,0 +1,110 @@
+@page "/devices/pending"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Devices
+@using VSoftSol.Syslog.Web.Devices
+@inject DeviceAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Pending devices — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Pending devices</h1>
+        <a class="ds-button ds-button--ghost" href="/devices">All devices</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="5" />
+    }
+    else if (_pending.Count == 0)
+    {
+        <EmptyState Title="Nothing waiting"
+                    Explanation="When the collector receives a message from a source it does not recognise, a device appears here for you to name and approve."
+                    Icon="✅" />
+    }
+    else
+    {
+        <p class="ds-muted">@_pending.Count device(s) discovered from unknown sources. Name and classify each, then approve or reject.</p>
+        @foreach (Device d in _pending)
+        {
+            <div class="ds-pending-row">
+                <div class="ds-pending-row__id">
+                    <strong>@(d.Hostname ?? d.PrimaryIp)</strong>
+                    <span class="ds-muted">@d.PrimaryIp · first seen @(d.FirstSeenUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))</span>
+                </div>
+                <input class="ds-input ds-input--sm" placeholder="Name" @bind="_edits[d.DeviceId].Name" aria-label="Name" />
+                <input class="ds-input ds-input--sm" placeholder="Vendor" @bind="_edits[d.DeviceId].Vendor" aria-label="Vendor" list="p-vendors" />
+                <input class="ds-input ds-input--sm" placeholder="Role" @bind="_edits[d.DeviceId].Role" aria-label="Role" list="p-roles" />
+                <input class="ds-input ds-input--sm" type="number" min="1" placeholder="Heartbeat (min)"
+                       @bind="_edits[d.DeviceId].Heartbeat" aria-label="Heartbeat minutes" />
+                <select class="ds-input ds-input--sm" @bind="_edits[d.DeviceId].GroupId" aria-label="Group">
+                    <option value="0">— no group —</option>
+                    @foreach (DeviceGroup g in _groups)
+                    {
+                        <option value="@g.GroupId">@g.Name</option>
+                    }
+                </select>
+                <button type="button" class="ds-button ds-button--primary ds-button--sm" @onclick="() => ApproveAsync(d.DeviceId)">Approve</button>
+                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => RejectAsync(d.DeviceId)">Reject</button>
+            </div>
+        }
+        <datalist id="p-vendors"><option>Cisco</option><option>FortiGate</option><option>Palo Alto</option><option>Juniper</option><option>Linux</option></datalist>
+        <datalist id="p-roles"><option>switch</option><option>router</option><option>firewall</option><option>server</option></datalist>
+    }
+</div>
+
+@code {
+    private sealed class Edit
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Vendor { get; set; }
+        public string? Role { get; set; }
+        public int? Heartbeat { get; set; }
+        public long GroupId { get; set; }
+    }
+
+    private bool _loading = true;
+    private IReadOnlyList<Device> _pending = [];
+    private IReadOnlyList<DeviceGroup> _groups = [];
+    private readonly Dictionary<long, Edit> _edits = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _groups = await Admin.ListGroupsAsync(CancellationToken.None);
+        _pending = await Admin.ListPendingAsync(CancellationToken.None);
+        _edits.Clear();
+        foreach (Device d in _pending)
+        {
+            _edits[d.DeviceId] = new Edit { Name = d.Hostname ?? d.PrimaryIp ?? d.Name };
+        }
+
+        _loading = false;
+    }
+
+    private async Task ApproveAsync(long id)
+    {
+        Edit e = _edits[id];
+        var groups = e.GroupId > 0 ? new[] { e.GroupId } : System.Array.Empty<long>();
+        DeviceActionResult result = await Admin.ApproveAsync(id, e.Name, e.Vendor, e.Role, e.Heartbeat, groups, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RejectAsync(long id)
+    {
+        DeviceActionResult result = await Admin.RejectAsync(id, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            await RefreshAsync();
+        }
+    }
+}

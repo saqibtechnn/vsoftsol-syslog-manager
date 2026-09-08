@@ -25,4 +25,14 @@ public static class AuditActions
     public const string ConfigChange = "config.change";
     public const string SecretChange = "secret.change";
     public const string Export = "export";
+
+    public const string DeviceCreate = "device.create";
+    public const string DeviceUpdate = "device.update";
+    public const string DeviceApprove = "device.approve";
+    public const string DeviceReject = "device.reject";
+    public const string DeviceGroupChange = "device.group.change";
+
+    public const string StreamCreate = "stream.create";
+    public const string StreamUpdate = "stream.update";
+    public const string StreamDelete = "stream.delete";
 }

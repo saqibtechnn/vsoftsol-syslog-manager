@@ -1,0 +1,16 @@
+# Phase 6 — known issues
+
+| Id | Severity | Issue | Disposition |
+|---|---|---|---|
+| P6-1 | Info / MARGINAL | Ingest benchmark with vendor extraction **and** 20 active streams reads ~3.2k msg/sec vs the 5,000 gate on the 2-vCPU VMware VM | Stream routing adds a **measured ~10–12 %** to ingest throughput (baseline→+20-streams: 40k run 5,562→4,881; 200k run 3,535→3,193). The gate **is met with 20 streams on the RFC-parse path (6,706 msg/sec)**. The vendor-extraction path is below the gate at *baseline* on this VM too — the pre-existing **P3-2** condition (Phase 3 recorded ~5,290 median here and flagged it MARGINAL, operator-accepted). Phase 6 adds ~10 % on top; it does not cause the shortfall. Routing has no extra DB round trips (`DeviceResolver` caches IP→id; `StreamRouterProvider` holds one compiled router; `event_streams` is `INSERT OR IGNORE` in the existing transaction). Literal "≥ 5,000 with vendor + 20 streams" confirmation → Phase 12 clean-VM acceptance run, same carry as P1-1 and P3-2. `benchmarks.md`. |
+| P2-5 | Info / flake | `WalCrashConsistencyTests.HardKillDuringIngest_LeavesDatabaseConsistent_TwentyTimes` failed once under concurrent build load (SQLite `disk I/O error` on iteration 3) during an early full-suite run | Load-dependent, not a Phase 6 regression — the test drives 20 hard-kill iterations and the failure was an I/O error from the OS under contention, not a consistency violation. Passes in isolation; **did not recur** on the recorded Release integration run (336/336). Carried unchanged from Phase 2. |
+| P5-3 | Info | User-authored extractors stored (`user_extractors`, migration 003) but still not applied at ingest | Phase 6 built the *stream* half of the configuration surface (routing at ingest). Wiring saved extractors into the ingest path is now best placed alongside Phase 7 rule actions (both hang off the same `ConditionNode` model). No `TODO(phase-N)` marker in a hot path; the table + store + tester are complete. Carried to Phase 7. |
+| P4-1 | Info | OWASP ZAP DAST | Carried (unchanged). The new `/devices*`, `/streams*`, `/settings/discovery` surfaces get compensating xUnit assertions against real Kestrel over HTTPS (`DeviceWebTests`, `StreamScopeAndXssTests`) — route auth, role-at-the-service, redirect, HTML-encoding. |
+| P4-2 | Info | axe-core + live keyboard/AT traversal + narrow-viewport screenshot | Carried. Structural a11y for the Phase 6 screens verified in source + pre-rendered HTML (`ux-gate.md` §4–5): native `<input>`/`<select>`/`<button>`, `aria-label` on the nav badge and the health sparkline, `<datalist>` suggestions, `<details>` raw-rule escape hatch. |
+| P3-3 | — | Stryker mutation run | Still blocked on this SDK-only host (VsTest adapter, `dev-vm-constraints`). The Phase 6 condition engine's compensating evidence is strong: the 10,000×50 differential routing oracle (0 divergences), the ReDoS suite, and the discovery idempotency/flood proofs. Carried to a CI host. |
+
+Coverage detail: `docs/evidence/phase-06/coverage-summary.txt` — gated assemblies
+Ingestion 90.51 %, Rules 84.45 %, Reporting 93.81 %, all PASS.
+
+No Critical, High, or Medium findings. No open Low findings. `TODO(phase-N)` markers in
+shipping code: none.

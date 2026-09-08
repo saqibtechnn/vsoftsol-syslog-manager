@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using VSoftSol.Syslog.Core.Enums;
 using VSoftSol.Syslog.Data.Sqlite;
+using VSoftSol.Syslog.Data.Streams;
 
 namespace VSoftSol.Syslog.Data.Seed;
 
@@ -16,16 +17,7 @@ public sealed class DatabaseSeeder
     /// <summary>Username of the seeded administrator account.</summary>
     public const string SeededAdminUsername = "admin";
 
-    private static readonly string[] DefaultStreams =
-    [
-        "All Messages",
-        "Security Events",
-        "Interface Up/Down",
-        "Authentication Failures",
-        "Configuration Changes",
-        "Hardware/Environment",
-        "Parse Failures",
-    ];
+    private static readonly IReadOnlyList<DefaultStreamRules.Entry> DefaultStreams = DefaultStreamRules.All;
 
     private readonly SqliteConnectionFactory _factory;
     private readonly ILogger<DatabaseSeeder> _logger;
@@ -67,21 +59,36 @@ public sealed class DatabaseSeeder
                 ("$roleId", (int)Role.Administrator + 1),
                 ("$created", nowUtc));
 
-            for (int i = 0; i < DefaultStreams.Length; i++)
+            for (int i = 0; i < DefaultStreams.Count; i++)
             {
+                DefaultStreamRules.Entry stream = DefaultStreams[i];
+                string? matchJson = stream.Match is null ? null : StreamMatchJson.Serialize(stream.Match);
+
                 await ExecuteAsync(connection, transaction, """
-                    INSERT INTO streams (name, is_system, enabled, sort_order, created_utc)
-                    VALUES ($name, 1, 1, $order, $created)
+                    INSERT INTO streams (name, is_system, is_catch_all, enabled, sort_order, match_json, created_utc)
+                    VALUES ($name, 1, $catchAll, 1, $order, $match, $created)
                     ON CONFLICT(name) DO NOTHING;
                     """, cancellationToken,
-                    ("$name", DefaultStreams[i]),
+                    ("$name", stream.Name),
+                    ("$catchAll", stream.IsCatchAll ? 1 : 0),
                     ("$order", i),
+                    ("$match", (object?)matchJson ?? DBNull.Value),
                     ("$created", nowUtc));
+
+                // Backfill the rule for a stream seeded before migration 004 (match_json still NULL);
+                // never overwrite an operator's edit.
+                await ExecuteAsync(connection, transaction, """
+                    UPDATE streams SET is_catch_all = $catchAll, match_json = $match
+                    WHERE name = $name AND is_system = 1 AND match_json IS NULL AND is_catch_all = 0;
+                    """, cancellationToken,
+                    ("$name", stream.Name),
+                    ("$catchAll", stream.IsCatchAll ? 1 : 0),
+                    ("$match", (object?)matchJson ?? DBNull.Value));
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Database seed verified: {RoleCount} roles, seeded admin, {StreamCount} default streams.",
-                Enum.GetValues<Role>().Length, DefaultStreams.Length);
+                Enum.GetValues<Role>().Length, DefaultStreams.Count);
         }
         catch
         {

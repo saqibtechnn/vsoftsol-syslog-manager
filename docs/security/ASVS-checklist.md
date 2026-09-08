@@ -30,14 +30,14 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V3.4 | Cookies: `Secure`, `HttpOnly`, `SameSite` | I | Secure + HttpOnly + SameSite=Strict; `SecurityHeadersTests.AuthCookie_IsSecure_HttpOnly_AndSameSiteStrict` asserts the Set-Cookie string (Phase 4) |
 | **V4** | **Access control** | | |
 | V4.1 | Enforced server-side, deny by default | I | Policy-based authz with a `RequireAuthenticatedUser` `FallbackPolicy`; the route-discovery test fails the build if a page has no `[Authorize]`; the scope filter returns nothing when it cannot resolve (Phase 4) |
-| V4.2 | No IDOR; object-level checks | I | `ScopedEventReader.GetByIdAsync` returns null (not "forbidden") for an out-of-scope id; `ScopedEventReaderTests` covers by-id / query-param / context-view bypass (Phase 4). Phase 5: `SqliteSavedSearchStore` / `SqliteColumnLayoutStore` re-check ownership on every mutation — `SavedSearchStoreTests` proves a non-owner cannot read a private search or edit/delete a shared one; the export stream and query path go through the scope chokepoint (`SearchScopeTests`, `SearchExportSecurityTests`) |
+| V4.2 | No IDOR; object-level checks | I | `ScopedEventReader.GetByIdAsync` returns null (not "forbidden") for an out-of-scope id; `ScopedEventReaderTests` covers by-id / query-param / context-view bypass (Phase 4). Phase 5: `SqliteSavedSearchStore` / `SqliteColumnLayoutStore` re-check ownership on every mutation. Phase 6: `StreamAdminService.GetAsync/SaveAsync/ListAsync` scope-check every by-id access — an out-of-scope stream id returns the same `null` as a missing id (no existence oracle); `DeviceAdminService.ApproveAsync/RejectAsync/SaveDiscoverySettingsAsync` re-check `Role.Administrator` **at the service**, not just the page `[Authorize]` (`StreamScopeAndXssTests`, `DeviceWebTests`) |
 | V4.3 | Admin interfaces need extra authz | I | `Administer` policy (Administrator only) on `/settings*`; the 4 roles x every route matrix test asserts allow/deny per `AuthPolicies.RolesFor` (Phase 4) |
 | **V5** | **Validation, sanitisation, encoding** | | |
 | V5.1 | Input validation with allow-lists | I / P | Schema CHECK constraints reject invalid rows at the store (Phase 1); the parser fallback chain never rejects a message (Constraint 4) — it validates the PRI range, the RFC 5424 version, and timestamp format and falls back to `raw` otherwise (Phase 3); config validation — every UI phase |
-| V5.2 | Untrusted data sanitised for the sink, not on ingest | I | **No sanitisation on ingest** — `<script>`, `=cmd\|`, `../../`, `${jndi:…}` stored byte-identical, asserted (Phase 3); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4). Phase 5: `StoredXssMatrixTests` — 10 OWASP payloads stored verbatim, encoded at every render surface, CSV formula guard applied on export only |
+| V5.2 | Untrusted data sanitised for the sink, not on ingest | I | **No sanitisation on ingest** — `<script>`, `=cmd\|`, `../../`, `${jndi:…}` stored byte-identical, asserted (Phase 3); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4). Phase 5: `StoredXssMatrixTests` — 10 OWASP payloads stored verbatim, encoded at every render surface, CSV formula guard applied on export only. Phase 6: wire-supplied device `hostname` / `vendor` / `name` render HTML-encoded on the pending-device queue and health card, byte-identical in storage (`DeviceWebTests`, `StreamScopeAndXssTests`) |
 | V5.3.4 | SQL injection prevented by parameterisation | I | `SqliteLogRepository` — CWE-89 sweep + `ToFtsPhrase` quote-doubling (Phase 1). Phase 5: `SearchCompiler` binds every user value; `SearchCompilerTests` asserts no user bytes in SQL text against injection payloads; `SearchInjectionTests` — SQL / FTS5 / unicode / 10 KB / stacked statements, no data mutated, no exception |
 | V5.3 | Output encoding per context (HTML, attr, JS, CSV, PDF) | I / P | Phase 5: HTML — Razor auto-encoding on the grid / expanded row / context / live tail (`StoredXssMatrixTests`); JSON — `JavaScriptEncoder.Default` (`<>&'` escaped); CSV — RFC-4180 quoting + `CsvFormulaGuard` (`= + - @ TAB` → `'` prefix), export-only. PDF surface — Phase 10 |
-| V5.3.5 | Query-language / expression injection | I | Phase 5 query language compiles to a parameterised AST → SQL; unknown fields and malformed input are user errors, never a scan or an exception; the **500-query golden-oracle differential** (`SearchOracleTests`, 0 divergences) proves the compiler is faithful |
+| V5.3.5 | Query-language / expression injection | I | Phase 5 query language compiles to a parameterised AST → SQL; the **500-query golden-oracle differential** (`SearchOracleTests`, 0 divergences) proves the compiler is faithful. Phase 6 stream match rules compile to `CompiledCondition` (`ConditionCompiler`): unknown fields / bad values are save-time errors; `Matches` regexes use `RegexOptions.NonBacktracking` (linear-time, ReDoS-proof) + a 250 ms timeout, non-linear features rejected; the **10,000×50 routing oracle** (`StreamRoutingOracleTests`, 0 divergences) proves the evaluator is faithful; `ConditionCompilerReDoSTests` proves catastrophic patterns cannot stall ingest |
 | V5.5 | Safe deserialization; no arbitrary types | I / P | `JsonExtractor` uses `System.Text.Json` with a depth cap and no polymorphic types (Phase 3); config-bundle import — Phase 11 |
 | V5.2.x | ReDoS / regex safety | I | Every pack- and user-authorable pattern carries a mandatory match timeout; a timeout is caught and ingestion continues (Phase 3) |
 | **V6** | **Stored cryptography** | | |
@@ -83,6 +83,15 @@ with a named test. Verified against the running app via `AuthorizationMatrixTest
 `SecretStoreTests`, `LocalAuthenticationProviderTests`. DAST (OWASP ZAP) is the one
 control that could not be executed on this SDK-only host — carried to the Phase 12 / CI
 checklist (see `docs/evidence/phase-04/security/README.md`).
+
+## Phase 6 L2 verification pass (V4.2, V5.2, V5.3.5)
+
+Device registry + streams add attacker-influenced by-id objects (devices, groups, streams)
+and a user-authored expression language (stream match rules). V4.2 (no IDOR / no existence
+oracle, role re-checked at the service), V5.2 (device fields encoded at render, verbatim in
+storage), and V5.3.5 (condition compiler faithful — 10,000×50 oracle; ReDoS-proof via
+`NonBacktracking`) are **I**, each with a named test. See
+`docs/evidence/phase-06/security/README.md`.
 
 ## Open L2 gaps carried out of Phase 0
 

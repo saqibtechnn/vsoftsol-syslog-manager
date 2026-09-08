@@ -1,0 +1,117 @@
+@page "/devices/groups"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Devices
+@using VSoftSol.Syslog.Web.Devices
+@inject DeviceAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Device groups — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Device groups</h1>
+        <a class="ds-button ds-button--ghost" href="/devices">All devices</a>
+    </header>
+
+    <p class="ds-muted">Groups drive per-user visibility scope, filtering, dashboards, and bulk rules. A device can be in several groups.</p>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="4" />
+    }
+    else
+    {
+        <div class="ds-cardgrid">
+            @foreach (DeviceGroup g in _groups)
+            {
+                <div class="ds-card">
+                    <h2>@g.Name</h2>
+                    <p>@(g.Description ?? "No description.")</p>
+                    <p class="ds-muted">@g.MemberCount device(s)</p>
+                    <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Edit(g)">Edit</button>
+                </div>
+            }
+            <div class="ds-card ds-card--link" @onclick="() => Edit(null)" role="button" tabindex="0">
+                <h2>+ New group</h2>
+            </div>
+        </div>
+    }
+</div>
+
+<Modal @bind-Visible="_editing" Title="@(_editId == 0 ? "New group" : "Edit group")">
+    <ChildContent>
+        <FormField Label="Name" FieldId="g-name" Required="true"><input id="g-name" class="ds-input" @bind="_name" /></FormField>
+        <FormField Label="Description" FieldId="g-desc"><input id="g-desc" class="ds-input" @bind="_desc" /></FormField>
+        <FormField Label="Members" FieldId="g-members">
+            <div class="ds-checkgrid ds-checkgrid--scroll">
+                @foreach (Device d in _allDevices)
+                {
+                    <label><input type="checkbox" checked="@_members.Contains(d.DeviceId)"
+                                  @onchange="() => ToggleMember(d.DeviceId)" /> @d.Name</label>
+                }
+            </div>
+        </FormField>
+    </ChildContent>
+    <Footer>
+        <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync">Save</button>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="@(() => _editing = false)">Cancel</button>
+    </Footer>
+</Modal>
+
+@code {
+    private bool _loading = true;
+    private bool _editing;
+    private long _editId;
+    private string _name = string.Empty;
+    private string? _desc;
+    private readonly HashSet<long> _members = [];
+    private IReadOnlyList<DeviceGroup> _groups = [];
+    private IReadOnlyList<Device> _allDevices = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _groups = await Admin.ListGroupsAsync(CancellationToken.None);
+        _allDevices = await Admin.ListAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private void Edit(DeviceGroup? group)
+    {
+        _editId = group?.GroupId ?? 0;
+        _name = group?.Name ?? string.Empty;
+        _desc = group?.Description;
+        _members.Clear();
+        if (group is not null)
+        {
+            foreach (Device d in _allDevices.Where(d => d.GroupIds.Contains(group.GroupId)))
+            {
+                _members.Add(d.DeviceId);
+            }
+        }
+
+        _editing = true;
+    }
+
+    private void ToggleMember(long id)
+    {
+        if (!_members.Remove(id))
+        {
+            _members.Add(id);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        DeviceActionResult result = await Admin.SaveGroupAsync(_editId, _name, _desc, [.. _members], CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            _editing = false;
+            await RefreshAsync();
+        }
+    }
+}

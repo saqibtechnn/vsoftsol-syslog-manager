@@ -83,9 +83,16 @@ public sealed class SqliteLogRepository : ILogRepository
         await using SqliteCommand lastRowId = connection.CreateCommand();
         lastRowId.CommandText = "SELECT last_insert_rowid();";
 
-        // Parse failures land in the "Parse Failures" system stream (PHASE_03 item 3). The
-        // general stream-routing engine is Phase 6; this is the one hard-wired route,
-        // keyed off parse_status = 'raw'.
+        // Stream routing (PHASE_06) is decided upstream by the ingest enricher and arrives on
+        // SyslogEvent.StreamIds; the repository just persists it, in the same transaction as
+        // the event. The parse-failure link stays as a hard-wired safety net so a routing
+        // bug can never orphan a raw event from the "Parse Failures" stream (PHASE_03 item 3).
+        await using SqliteCommand linkStream = connection.CreateCommand();
+        linkStream.CommandText =
+            "INSERT OR IGNORE INTO event_streams (event_id, stream_id) VALUES ($event_id, $stream_id);";
+        SqliteParameter linkStreamEventId = linkStream.Parameters.Add("$event_id", SqliteType.Integer);
+        SqliteParameter linkStreamId = linkStream.Parameters.Add("$stream_id", SqliteType.Integer);
+
         await using SqliteCommand linkParseFailure = connection.CreateCommand();
         linkParseFailure.CommandText = """
             INSERT OR IGNORE INTO event_streams (event_id, stream_id)
@@ -106,6 +113,7 @@ public sealed class SqliteLogRepository : ILogRepository
                 insert.Transaction = transaction;
                 insertField.Transaction = transaction;
                 lastRowId.Transaction = transaction;
+                linkStream.Transaction = transaction;
                 linkParseFailure.Transaction = transaction;
 
                 for (int i = 0; i < count; i++)
@@ -125,6 +133,16 @@ public sealed class SqliteLogRepository : ILogRepository
                     long id = firstId + i;
                     assignedIds[offset + i] = id;
                     SyslogEvent evt = all[offset + i];
+
+                    if (evt.StreamIds.Count > 0)
+                    {
+                        linkStreamEventId.Value = id;
+                        foreach (long streamId in evt.StreamIds)
+                        {
+                            linkStreamId.Value = streamId;
+                            linkStream.ExecuteNonQuery();
+                        }
+                    }
 
                     if (evt.ParseStatus == ParseStatus.Raw)
                     {

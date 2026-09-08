@@ -25,6 +25,7 @@ public sealed class IngestionPipeline
     private readonly IngestionStatistics _stats;
     private readonly IngestionOptions _options;
     private readonly ILogger<IngestionPipeline> _logger;
+    private readonly EventEnricher? _enricher;
 
     public IngestionPipeline(
         IngestionChannel channel,
@@ -34,7 +35,8 @@ public sealed class IngestionPipeline
         DeduplicationWindow dedup,
         IngestionStatistics stats,
         IOptions<IngestionOptions> options,
-        ILogger<IngestionPipeline> logger)
+        ILogger<IngestionPipeline> logger,
+        EventEnricher? enricher = null)
     {
         _channel = channel;
         _spill = spill;
@@ -44,6 +46,7 @@ public sealed class IngestionPipeline
         _stats = stats;
         _options = options.Value;
         _logger = logger;
+        _enricher = enricher;
     }
 
     /// <summary>
@@ -208,6 +211,25 @@ public sealed class IngestionPipeline
             foreach (RawFrame f in lease.Frames)
             {
                 Prepare(f);
+            }
+        }
+
+        // Attach device resolution + stream routing (PHASE_06). Routing failures are
+        // absorbed here rather than propagated — an unroutable event still commits (it
+        // will always at least land in the catch-all via the repository safety net).
+        if (_enricher is not null)
+        {
+            for (int i = 0; i < toInsert.Count; i++)
+            {
+                try
+                {
+                    toInsert[i] = await _enricher(toInsert[i], stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "Event enrichment failed for a message from {SourceIp}; committing unrouted.",
+                        toInsert[i].SourceIp);
+                }
             }
         }
 

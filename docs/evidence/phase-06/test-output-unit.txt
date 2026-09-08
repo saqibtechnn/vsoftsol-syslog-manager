@@ -1,0 +1,7 @@
+Test run for E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\bin\Release\net8.0\VSoftSol.Syslog.UnitTests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 17.11.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   632, Skipped:     0, Total:   632, Duration: 1 m 18 s - VSoftSol.Syslog.UnitTests.dll (net8.0)

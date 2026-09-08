@@ -1,12 +1,14 @@
 using System.Text.Json.Serialization;
 
-namespace VSoftSol.Syslog.Web.Components.DesignSystem;
+namespace VSoftSol.Syslog.Core.Conditions;
 
 /// <summary>
-/// The visual condition tree behind <c>ConditionBuilder</c> (PHASE_04 design system,
-/// reused by Phases 6/7/8 for stream match rules, rule conditions, and alert conditions).
-/// A node is either a <see cref="ConditionGroup"/> (AND/OR of children) or a
-/// <see cref="ConditionComparison"/> (field / operator / value).
+/// The visual condition tree (PHASE_04 design system's <c>ConditionBuilder</c>, reused by
+/// Phase 6 stream match rules, Phase 7 rule conditions, and Phase 8 alert conditions). A
+/// node is either a <see cref="ConditionGroup"/> (AND/OR of children) or a
+/// <see cref="ConditionComparison"/> (field / operator / value). Lives in Core so the
+/// ingest-path evaluator (<c>VSoftSol.Syslog.Rules</c>) and the UI share one model
+/// (ADR 0014).
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(ConditionGroup), "group")]
@@ -54,5 +56,5 @@ public sealed class ConditionComparison : ConditionNode
     public string Value { get; set; } = string.Empty;
 }
 
-/// <summary>A field the builder offers, with a friendly label and whether it takes a value.</summary>
+/// <summary>A field the builder offers, with a friendly label.</summary>
 public sealed record ConditionField(string Name, string Label);

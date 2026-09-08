@@ -1,0 +1,8 @@
+warmup  vendor=True streams=0 : 200000 frames, 200000 rows, 64.28s => 3,111 msg/sec
+MEASURE vendor=True streams=0 : 200000 frames, 200000 rows, 56.58s => 3,535 msg/sec
+SEP
+warmup  vendor=True streams=20 : 200000 frames, 200000 rows, 66.33s => 3,015 msg/sec
+MEASURE vendor=True streams=20 : 200000 frames, 200000 rows, 62.63s => 3,193 msg/sec
+SEP
+warmup  vendor=False streams=20 : 200000 frames, 200000 rows, 30.67s => 6,520 msg/sec
+MEASURE vendor=False streams=20 : 200000 frames, 200000 rows, 29.83s => 6,706 msg/sec

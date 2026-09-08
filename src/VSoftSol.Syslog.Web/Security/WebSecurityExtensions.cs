@@ -23,6 +23,8 @@ public static class WebSecurityExtensions
         services.TryAddScoped<SessionCookieEvents>();
         services.TryAddScoped<CurrentUserAccessor>();
         services.TryAddScoped<UserAdminService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Devices.DeviceAdminService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Streams.StreamAdminService>();
 
         services.AddOptions<WebAuthOptions>()
             .Bind(configuration.GetSection(WebAuthOptions.SectionName))

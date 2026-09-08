@@ -1,0 +1,218 @@
+@page "/devices/{DeviceId:long}"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Devices
+@using VSoftSol.Syslog.Data.Devices
+@using VSoftSol.Syslog.Web.Devices
+@inject DeviceAdminService Admin
+@inject SqliteDeviceMetrics Metrics
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>@(_isNew ? "Add device" : _model.Name) — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-devicedetail">
+    <header class="ds-page__header">
+        <h1>@(_isNew ? "Add device" : _model.Name)</h1>
+        <a class="ds-button ds-button--ghost" href="/devices">Back to devices</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else if (_notFound)
+    {
+        <EmptyState Title="Device not found" Explanation="It may have been removed." Icon="🖧" />
+    }
+    else
+    {
+        @if (!_isNew && _health is { } h)
+        {
+            <section class="ds-healthcard">
+                <h2>Health</h2>
+                <div class="ds-healthcard__grid">
+                    <div><span class="ds-healthcard__num">@(h.LastSeenUtc is { } t ? t.ToLocalTime().ToString("HH:mm:ss") : "never")</span><span>last message</span></div>
+                    <div><span class="ds-healthcard__num">@h.MessagesLastHour.ToString("N0")</span><span>last hour</span></div>
+                    <div><span class="ds-healthcard__num">@h.MessagesLast24Hours.ToString("N0")</span><span>last 24 h</span></div>
+                    <div><span class="ds-healthcard__num">@((h.ParseFailureRate * 100).ToString("0.0"))%</span><span>parse failures (24 h)</span></div>
+                </div>
+                <div class="ds-healthcard__spark" role="img" aria-label="Messages per minute, last hour">
+                    @((MarkupString)Sparkline(h.MessagesPerMinute))
+                </div>
+                @if (h.TopMessageTypes.Count > 0)
+                {
+                    <h3>Top message types (24 h)</h3>
+                    <ul class="ds-healthcard__top">
+                        @foreach ((string type, long count) in h.TopMessageTypes)
+                        {
+                            <li><code>@type</code> <span class="ds-muted">@count.ToString("N0")</span></li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+
+        <form class="ds-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <fieldset class="ds-form__section">
+                <legend>Basics</legend>
+                <FormField Label="Name" FieldId="d-name" Required="true">
+                    <input id="d-name" class="ds-input" @bind="_model.Name" />
+                </FormField>
+                <FormField Label="Vendor" FieldId="d-vendor" Help="e.g. Cisco, FortiGate, Palo Alto.">
+                    <input id="d-vendor" class="ds-input" @bind="_model.Vendor" />
+                </FormField>
+                <FormField Label="Role" FieldId="d-role" Help="switch, router, firewall, server, …">
+                    <input id="d-role" class="ds-input" @bind="_model.Role" list="d-roles" />
+                    <datalist id="d-roles">
+                        <option>switch</option><option>router</option><option>firewall</option>
+                        <option>server</option><option>wireless controller</option><option>load balancer</option>
+                    </datalist>
+                </FormField>
+                <FormField Label="Enabled" FieldId="d-enabled">
+                    <label><input id="d-enabled" type="checkbox" @bind="_model.IsEnabled" /> Accept messages from this device</label>
+                </FormField>
+            </fieldset>
+
+            <details class="ds-form__advanced">
+                <summary>Advanced</summary>
+                <FormField Label="Source IPs" FieldId="d-ips" Help="One per line. The first is the primary.">
+                    <textarea id="d-ips" class="ds-textarea" rows="3" @bind="_ipsText"></textarea>
+                </FormField>
+                <FormField Label="Hostname" FieldId="d-host"><input id="d-host" class="ds-input" @bind="_model.Hostname" /></FormField>
+                <FormField Label="Model" FieldId="d-model"><input id="d-model" class="ds-input" @bind="_model.Model" /></FormField>
+                <FormField Label="Site" FieldId="d-site"><input id="d-site" class="ds-input" @bind="_model.Site" /></FormField>
+                <FormField Label="Owner" FieldId="d-owner"><input id="d-owner" class="ds-input" @bind="_model.Owner" /></FormField>
+                <FormField Label="Timezone" FieldId="d-tz" Help="IANA name, for devices that send ambiguous local timestamps.">
+                    <input id="d-tz" class="ds-input" @bind="_model.Timezone" placeholder="e.g. America/New_York" />
+                </FormField>
+                <FormField Label="Expected messages / minute" FieldId="d-rate" Help="Leave blank for no expectation.">
+                    <input id="d-rate" class="ds-input" type="number" min="0" @bind="_rate" />
+                </FormField>
+                <FormField Label="Heartbeat alert after (minutes)" FieldId="d-hb" Help="Alert if the device goes silent this long (alerting is Phase 8).">
+                    <input id="d-hb" class="ds-input" type="number" min="1" @bind="_heartbeat" />
+                </FormField>
+                <FormField Label="Notes" FieldId="d-notes"><textarea id="d-notes" class="ds-textarea" rows="2" @bind="_model.Notes"></textarea></FormField>
+                <FormField Label="Groups" FieldId="d-groups">
+                    <div class="ds-checkgrid">
+                        @foreach (DeviceGroup g in _groups)
+                        {
+                            <label><input type="checkbox" checked="@_selectedGroups.Contains(g.GroupId)"
+                                          @onchange="() => ToggleGroup(g.GroupId)" /> @g.Name</label>
+                        }
+                    </div>
+                </FormField>
+            </details>
+
+            <div class="ds-form__actions">
+                <button type="submit" class="ds-button ds-button--primary">@(_isNew ? "Add device" : "Save")</button>
+                <a class="ds-button ds-button--ghost" href="/devices">Cancel</a>
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    [Parameter] public long DeviceId { get; set; }
+
+    private bool _loading = true;
+    private bool _notFound;
+    private bool _isNew;
+    private Device _model = Blank();
+    private DeviceHealth? _health;
+    private IReadOnlyList<DeviceGroup> _groups = [];
+    private readonly HashSet<long> _selectedGroups = [];
+    private string _ipsText = string.Empty;
+    private int? _rate;
+    private int? _heartbeat;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _notFound = false;
+        _isNew = DeviceId == 0;
+        _groups = await Admin.ListGroupsAsync(CancellationToken.None);
+
+        if (_isNew)
+        {
+            _model = Blank();
+            _ipsText = string.Empty;
+            _selectedGroups.Clear();
+        }
+        else
+        {
+            Device? device = await Admin.GetAsync(DeviceId, CancellationToken.None);
+            if (device is null)
+            {
+                _notFound = true;
+                _loading = false;
+                return;
+            }
+
+            _model = device;
+            _ipsText = string.Join('\n', device.Ips);
+            _rate = device.ExpectedMessageRate;
+            _heartbeat = device.HeartbeatMinutes;
+            _selectedGroups.Clear();
+            foreach (long g in device.GroupIds)
+            {
+                _selectedGroups.Add(g);
+            }
+
+            _health = await Metrics.GetHealthAsync(DeviceId, CancellationToken.None);
+        }
+
+        _loading = false;
+    }
+
+    private void ToggleGroup(long id)
+    {
+        if (!_selectedGroups.Remove(id))
+        {
+            _selectedGroups.Add(id);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var ips = _ipsText.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Device toSave = _model with
+        {
+            Ips = ips,
+            PrimaryIp = ips.FirstOrDefault(),
+            ExpectedMessageRate = _rate,
+            HeartbeatMinutes = _heartbeat,
+            GroupIds = [.. _selectedGroups],
+        };
+
+        DeviceActionResult result = await Admin.SaveAsync(toSave, CancellationToken.None);
+        if (result.Ok)
+        {
+            Toast.Success(result.Message);
+            Nav.NavigateTo("/devices");
+        }
+        else
+        {
+            Toast.Error(result.Message);
+        }
+    }
+
+    private static Device Blank() => new()
+    {
+        DeviceId = 0, Name = string.Empty, IsEnabled = true, CreatedUtc = DateTimeOffset.UtcNow,
+    };
+
+    private static string Sparkline(IReadOnlyList<int> series)
+    {
+        if (series.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        int max = Math.Max(1, series.Max());
+        var points = series.Select((v, i) =>
+            $"{i * 100.0 / Math.Max(1, series.Count - 1):0.##},{30 - v * 28.0 / max:0.##}");
+        return $"<svg viewBox=\"0 0 100 30\" preserveAspectRatio=\"none\" class=\"ds-spark\">" +
+               $"<polyline fill=\"none\" stroke=\"var(--ds-primary)\" stroke-width=\"1\" points=\"{string.Join(' ', points)}\" /></svg>";
+    }
+}

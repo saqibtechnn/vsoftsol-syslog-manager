@@ -20,7 +20,8 @@ public sealed class IngestionHarness : IAsyncDisposable
     private readonly List<ISyslogListener> _listeners = [];
 
     private IngestionHarness(
-        SqliteTestDatabase db, IngestionOptions options, ParsingOptions parsingOptions, ILogRepository repo, TimeProvider time)
+        SqliteTestDatabase db, IngestionOptions options, ParsingOptions parsingOptions, ILogRepository repo, TimeProvider time,
+        VSoftSol.Syslog.Ingestion.EventEnricher? enricher = null)
     {
         Db = db;
         Options = options;
@@ -35,7 +36,7 @@ public sealed class IngestionHarness : IAsyncDisposable
             NullLogger<FrameIntake>.Instance, time);
         (Parser, Dedup) = ParsingComposition.Build(parsingOptions, timeProvider: time);
         Pipeline = new IngestionPipeline(Channel, Spill, Repository, Parser, Dedup, Stats, Wrap(options),
-            NullLogger<IngestionPipeline>.Instance);
+            NullLogger<IngestionPipeline>.Instance, enricher);
         Time = time;
     }
 
@@ -71,7 +72,8 @@ public sealed class IngestionHarness : IAsyncDisposable
         Action<IngestionOptions>? configure = null,
         Func<ILogRepository, ILogRepository>? decorateRepository = null,
         TimeProvider? timeProvider = null,
-        Action<ParsingOptions>? configureParsing = null)
+        Action<ParsingOptions>? configureParsing = null,
+        Func<SqliteTestDatabase, VSoftSol.Syslog.Ingestion.EventEnricher?>? enricherFactory = null)
     {
         SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
         await db.Seeder.SeedAsync(CancellationToken.None); // the "Parse Failures" stream
@@ -94,7 +96,8 @@ public sealed class IngestionHarness : IAsyncDisposable
         configureParsing?.Invoke(parsing);
 
         ILogRepository repo = decorateRepository is null ? db.Repository : decorateRepository(db.Repository);
-        var harness = new IngestionHarness(db, options, parsing, repo, timeProvider ?? TimeProvider.System);
+        var harness = new IngestionHarness(
+            db, options, parsing, repo, timeProvider ?? TimeProvider.System, enricherFactory?.Invoke(db));
         await harness.Spill.RecoverAsync(CancellationToken.None);
         return harness;
     }

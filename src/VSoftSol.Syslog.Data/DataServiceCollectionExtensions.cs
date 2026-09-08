@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using VSoftSol.Syslog.Core.Abstractions;
 using VSoftSol.Syslog.Data.Audit;
+using VSoftSol.Syslog.Data.Devices;
 using VSoftSol.Syslog.Data.Migrations;
 using VSoftSol.Syslog.Data.Repositories;
 using VSoftSol.Syslog.Data.Scoping;
@@ -10,6 +11,7 @@ using VSoftSol.Syslog.Data.Secrets;
 using VSoftSol.Syslog.Data.Security;
 using VSoftSol.Syslog.Data.Seed;
 using VSoftSol.Syslog.Data.Sqlite;
+using VSoftSol.Syslog.Data.Streams;
 using VSoftSol.Syslog.Data.Users;
 
 namespace VSoftSol.Syslog.Data;
@@ -49,6 +51,14 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<SqliteColumnLayoutStore>();
         services.TryAddSingleton<SqliteSearchFacets>();
         services.TryAddSingleton<SqliteExtractorStore>();
+
+        // Phase 6 — device registry, discovery, groups, stream routing.
+        services.TryAddSingleton<SqliteDeviceStore>();
+        services.TryAddSingleton<SqliteDeviceGroupStore>();
+        services.TryAddSingleton<SqliteDeviceMetrics>();
+        services.TryAddSingleton<SqliteDiscoverySettingsStore>();
+        services.TryAddSingleton<SqliteStreamStore>();
+        services.TryAddSingleton<DeviceResolver>();
         services.TryAddSingleton<SqliteAuditLog>();
         if (OperatingSystem.IsWindows())
         {

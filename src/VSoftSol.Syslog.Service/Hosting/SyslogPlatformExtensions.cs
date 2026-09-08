@@ -61,6 +61,11 @@ public static class SyslogPlatformExtensions
         services.TryAddSingleton<LocalAuthenticationProvider>();
         services.TryAddSingleton<IAuthenticationProvider>(sp => sp.GetRequiredService<LocalAuthenticationProvider>());
 
+        // Phase 6 — the stream router. Lives here because only the composition root may
+        // bridge Data (the stream store) and Rules (the router). The Web host uses it too
+        // (the stream tester); the collector host uses it via the ingest enricher.
+        services.TryAddSingleton<StreamRouterProvider>();
+
         return services;
     }
 
@@ -84,6 +89,24 @@ public static class SyslogPlatformExtensions
                     ingestion.SpillDirectory = Path.Combine(collector.Value.DataDirectory, "spill");
                 }
             });
+
+        // The ingest enricher: resolve the source IP to a device (auto-discovering unknown
+        // sources) and route the event to its streams, once, before the batch commits
+        // (PHASE_06 items 3 & 6). Only the collector host runs the pipeline, so this is
+        // registered here rather than in AddSyslogPlatform.
+        services.TryAddSingleton<EventEnricher>(sp =>
+        {
+            var resolver = sp.GetRequiredService<VSoftSol.Syslog.Data.Devices.DeviceResolver>();
+            var routers = sp.GetRequiredService<StreamRouterProvider>();
+            return async (parsed, cancellationToken) =>
+            {
+                long? deviceId = await resolver.ResolveAsync(parsed.SourceIp, parsed.Hostname, cancellationToken)
+                    .ConfigureAwait(false);
+                VSoftSol.Syslog.Rules.Streams.StreamRouter router =
+                    await routers.GetAsync(cancellationToken).ConfigureAwait(false);
+                return parsed.WithRouting(deviceId, router.Route(parsed));
+            };
+        });
 
         return services;
     }

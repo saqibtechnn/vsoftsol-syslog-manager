@@ -1,0 +1,84 @@
+@page "/devices"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Devices
+@using VSoftSol.Syslog.Web.Devices
+@inject DeviceAdminService Admin
+@inject NavigationManager Nav
+
+<PageTitle>Devices — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Devices</h1>
+        <div class="ds-page__headeractions">
+            @if (_pending > 0)
+            {
+                <a class="ds-button ds-button--primary" href="/devices/pending">@_pending pending — review</a>
+            }
+            <a class="ds-button ds-button--ghost" href="/devices/groups">Groups</a>
+            <button type="button" class="ds-button" @onclick="@(() => Nav.NavigateTo("/devices/0"))">Add device</button>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="8" />
+    }
+    else if (_devices.Count == 0)
+    {
+        <EmptyState Title="No devices yet"
+                    Explanation="Devices appear here automatically the first time the collector receives a message from them — you approve each one from the pending queue. Or add one by hand now."
+                    Icon="🖧">
+            <ChildContent>
+                <button type="button" class="ds-button ds-button--primary" @onclick="@(() => Nav.NavigateTo("/devices/0"))">
+                    Add the first device
+                </button>
+            </ChildContent>
+        </EmptyState>
+    }
+    else
+    {
+        <DataTable TItem="Device" Items="_devices" Columns="_columns" Virtualized="true" />
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private long _pending;
+    private IReadOnlyList<Device> _devices = [];
+    private IReadOnlyList<TableColumn<Device>> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _columns =
+        [
+            new() { Header = "Name", SortValue = d => d.Name,
+                    Cell = d => @<a href="@($"/devices/{d.DeviceId}")">@d.Name</a> },
+            new() { Header = "Primary IP", SortValue = d => d.PrimaryIp ?? "",
+                    Cell = d => @<text>@(d.PrimaryIp ?? "—")</text> },
+            new() { Header = "Vendor", SortValue = d => d.Vendor ?? "",
+                    Cell = d => @<text>@(d.Vendor ?? "—")</text> },
+            new() { Header = "Role", HiddenByDefault = true, SortValue = d => d.Role ?? "",
+                    Cell = d => @<text>@(d.Role ?? "—")</text> },
+            new() { Header = "Site", HiddenByDefault = true,
+                    Cell = d => @<text>@(d.Site ?? "—")</text> },
+            new() { Header = "Groups", SortValue = d => d.GroupIds.Count,
+                    Cell = d => @<text>@d.GroupIds.Count</text> },
+            new() { Header = "Last seen", SortValue = d => d.LastSeenUtc ?? DateTimeOffset.MinValue,
+                    Cell = d => @<text>@(d.LastSeenUtc is { } t ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")</text> },
+            new() { Header = "Enabled",
+                    Cell = d => @<text>@(d.IsEnabled ? "yes" : "no")</text> },
+        ];
+
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _devices = await Admin.ListAsync(CancellationToken.None);
+        _pending = await Admin.CountPendingAsync(CancellationToken.None);
+        _loading = false;
+    }
+}

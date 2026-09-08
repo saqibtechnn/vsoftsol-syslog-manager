@@ -1,0 +1,91 @@
+@page "/streams/tester"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@using System.Text
+@using VSoftSol.Syslog.Core.Enums
+@using VSoftSol.Syslog.Core.Events
+@using VSoftSol.Syslog.Web.Streams
+@inject StreamAdminService Admin
+
+<PageTitle>Stream rule tester — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-pattern">
+    <header class="ds-page__header">
+        <h1>Stream rule tester</h1>
+        <a class="ds-button ds-button--ghost" href="/streams">Back to streams</a>
+    </header>
+
+    <p class="ds-muted">Paste a message and see which streams it would land in, and why. Nothing is stored.</p>
+
+    <div class="ds-pattern__grid">
+        <div class="ds-pattern__col">
+            <FormField Label="Message" FieldId="t-msg" Help="Copy a real line from the raw view of an event.">
+                <textarea id="t-msg" class="ds-textarea" rows="4" @bind="_message" @bind:event="oninput"></textarea>
+            </FormField>
+            <div class="ds-condition-row">
+                <FormField Label="Severity" FieldId="t-sev">
+                    <select id="t-sev" @bind="_severity">
+                        @foreach (Severity s in Enum.GetValues<Severity>())
+                        {
+                            <option value="@s">@s</option>
+                        }
+                    </select>
+                </FormField>
+                <FormField Label="App / tag" FieldId="t-app"><input id="t-app" class="ds-input" @bind="_app" @bind:event="oninput" /></FormField>
+                <FormField Label="Hostname" FieldId="t-host"><input id="t-host" class="ds-input" @bind="_host" @bind:event="oninput" /></FormField>
+            </div>
+            <button type="button" class="ds-button ds-button--primary" @onclick="RunAsync">Test</button>
+        </div>
+
+        <div class="ds-pattern__col">
+            <h2 class="ds-pattern__resulthead">Streams</h2>
+            @if (_results is null)
+            {
+                <EmptyState Title="No result yet" Explanation="Enter a message and press Test." Icon="≋" />
+            }
+            else
+            {
+                <table class="ds-table">
+                    <thead><tr><th></th><th>Stream</th><th>Why</th></tr></thead>
+                    <tbody>
+                        @foreach (StreamMatchExplanation r in _results)
+                        {
+                            <tr class="@(r.Matched ? "ds-context__anchor" : null)">
+                                <td>@(r.Matched ? "✓" : "")</td>
+                                <td>@r.Name</td>
+                                <td class="ds-muted">@r.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _message = string.Empty;
+    private Severity _severity = Severity.Notice;
+    private string _app = string.Empty;
+    private string _host = string.Empty;
+    private IReadOnlyList<StreamMatchExplanation>? _results;
+
+    private async Task RunAsync()
+    {
+        var sample = new SyslogEvent
+        {
+            ReceivedUtc = DateTimeOffset.UtcNow,
+            SourceIp = "0.0.0.0",
+            Hostname = string.IsNullOrWhiteSpace(_host) ? null : _host,
+            AppName = string.IsNullOrWhiteSpace(_app) ? null : _app,
+            Severity = _severity,
+            Facility = Facility.User,
+            Protocol = Protocol.Udp,
+            Message = _message,
+            RawMessage = Encoding.UTF8.GetBytes(_message),
+            ParseStatus = ParseStatus.Rfc3164,
+        };
+
+        _results = await Admin.TestAsync(sample, CancellationToken.None);
+    }
+}

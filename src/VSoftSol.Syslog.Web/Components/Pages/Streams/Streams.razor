@@ -1,0 +1,167 @@
+@page "/streams"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@using System.Text.Json
+@using VSoftSol.Syslog.Core.Conditions
+@using VSoftSol.Syslog.Data.Streams
+@using VSoftSol.Syslog.Web.Streams
+@inject StreamAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Streams — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Streams</h1>
+        <div class="ds-page__headeractions">
+            <a class="ds-button ds-button--ghost" href="/streams/tester">Rule tester</a>
+            <button type="button" class="ds-button ds-button--primary" @onclick="() => Edit(null)">New stream</button>
+        </div>
+    </header>
+
+    <p class="ds-muted">Every message is routed to its streams once, at ingest. A message can be in several streams.
+        The seven defaults are always working; edit their rules or add your own.</p>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="7" />
+    }
+    else
+    {
+        <table class="ds-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Enabled</th><th></th></tr></thead>
+            <tbody>
+                @foreach (StreamRow s in _streams)
+                {
+                    <tr>
+                        <td>@s.Name @if (s.IsSystem) { <span class="ds-chip">default</span> }</td>
+                        <td>@(s.IsCatchAll ? "catch-all" : "rule")</td>
+                        <td>@(s.Enabled ? "yes" : "no")</td>
+                        <td class="ds-table__td--num">
+                            @if (!s.IsCatchAll)
+                            {
+                                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Edit(s)">Edit</button>
+                            }
+                            @if (!s.IsSystem)
+                            {
+                                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => DeleteAsync(s)">Delete</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+<Modal @bind-Visible="_editing" Title="@(_editId == 0 ? "New stream" : "Edit stream")">
+    <ChildContent>
+        <FormField Label="Name" FieldId="s-name" Required="true">
+            <input id="s-name" class="ds-input" @bind="_name" disabled="@_nameLocked" />
+        </FormField>
+        <FormField Label="Description" FieldId="s-desc"><input id="s-desc" class="ds-input" @bind="_desc" /></FormField>
+        <FormField Label="Enabled" FieldId="s-enabled">
+            <label><input id="s-enabled" type="checkbox" @bind="_enabled" /> Route messages to this stream</label>
+        </FormField>
+
+        <h3>Match rule — a message is in this stream when…</h3>
+        <ConditionBuilder Group="_root" Fields="ConditionFieldCatalog.Fields" GroupChanged="OnRuleChanged" />
+
+        <details class="ds-form__advanced">
+            <summary>Raw rule (advanced)</summary>
+            <textarea class="ds-textarea ds-input--mono" rows="6" @bind="_rawJson"></textarea>
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="ApplyRawJson">Apply raw rule</button>
+        </details>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="ds-form__errors" role="alert">
+                @foreach (string e in _errors)
+                {
+                    <li>@e</li>
+                }
+            </ul>
+        }
+    </ChildContent>
+    <Footer>
+        <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync">Save</button>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="@(() => _editing = false)">Cancel</button>
+    </Footer>
+</Modal>
+
+@code {
+    private bool _loading = true;
+    private bool _editing;
+    private long _editId;
+    private bool _nameLocked;
+    private string _name = string.Empty;
+    private string? _desc;
+    private bool _enabled = true;
+    private string _rawJson = string.Empty;
+    private ConditionGroup _root = new();
+    private IReadOnlyList<StreamRow> _streams = [];
+    private IReadOnlyList<string> _errors = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _streams = await Admin.ListAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private void Edit(StreamRow? stream)
+    {
+        _editId = stream?.StreamId ?? 0;
+        _name = stream?.Name ?? string.Empty;
+        _desc = stream?.Description;
+        _enabled = stream?.Enabled ?? true;
+        _nameLocked = stream?.IsSystem == true;
+        _root = stream?.Match as ConditionGroup ?? new ConditionGroup();
+        _rawJson = StreamMatchJson.Serialize(_root);
+        _errors = [];
+        _editing = true;
+    }
+
+    private void OnRuleChanged() => _rawJson = StreamMatchJson.Serialize(_root);
+
+    private void ApplyRawJson()
+    {
+        ConditionNode? parsed = StreamMatchJson.Deserialize(_rawJson);
+        if (parsed is ConditionGroup g)
+        {
+            _root = g;
+            _errors = [];
+        }
+        else
+        {
+            _errors = ["The raw rule must be a group ({ \"kind\": \"group\", … })."];
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        StreamActionResult result = await Admin.SaveAsync(_editId, _name, _desc, _enabled, _root, CancellationToken.None);
+        if (result.Ok)
+        {
+            Toast.Success(result.Message);
+            _editing = false;
+            await RefreshAsync();
+        }
+        else
+        {
+            _errors = result.Errors.Count > 0 ? result.Errors : [result.Message];
+        }
+    }
+
+    private async Task DeleteAsync(StreamRow stream)
+    {
+        StreamActionResult result = await Admin.DeleteAsync(stream.StreamId, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            await RefreshAsync();
+        }
+    }
+}

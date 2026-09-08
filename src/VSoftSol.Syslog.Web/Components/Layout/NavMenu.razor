@@ -1,5 +1,7 @@
 @* Primary navigation (PHASE_04 build item 10). Items the current role cannot use are
-   hidden, not shown-and-denied. *@
+   hidden, not shown-and-denied. The Devices entry carries a badge with the pending-device
+   count so auto-discovery is noticed without hunting for it (PHASE_06 UX gate). *@
+@inject VSoftSol.Syslog.Data.Devices.SqliteDeviceStore Devices
 
 <nav class="ds-nav" aria-label="Primary">
     <ul>
@@ -11,9 +13,29 @@
                              Match="@(item.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
                         <span class="ds-nav__icon" aria-hidden="true">@item.Icon</span>
                         <span class="ds-nav__label">@item.Label</span>
+                        @if (item.Href == "/devices" && _pending > 0)
+                        {
+                            <span class="ds-nav__badge" aria-label="@_pending pending devices">@_pending</span>
+                        }
                     </NavLink>
                 </li>
             </AuthorizeView>
         }
     </ul>
 </nav>
+
+@code {
+    private long _pending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _pending = await Devices.CountPendingAsync(CancellationToken.None);
+        }
+        catch
+        {
+            _pending = 0; // never let a nav query break the shell
+        }
+    }
+}

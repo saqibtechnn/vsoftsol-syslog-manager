@@ -75,4 +75,41 @@ public sealed class SyslogEvent
     /// so a new pattern never needs a schema migration.
     /// </summary>
     public IReadOnlyList<EventField> Fields { get; init; } = [];
+
+    /// <summary>
+    /// The stream ids this event was routed to at ingest (PHASE_06; ADR 0014). This is a
+    /// transient routing result, not a stored column — the repository writes it to the
+    /// <c>event_streams</c> join table. Empty on a freshly parsed event.
+    /// </summary>
+    public IReadOnlyList<long> StreamIds { get; init; } = [];
+
+    /// <summary>Returns a copy with the ingest-time device resolution and stream routing applied.</summary>
+    public SyslogEvent WithRouting(long? deviceId, IReadOnlyList<long> streamIds)
+    {
+        ArgumentNullException.ThrowIfNull(streamIds);
+        return new SyslogEvent
+        {
+            EventId = EventId,
+            ReceivedUtc = ReceivedUtc,
+            EventUtc = EventUtc,
+            SourceIp = SourceIp,
+            Hostname = Hostname,
+            AppName = AppName,
+            ProcId = ProcId,
+            MsgId = MsgId,
+            Facility = Facility,
+            Severity = Severity,
+            Protocol = Protocol,
+            ListenerId = ListenerId,
+            Message = Message,
+            RawMessage = RawMessage,
+            ParseStatus = ParseStatus,
+            OccurrenceCount = OccurrenceCount,
+            StructuredDataJson = StructuredDataJson,
+            DeviceId = deviceId ?? DeviceId,
+            Vendor = Vendor,
+            Fields = Fields,
+            StreamIds = streamIds,
+        };
+    }
 }

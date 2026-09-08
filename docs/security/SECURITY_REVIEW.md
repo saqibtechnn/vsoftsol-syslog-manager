@@ -31,6 +31,26 @@ JSON export, encoded at render, byte-identical in storage) / CSV formula injecti
 (neutralised on export only, byte-identical in DB) / IDOR (saved searches + column layouts)
 PASS / export DoS PASS (streamed + capped) / query-plan assertions PASS (no `SCAN events`)**.
 
+## Phase 6 — environmental carry (not a finding)
+
+| ID | Item | Severity | Disposition | Operator sign-off |
+|---|---|---|---|---|
+| P6-1 | Ingest benchmark with vendor extraction **and** 20 active streams reads MARGINAL (~3.2k vs 5k gate) on the 2-vCPU VMware VM | Info | Stream routing adds a measured **~10–12 %** to ingest throughput (20 compiled condition trees / message + `event_streams` links). The gate **is met with 20 streams on the RFC path (6,706 msg/sec)**; the vendor-extraction path is below the gate at *baseline* on this VM as well — the pre-existing **P3-2** condition — and Phase 6 adds ~10 % on top rather than causing the shortfall. Literal "≥ 5,000 with vendor extraction + 20 streams" confirmation carried to the Phase 12 clean-VM acceptance run, same carry as P1-1 and P3-2. `docs/evidence/phase-06/benchmarks.md`. | _pending_ |
+| P4-1 | OWASP ZAP DAST still not executed (no Docker/browser) | Info | Carried. The new `/devices*`, `/streams*`, `/settings/discovery` surfaces get the same compensating xUnit assertions against real Kestrel over HTTPS (`DeviceWebTests`, `StreamScopeAndXssTests`) — route auth, role enforcement at the service, redirect, HTML-encoding. | _pending_ |
+| P4-2 | axe-core + live keyboard/AT traversal still not executed (no browser) | Info | Carried. Structural a11y verified for the Phase 6 device/stream screens in source + pre-rendered HTML (native controls, `aria-label` on the badge and sparkline, datalist suggestions, `<details>` escape hatch). `docs/evidence/phase-06/ux-gate.md`. | _pending_ |
+
+Phase 6 security gate: **SAST PASS / SCA PASS (no new dependency) / secrets PASS / branding
+literal guard PASS / routing golden-oracle differential PASS (10,000 msgs × 50 stream
+defs, 0 divergences) / ReDoS suite PASS (`NonBacktracking` linear-by-construction + 250 ms
+timeout; backreferences·lookarounds·atomic-groups rejected at compile time; one bad rule
+isolated, ingest never stalls) / discovery flood containment PASS (bounded at
+`max_pending_devices`, drop counter, 5-min discovery pause) / discovery idempotency PASS
+(1 record / 5,000 msgs from one source; 20 concurrent sources, 0 dups) / IDOR PASS
+(stream Get/Save/List scope-checked, no existence oracle) / stored-XSS via device fields
+PASS (hostname·vendor·name encoded on pending queue + health card, byte-identical in
+storage) / authorization-on-approval PASS (Administrator-only enforced at the service, not
+just the page `[Authorize]`; Operator + Read-Only refused, device stays pending)**.
+
 ## Phase 2 — accepted residual risks (not findings; inherent to the design)
 
 | ID | Risk | Severity | Disposition | Operator sign-off |

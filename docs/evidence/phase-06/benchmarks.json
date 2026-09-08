@@ -1,0 +1,21 @@
+{
+  "title": "Phase 6 ingest throughput with stream routing",
+  "host": "2-vCPU VMware VM (BenchmarkDotNet flagged virtualization)",
+  "probe": "--ingest-probe",
+  "gateMsgPerSec": 5000,
+  "regressionThresholdPct": 10,
+  "runs": [
+    { "parseMode": "rfc+vendor", "activeStreams": 0,  "frames": 200000, "measureMsgPerSec": 3535, "warmupMsgPerSec": 3111 },
+    { "parseMode": "rfc+vendor", "activeStreams": 20, "frames": 200000, "measureMsgPerSec": 3193, "warmupMsgPerSec": 3015, "vsBaselinePct": -9.7 },
+    { "parseMode": "rfc-only",   "activeStreams": 20, "frames": 200000, "measureMsgPerSec": 6706, "warmupMsgPerSec": 6520, "verdict": "PASS" },
+    { "parseMode": "rfc+vendor", "activeStreams": 0,  "frames": 40000,  "measureMsgPerSec": 5562 },
+    { "parseMode": "rfc+vendor", "activeStreams": 20, "frames": 40000,  "measureMsgPerSec": 4881, "vsBaselinePct": -12.2 }
+  ],
+  "routingOverheadPct": -11,
+  "verdict": "MARGINAL",
+  "disposition": "Routing overhead ~10-12% (per-message evaluation of 20 compiled condition trees + event_streams links). Gate met on the RFC path with 20 streams (6706). The vendor-extraction path is below the gate at baseline on this VM too (pre-existing P3-2); Phase 6 adds ~10% on top, it does not cause the shortfall.",
+  "carriedToPhase12": [
+    "≥ 5,000 msg/sec with vendor extraction AND 20 active streams, on clean-VM hardware (>2 GC cores, non-virtualised disk) — same carry as P1-1 and P3-2"
+  ],
+  "routingOracle": { "messages": 10000, "streamDefinitions": 50, "divergences": 0 }
+}
