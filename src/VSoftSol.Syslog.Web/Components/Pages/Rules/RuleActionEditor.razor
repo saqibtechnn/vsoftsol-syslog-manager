@@ -1,0 +1,181 @@
+@using System.Text.Json
+@using VSoftSol.Syslog.Core.Rules
+@using VSoftSol.Syslog.Data.Rules
+
+@* Compact per-kind editor for one rule action. Common actions get a form; the rarer
+   local-machine actions (script / file / ODBC) get a validated JSON field. *@
+
+<div class="ds-actioncard">
+    <div class="ds-actioncard__head">
+        <select class="ds-input ds-input--sm" value="@Kind" @onchange="ChangeKind">
+            @foreach ((string k, string label) in Kinds)
+            {
+                <option value="@k">@label</option>
+            }
+        </select>
+        <div class="ds-actioncard__headactions">
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Move.InvokeAsync(-1)" title="Move up">↑</button>
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Move.InvokeAsync(1)" title="Move down">↓</button>
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Remove.InvokeAsync()" title="Remove">✕</button>
+        </div>
+    </div>
+
+    @switch (Action)
+    {
+        case SendEmailAction e:
+            <div class="ds-form__row">
+                <FormField Label="SMTP host" FieldId="@($"{Action.Id}-h")"><input class="ds-input ds-input--sm" @bind="e.Host" /></FormField>
+                <FormField Label="Port" FieldId="@($"{Action.Id}-p")"><input class="ds-input ds-input--sm" type="number" @bind="e.Port" /></FormField>
+                <FormField Label="TLS" FieldId="@($"{Action.Id}-t")"><label><input type="checkbox" @bind="e.UseTls" /> STARTTLS</label></FormField>
+            </div>
+            <div class="ds-form__row">
+                <FormField Label="From" FieldId="@($"{Action.Id}-f")"><input class="ds-input ds-input--sm" @bind="e.From" /></FormField>
+                <FormField Label="To (comma-separated)" FieldId="@($"{Action.Id}-to")"><input class="ds-input ds-input--sm" value="@string.Join(", ", e.To)" @onchange="ev => e.To = Split(ev.Value)" /></FormField>
+                <FormField Label="Username (blank = anon)" FieldId="@($"{Action.Id}-u")"><input class="ds-input ds-input--sm" @bind="e.Username" /></FormField>
+            </div>
+            <FormField Label="Password secret name" FieldId="@($"{Action.Id}-s")" Help="The name of a secret in Settings → Secrets. The value is never stored on the rule.">
+                <input class="ds-input ds-input--sm" @bind="Action.SecretName" />
+            </FormField>
+            <FormField Label="Subject (supports {field})" FieldId="@($"{Action.Id}-sub")"><input class="ds-input" @bind="e.Subject" /></FormField>
+            <FormField Label="Body (supports {field})" FieldId="@($"{Action.Id}-b")"><textarea class="ds-textarea" rows="3" @bind="e.Body"></textarea></FormField>
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Test.InvokeAsync(Action)">Send a test email</button>
+            break;
+
+        case HttpWebhookAction w:
+            <FormField Label="URL (https/http)" FieldId="@($"{Action.Id}-url")"><input class="ds-input" @bind="w.Url" /></FormField>
+            <div class="ds-form__row">
+                <FormField Label="Method" FieldId="@($"{Action.Id}-m")">
+                    <select class="ds-input ds-input--sm" @bind="w.Method"><option>POST</option><option>PUT</option><option>PATCH</option></select>
+                </FormField>
+                <FormField Label="Timeout (s)" FieldId="@($"{Action.Id}-to")"><input class="ds-input ds-input--sm" type="number" @bind="w.TimeoutSeconds" /></FormField>
+                <FormField Label="Retries" FieldId="@($"{Action.Id}-r")"><input class="ds-input ds-input--sm" type="number" @bind="w.MaxRetries" /></FormField>
+            </div>
+            <FormField Label="JSON body (supports {field}, use {{ }} for literal braces)" FieldId="@($"{Action.Id}-jb")">
+                <textarea class="ds-textarea ds-input--mono" rows="3" @bind="w.BodyTemplate"></textarea>
+            </FormField>
+            <label class="ds-actioncard__checkbox"><input type="checkbox" @bind="w.AllowPrivateNetwork" /> Allow a private / internal target (requires an admin-configured allow-list)</label>
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => Test.InvokeAsync(Action)">Send a test request</button>
+            break;
+
+        case RaiseNotificationAction n:
+            <div class="ds-form__row">
+                <FormField Label="Level" FieldId="@($"{Action.Id}-l")">
+                    <select class="ds-input ds-input--sm" @bind="n.Level">
+                        @foreach (NotificationLevel l in Enum.GetValues<NotificationLevel>()) { <option value="@l">@l</option> }
+                    </select>
+                </FormField>
+                <FormField Label="Title (supports {field})" FieldId="@($"{Action.Id}-t")"><input class="ds-input" @bind="n.Title" /></FormField>
+            </div>
+            <FormField Label="Body (supports {field})" FieldId="@($"{Action.Id}-b")"><textarea class="ds-textarea" rows="2" @bind="n.Body"></textarea></FormField>
+            break;
+
+        case AddTagAction tag:
+            <FormField Label="Tag value (supports {field})" FieldId="@($"{Action.Id}-v")"><input class="ds-input ds-input--sm" @bind="tag.Tag" /></FormField>
+            break;
+
+        case RouteToStreamAction route:
+            <FormField Label="Stream id" FieldId="@($"{Action.Id}-sid")"><input class="ds-input ds-input--sm" type="number" @bind="route.StreamId" /></FormField>
+            break;
+
+        case ForwardSyslogAction fwd:
+            <div class="ds-form__row">
+                <FormField Label="Host" FieldId="@($"{Action.Id}-h")"><input class="ds-input ds-input--sm" @bind="fwd.Host" /></FormField>
+                <FormField Label="Port" FieldId="@($"{Action.Id}-p")"><input class="ds-input ds-input--sm" type="number" @bind="fwd.Port" /></FormField>
+                <FormField Label="Transport" FieldId="@($"{Action.Id}-tr")">
+                    <select class="ds-input ds-input--sm" @bind="fwd.Transport">
+                        @foreach (ForwardTransport tp in Enum.GetValues<ForwardTransport>()) { <option value="@tp">@tp</option> }
+                    </select>
+                </FormField>
+            </div>
+            <FormField Label="Reformat template (blank = forward raw)" FieldId="@($"{Action.Id}-tmpl")"><input class="ds-input" @bind="fwd.Template" /></FormField>
+            break;
+
+        case SuppressAction:
+            <p class="ds-muted">Stops evaluating any further rules for this message. The message is still stored.</p>
+            break;
+
+        default:
+            <FormField Label="Action parameters (JSON)" FieldId="@($"{Action.Id}-json")" Help="This action type is edited as JSON. Save validates it.">
+                <textarea class="ds-textarea ds-input--mono" rows="6" value="@_json" @onchange="ApplyJson"></textarea>
+            </FormField>
+            @if (_jsonError is not null)
+            {
+                <p class="ds-form__errors" role="alert">@_jsonError</p>
+            }
+            break;
+    }
+
+    <div class="ds-form__row ds-actioncard__throttle">
+        <FormField Label="Max / window" FieldId="@($"{Action.Id}-tm")"><input class="ds-input ds-input--sm" type="number" value="@Action.Throttle.MaxPerWindow" @onchange="v => SetThrottle(max: v.Value)" /></FormField>
+        <FormField Label="Window (s)" FieldId="@($"{Action.Id}-tw")"><input class="ds-input ds-input--sm" type="number" value="@Action.Throttle.WindowSeconds" @onchange="v => SetThrottle(window: v.Value)" /></FormField>
+        <FormField Label="Cool-down (s)" FieldId="@($"{Action.Id}-tc")"><input class="ds-input ds-input--sm" type="number" value="@Action.Throttle.CooldownSeconds" @onchange="v => SetThrottle(cool: v.Value)" /></FormField>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RuleAction Action { get; set; } = default!;
+    [Parameter] public EventCallback Remove { get; set; }
+    [Parameter] public EventCallback<int> Move { get; set; }
+    [Parameter] public EventCallback<RuleAction> Test { get; set; }
+    [Parameter] public EventCallback<RuleAction> KindChanged { get; set; }
+
+    private string _json = string.Empty;
+    private string? _jsonError;
+
+    private static readonly (string, string)[] Kinds =
+    [
+        ("email", "Send email"), ("webhook", "HTTP webhook"), ("notify", "Raise notification"),
+        ("tag", "Add tag"), ("route", "Route to stream"), ("suppress", "Suppress further rules"),
+        ("forward", "Forward syslog"), ("script", "Run script"), ("file", "Write to file"), ("odbc", "Write to ODBC"),
+    ];
+
+    private string Kind => RuleActionInfo.Kind(Action);
+
+    protected override void OnParametersSet() => _json = RuleJson.SerializeAction(Action);
+
+    private static List<string> Split(object? value) =>
+        (value?.ToString() ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private void SetThrottle(object? max = null, object? window = null, object? cool = null)
+    {
+        int m = max is null ? Action.Throttle.MaxPerWindow : ParseInt(max);
+        int w = window is null ? Action.Throttle.WindowSeconds : ParseInt(window);
+        int c = cool is null ? Action.Throttle.CooldownSeconds : ParseInt(cool);
+        Action.Throttle = new ActionThrottle(m, w, c);
+    }
+
+    private static int ParseInt(object? v) => int.TryParse(v?.ToString(), out int n) && n >= 0 ? n : 0;
+
+    private void ApplyJson(ChangeEventArgs e)
+    {
+        _jsonError = null;
+        RuleAction? parsed = RuleJson.DeserializeAction(e.Value?.ToString());
+        if (parsed is null || RuleActionInfo.Kind(parsed) != Kind)
+        {
+            _jsonError = "That is not valid JSON for this action kind.";
+            return;
+        }
+
+        Action = parsed;
+        KindChanged.InvokeAsync(parsed);
+    }
+
+    private async Task ChangeKind(ChangeEventArgs e)
+    {
+        RuleAction next = (e.Value?.ToString()) switch
+        {
+            "email" => new SendEmailAction(),
+            "webhook" => new HttpWebhookAction(),
+            "notify" => new RaiseNotificationAction { Title = "Rule fired" },
+            "tag" => new AddTagAction { Tag = "tag" },
+            "route" => new RouteToStreamAction(),
+            "suppress" => new SuppressAction(),
+            "forward" => new ForwardSyslogAction(),
+            "script" => new RunScriptAction(),
+            "file" => new WriteToFileAction { FileName = "rule-output.log", LineTemplate = "{received} {hostname} {message}" },
+            "odbc" => new WriteToOdbcAction(),
+            _ => Action,
+        };
+        await KindChanged.InvokeAsync(next);
+    }
+}

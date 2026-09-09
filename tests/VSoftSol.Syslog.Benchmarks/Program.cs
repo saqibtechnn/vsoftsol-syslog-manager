@@ -41,10 +41,20 @@ if (args.Contains("--ingest-probe"))
         IngestProbe.FrameCountOverride = int.Parse(args[fi + 1], System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    Console.Error.WriteLine($"[probe] start vendor={vendor} seq={seq} streams={streamCount}");
-    await IngestProbe.RunAsync(warmup: true, vendorExtraction: vendor, sequential: seq, streamCount: streamCount);
+    // `--rules N` (default 0): seed N active rules and run the real Phase 7 rule engine on
+    // every message (evaluation + outbox enqueue, but not action execution — that is off the
+    // ingest thread by design; RuleIngestIsolationTests proves it).
+    int ruleCount = 0;
+    int ri = Array.IndexOf(args, "--rules");
+    if (ri >= 0 && ri + 1 < args.Length)
+    {
+        ruleCount = int.Parse(args[ri + 1], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    Console.Error.WriteLine($"[probe] start vendor={vendor} seq={seq} streams={streamCount} rules={ruleCount}");
+    await IngestProbe.RunAsync(warmup: true, vendorExtraction: vendor, sequential: seq, streamCount: streamCount, ruleCount: ruleCount);
     Console.Error.WriteLine("[probe] warmup done");
-    await IngestProbe.RunAsync(warmup: false, vendorExtraction: vendor, sequential: seq, streamCount: streamCount);
+    await IngestProbe.RunAsync(warmup: false, vendorExtraction: vendor, sequential: seq, streamCount: streamCount, ruleCount: ruleCount);
     Console.Error.WriteLine("[probe] measure done");
     return;
 }
@@ -57,7 +67,8 @@ internal static class IngestProbe
 
     private static int FrameCount => FrameCountOverride > 0 ? FrameCountOverride : 200_000;
 
-    public static async Task RunAsync(bool warmup, bool vendorExtraction, bool sequential = false, int streamCount = 0)
+    public static async Task RunAsync(
+        bool warmup, bool vendorExtraction, bool sequential = false, int streamCount = 0, int ruleCount = 0)
     {
         string dir = Path.Combine(Path.GetTempPath(), "vsoftsol-ingestprobe-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -104,6 +115,15 @@ internal static class IngestProbe
                 new StreamDefinition(r.StreamId, r.Name, r.Enabled, r.IsCatchAll, r.Match)));
             Console.Error.WriteLine($"[probe] router: {router.StreamCount} streams, {router.CompileErrors.Count} compile errors");
             enricher = (parsed, _) => ValueTask.FromResult(parsed.WithRouting(null, router.Route(parsed)));
+        }
+
+        if (ruleCount > 0)
+        {
+            EventEnricher ruleEnricher = await BuildRuleEnricherAsync(factory, ruleCount);
+            EventEnricher? prior = enricher;
+            enricher = prior is null
+                ? ruleEnricher
+                : async (parsed, ct) => await ruleEnricher(await prior(parsed, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         }
 
         var pipeline = new IngestionPipeline(channel, spill, repo, parser, dedup, stats, io, NullLogger<IngestionPipeline>.Instance, enricher);
@@ -170,6 +190,64 @@ internal static class IngestProbe
     /// <paramref name="extra"/> synthetic operator streams (OR-of-substrings, like the ones
     /// an operator adds on top of the seven seeded defaults). Negative or zero yields none.
     /// </summary>
+    /// <summary>
+    /// Seeds <paramref name="ruleCount"/> active rules (OR-of-substrings filters + a notify
+    /// action) and returns an enricher that runs the real Phase 7 rule engine — matching +
+    /// throttle + outbox enqueue — on every message, exactly as the collector host does.
+    /// </summary>
+    private static async Task<EventEnricher> BuildRuleEnricherAsync(SqliteConnectionFactory factory, int ruleCount)
+    {
+        var store = new VSoftSol.Syslog.Data.Rules.SqliteRuleStore(factory);
+        string[] needles = ["error", "warning", "critical", "denied", "failure", "down", "restart", "timeout", "expired", "reject"];
+        for (int i = 0; i < ruleCount; i++)
+        {
+            var filter = new ConditionGroup
+            {
+                Join = ConditionJoin.Or,
+                Children =
+                {
+                    new ConditionComparison { Field = "message", Operator = ConditionOperator.Contains, Value = needles[i % needles.Length] },
+                    new ConditionComparison { Field = "message", Operator = ConditionOperator.Contains, Value = needles[(i + 3) % needles.Length] },
+                    new ConditionComparison { Field = "severity", Operator = ConditionOperator.LessThan, Value = "3" },
+                },
+            };
+            await store.CreateAsync(new VSoftSol.Syslog.Core.Rules.RuleDefinition
+            {
+                Name = $"bench rule {i}",
+                Priority = i,
+                Filter = filter,
+                Actions = [new VSoftSol.Syslog.Core.Rules.RaiseNotificationAction { Title = "hit on {hostname}" }],
+            }, "benchmark", CancellationToken.None);
+        }
+
+        var provider = new VSoftSol.Syslog.Service.Hosting.RuleSetProvider(store, NullLogger<VSoftSol.Syslog.Service.Hosting.RuleSetProvider>.Instance);
+        var runtime = new VSoftSol.Syslog.Rules.Rules.RuleRuntime(TimeProvider.System, new VSoftSol.Syslog.Rules.Rules.RuleRuntimeOptions());
+        VSoftSol.Syslog.Rules.Rules.RuleSet set = await provider.GetAsync(CancellationToken.None);
+        Console.Error.WriteLine($"[probe] rules: {set.RuleCount} active, {set.CompileErrors.Count} compile errors");
+
+        return (parsed, _) =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            IReadOnlyList<VSoftSol.Syslog.Rules.Rules.CompiledRule> matched = set.Match(parsed, [], now);
+            if (matched.Count == 0)
+            {
+                return ValueTask.FromResult(parsed);
+            }
+
+            VSoftSol.Syslog.Rules.Rules.RuleOutcome outcome = runtime.Apply(matched, parsed);
+            if (!outcome.HasWork)
+            {
+                return ValueTask.FromResult(parsed);
+            }
+
+            var pending = outcome.Dispatches.Select(d => new VSoftSol.Syslog.Core.Rules.PendingRuleAction(
+                d.RuleId, d.RuleName, d.ActionIndex,
+                VSoftSol.Syslog.Core.Rules.RuleActionInfo.Kind(d.Action),
+                VSoftSol.Syslog.Data.Rules.RuleJson.SerializeAction(d.Action), d.WasEscalation)).ToList();
+            return ValueTask.FromResult(parsed.WithRuleOutcome(outcome.Tags, outcome.ExtraStreamIds, pending));
+        };
+    }
+
     private static IEnumerable<(string Name, ConditionGroup Match)> SyntheticStreams(int extra)
     {
         string[] needles = ["error", "warning", "critical", "notice", "restart", "timeout", "expired", "reject", "drop", "block", "alloc", "quota"];

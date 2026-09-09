@@ -23,6 +23,7 @@ public sealed class DeviceResolver
     private readonly ILogger<DeviceResolver> _logger;
 
     private readonly ConcurrentDictionary<string, long?> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<long, IReadOnlyList<long>> _groupCache = new();
     private DiscoverySettings _settings = new();
     private DateTimeOffset _settingsExpiry;
     private DateTimeOffset _discoveryPausedUntil;
@@ -77,10 +78,28 @@ public sealed class DeviceResolver
         return registration.DeviceId;
     }
 
+    /// <summary>
+    /// The device-group ids a device belongs to, cached (PHASE_07 — a rule can be restricted
+    /// to device groups; this keeps that check off a per-message DB read). Cleared by
+    /// <see cref="Invalidate"/> on any device / group edit.
+    /// </summary>
+    public async ValueTask<IReadOnlyList<long>> ResolveGroupsAsync(long deviceId, CancellationToken cancellationToken)
+    {
+        if (_groupCache.TryGetValue(deviceId, out IReadOnlyList<long>? cached))
+        {
+            return cached;
+        }
+
+        IReadOnlyList<long> groups = await _devices.GetGroupIdsAsync(deviceId, cancellationToken).ConfigureAwait(false);
+        _groupCache[deviceId] = groups;
+        return groups;
+    }
+
     /// <summary>Drop the cache after a device / discovery-settings change so new mappings take effect.</summary>
     public void Invalidate()
     {
         _cache.Clear();
+        _groupCache.Clear();
         _settingsExpiry = default;
         _discoveryPausedUntil = default;
     }

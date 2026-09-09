@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fixture executable for the Phase 7 RunScript sandbox tests. Echoes its argument
+       vector and (optionally) an environment variable to stdout, then exits with a code
+       taken from an argument. Not shipped, not a test project. Tests copy the built exe
+       into a temp allow-list directory. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <Nullable>disable</Nullable>
+    <AssemblyName>action-probe</AssemblyName>
+  </PropertyGroup>
+
+</Project>

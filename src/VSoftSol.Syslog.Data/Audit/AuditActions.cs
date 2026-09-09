@@ -35,4 +35,18 @@ public static class AuditActions
     public const string StreamCreate = "stream.create";
     public const string StreamUpdate = "stream.update";
     public const string StreamDelete = "stream.delete";
+
+    public const string RuleCreate = "rule.create";
+    public const string RuleUpdate = "rule.update";
+    public const string RuleDelete = "rule.delete";
+    public const string RuleEnable = "rule.enable";
+    public const string RuleDisable = "rule.disable";
+
+    public const string ActionFired = "action.fired";
+    public const string ActionFailed = "action.failed";
+    public const string ActionDeadLettered = "action.deadlettered";
+    public const string ActionRefused = "action.refused";
+    public const string ActionTested = "action.tested";
+
+    public const string NotificationRaised = "notification.raised";
 }

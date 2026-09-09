@@ -28,6 +28,8 @@
                       ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="..\..\tests\VSoftSol.Syslog.IngestionProbe\VSoftSol.Syslog.IngestionProbe.csproj"
                       ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="..\..\tests\VSoftSol.Syslog.ActionProbe\VSoftSol.Syslog.ActionProbe.csproj"
+                      ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

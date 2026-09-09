@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Data\VSoftSol.Syslog.Data.csproj" />
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Ingestion\VSoftSol.Syslog.Ingestion.csproj" />
     <ProjectReference Include="..\..\src\VSoftSol.Syslog.Rules\VSoftSol.Syslog.Rules.csproj" />
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj" />
   </ItemGroup>
 
 </Project>

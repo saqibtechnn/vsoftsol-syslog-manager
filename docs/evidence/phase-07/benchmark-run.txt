@@ -1,0 +1,26 @@
+[probe] start vendor=False seq=False streams=0 rules=50
+[probe] rules: 50 active, 0 compile errors
+warmup  vendor=False streams=0 : 40000 frames, 40000 rows, 5.93s => 6,750 msg/sec
+[probe] warmup done
+[probe] rules: 50 active, 0 compile errors
+MEASURE vendor=False streams=0 : 40000 frames, 40000 rows, 4.24s => 9,433 msg/sec
+[probe] measure done
+SEP
+[probe] start vendor=False seq=False streams=0 rules=0
+warmup  vendor=False streams=0 : 40000 frames, 40000 rows, 2.55s => 15,684 msg/sec
+[probe] warmup done
+MEASURE vendor=False streams=0 : 40000 frames, 40000 rows, 2.27s => 17,608 msg/sec
+[probe] measure done
+[probe] start vendor=True seq=False streams=0 rules=50
+[probe] rules: 50 active, 0 compile errors
+warmup  vendor=True streams=0 : 200000 frames, 200000 rows, 61.09s => 3,274 msg/sec
+[probe] warmup done
+[probe] rules: 50 active, 0 compile errors
+MEASURE vendor=True streams=0 : 200000 frames, 200000 rows, 55.46s => 3,606 msg/sec
+[probe] measure done
+SEP
+[probe] start vendor=True seq=False streams=0 rules=0
+warmup  vendor=True streams=0 : 200000 frames, 200000 rows, 45.72s => 4,375 msg/sec
+[probe] warmup done
+MEASURE vendor=True streams=0 : 200000 frames, 200000 rows, 43.60s => 4,587 msg/sec
+[probe] measure done

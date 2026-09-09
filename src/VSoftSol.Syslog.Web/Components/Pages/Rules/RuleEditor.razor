@@ -1,0 +1,270 @@
+@page "/rules/{RuleId:long}"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using System.Text
+@using VSoftSol.Syslog.Core.Conditions
+@using VSoftSol.Syslog.Core.Enums
+@using VSoftSol.Syslog.Core.Events
+@using VSoftSol.Syslog.Core.Rules
+@using VSoftSol.Syslog.Web.Rules
+@using VSoftSol.Syslog.Web.Streams
+@inject RuleAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>@(RuleId == 0 ? "New rule" : _model.Name) — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-ruleeditor">
+    <header class="ds-page__header">
+        <h1>@(RuleId == 0 ? "New rule" : "Edit rule")</h1>
+        <a class="ds-button ds-button--ghost" href="/rules">Back to rules</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="8" />
+    }
+    else if (_notFound)
+    {
+        <EmptyState Title="Rule not found" Explanation="It may have been deleted." Icon="⚙" />
+    }
+    else
+    {
+        <section class="ds-form__section">
+            <div class="ds-form__row">
+                <FormField Label="Name" FieldId="r-name" Required="true"><input id="r-name" class="ds-input" @bind="_model.Name" disabled="@_model.IsSystem" /></FormField>
+                <FormField Label="Priority" FieldId="r-prio" Help="Lower runs first."><input id="r-prio" class="ds-input ds-input--sm" type="number" @bind="_model.Priority" /></FormField>
+                <FormField Label="Enabled" FieldId="r-en"><label><input id="r-en" type="checkbox" @bind="_model.Enabled" /> Evaluate this rule</label></FormField>
+            </div>
+            <FormField Label="Description" FieldId="r-desc"><input id="r-desc" class="ds-input" @bind="_model.Description" /></FormField>
+        </section>
+
+        <section class="ds-form__section">
+            <h2>When a message matches…</h2>
+            <p class="ds-muted">Leave empty to match every message.</p>
+            <ConditionBuilder Group="_filter" Fields="ConditionFieldCatalog.Fields" GroupChanged="StateChanged" />
+        </section>
+
+        <section class="ds-form__section">
+            <h2>…run these actions, in order</h2>
+            @for (int i = 0; i < _model.Actions.Count; i++)
+            {
+                int index = i;
+                <RuleActionEditor Action="_model.Actions[index]"
+                                  Remove="() => RemoveAction(index)"
+                                  Move="d => MoveAction(index, d)"
+                                  Test="TestActionAsync"
+                                  KindChanged="a => ReplaceAction(index, a)" />
+            }
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="AddAction">+ Add action</button>
+        </section>
+
+        <details class="ds-form__advanced">
+            <summary>Time window, device groups, escalation (optional)</summary>
+            <div class="ds-form__row">
+                <FormField Label="Active from" FieldId="r-wf"><input class="ds-input ds-input--sm" type="time" @bind="_windowFrom" /></FormField>
+                <FormField Label="Active until" FieldId="r-wt"><input class="ds-input ds-input--sm" type="time" @bind="_windowTo" /></FormField>
+            </div>
+            <FormField Label="Only for device groups (comma-separated ids, blank = all)" FieldId="r-g">
+                <input class="ds-input" value="@string.Join(", ", _model.DeviceGroupIds)" @onchange="e => _model.DeviceGroupIds = ParseIds(e.Value)" />
+            </FormField>
+            <label class="ds-actioncard__checkbox"><input type="checkbox" checked="@(_model.Escalation is not null)" @onchange="ToggleEscalation" /> Escalate when this rule fires repeatedly</label>
+            @if (_model.Escalation is { } esc)
+            {
+                <div class="ds-form__row">
+                    <FormField Label="After N fires" FieldId="r-et"><input class="ds-input ds-input--sm" type="number" @bind="esc.Threshold" /></FormField>
+                    <FormField Label="Within (seconds)" FieldId="r-ew"><input class="ds-input ds-input--sm" type="number" @bind="esc.WindowSeconds" /></FormField>
+                </div>
+                <p class="ds-muted">Escalation actions are edited as JSON for now:</p>
+                <textarea class="ds-textarea ds-input--mono" rows="4" value="@_escalationJson" @onchange="ApplyEscalationJson"></textarea>
+            }
+        </details>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="ds-form__errors" role="alert">@foreach (string e in _errors) { <li>@e</li> }</ul>
+        }
+
+        <div class="ds-form__actions">
+            <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync">Save rule</button>
+            <button type="button" class="ds-button ds-button--ghost" @onclick="DryRunAsync">Test the whole rule against a sample</button>
+        </div>
+
+        @if (_dryRun is not null)
+        {
+            <div class="ds-dryrun-result" role="status">
+                <strong>@(_dryRun.Value.Matched ? "Would fire" : "Would not fire")</strong> for a sample "@_sampleMessage" —
+                @(_dryRun.Value.Matched ? string.Join(", ", _dryRun.Value.Would) : _dryRun.Value.Reason). Nothing was sent.
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public long RuleId { get; set; }
+
+    private bool _loading = true;
+    private bool _notFound;
+    private RuleDefinition _model = new() { Name = string.Empty };
+    private ConditionGroup _filter = new();
+    private TimeOnly? _windowFrom;
+    private TimeOnly? _windowTo;
+    private string _escalationJson = "[]";
+    private IReadOnlyList<string> _errors = [];
+    private (bool Matched, IReadOnlyList<string> Would, string Reason)? _dryRun;
+    private const string _sampleMessage = "critical: power supply failure";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _notFound = false;
+        _dryRun = null;
+
+        if (RuleId == 0)
+        {
+            _model = new RuleDefinition { Name = string.Empty, Priority = 100, Actions = [new RaiseNotificationAction { Title = "Rule fired" }] };
+            _filter = new ConditionGroup();
+        }
+        else
+        {
+            var row = await Admin.GetAsync(RuleId, CancellationToken.None);
+            if (row is null)
+            {
+                _notFound = true;
+                _loading = false;
+                return;
+            }
+
+            _model = row.ToDefinition();
+            _filter = _model.Filter as ConditionGroup ?? new ConditionGroup();
+            _windowFrom = _model.Window is { } w ? new TimeOnly(w.StartMinute / 60, w.StartMinute % 60) : null;
+            _windowTo = _model.Window is { } w2 ? new TimeOnly(w2.EndMinute / 60, w2.EndMinute % 60) : null;
+            _escalationJson = _model.Escalation is { } e ? VSoftSol.Syslog.Data.Rules.RuleJson.SerializeActions(e.EscalationActions) : "[]";
+        }
+
+        _loading = false;
+    }
+
+    private void StateChanged() => StateHasChanged();
+
+    private void AddAction() => _model.Actions.Add(new RaiseNotificationAction { Title = "Rule fired" });
+
+    private void RemoveAction(int index) => _model.Actions.RemoveAt(index);
+
+    private void ReplaceAction(int index, RuleAction action) => _model.Actions[index] = action;
+
+    private void MoveAction(int index, int delta)
+    {
+        int target = index + delta;
+        if (target < 0 || target >= _model.Actions.Count)
+        {
+            return;
+        }
+
+        (_model.Actions[index], _model.Actions[target]) = (_model.Actions[target], _model.Actions[index]);
+    }
+
+    private void ToggleEscalation(ChangeEventArgs e)
+    {
+        _model.Escalation = (bool)e.Value! ? new EscalationPolicy { EscalationActions = [new RaiseNotificationAction { Level = NotificationLevel.Critical, Title = "Escalated: {hostname}" }] } : null;
+        _escalationJson = _model.Escalation is { } esc ? VSoftSol.Syslog.Data.Rules.RuleJson.SerializeActions(esc.EscalationActions) : "[]";
+    }
+
+    private void ApplyEscalationJson(ChangeEventArgs e)
+    {
+        if (_model.Escalation is null)
+        {
+            return;
+        }
+
+        _model.Escalation.EscalationActions = VSoftSol.Syslog.Data.Rules.RuleJson.DeserializeActions(e.Value?.ToString());
+    }
+
+    private static List<long> ParseIds(object? value) =>
+        (value?.ToString() ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => long.TryParse(s, out long id) ? id : 0)
+            .Where(id => id > 0)
+            .ToList();
+
+    private void ApplyFilterAndWindow()
+    {
+        _model.Filter = _filter.Children.Count > 0 ? _filter : null;
+        _model.Window = TryWindow();
+    }
+
+    private TimeOfDayWindow? TryWindow()
+    {
+        if (_windowFrom is not { } from || _windowTo is not { } to)
+        {
+            return null;
+        }
+
+        return new TimeOfDayWindow((from.Hour * 60) + from.Minute, (to.Hour * 60) + to.Minute, []);
+    }
+
+    private async Task SaveAsync()
+    {
+        ApplyFilterAndWindow();
+        RuleActionResult result = await Admin.SaveAsync(_model, CancellationToken.None);
+        if (result.Ok)
+        {
+            Toast.Success(result.Message);
+            Nav.NavigateTo("/rules");
+        }
+        else
+        {
+            _errors = result.Errors.Count > 0 ? result.Errors : [result.Message];
+        }
+    }
+
+    private async Task DryRunAsync()
+    {
+        ApplyFilterAndWindow();
+        var sample = new SyslogEvent
+        {
+            ReceivedUtc = DateTimeOffset.UtcNow,
+            SourceIp = "203.0.113.5",
+            Hostname = "core-sw-1",
+            Severity = Severity.Critical,
+            Facility = Facility.Local0,
+            Protocol = Protocol.Udp,
+            Message = _sampleMessage,
+            RawMessage = Encoding.UTF8.GetBytes(_sampleMessage),
+            ParseStatus = ParseStatus.Rfc3164,
+        };
+
+        // Save a transient copy is not needed — dry-run compiles the in-memory model directly.
+        RuleActionResult compileCheck = await Admin.SaveAsync(_model, CancellationToken.None);
+        if (!compileCheck.Ok)
+        {
+            _errors = compileCheck.Errors.Count > 0 ? compileCheck.Errors : [compileCheck.Message];
+            return;
+        }
+
+        IReadOnlyList<RuleDryRun> results = await Admin.DryRunAsync(sample, CancellationToken.None);
+        RuleDryRun? mine = results.FirstOrDefault(r => r.RuleName == _model.Name);
+        _dryRun = mine is { } m ? (m.Matched, m.WouldRun, m.Reason) : (false, [], "not evaluated");
+        _errors = [];
+        Toast.Info("Saved and dry-run complete — nothing was sent.");
+    }
+
+    private async Task TestActionAsync(RuleAction action)
+    {
+        var sample = new SyslogEvent
+        {
+            ReceivedUtc = DateTimeOffset.UtcNow,
+            SourceIp = "203.0.113.5",
+            Hostname = "core-sw-1",
+            Severity = Severity.Critical,
+            Facility = Facility.Local0,
+            Protocol = Protocol.Udp,
+            Message = _sampleMessage,
+            RawMessage = Encoding.UTF8.GetBytes(_sampleMessage),
+            ParseStatus = ParseStatus.Rfc3164,
+        };
+
+        RuleActionResult result = await Admin.TestActionAsync(action, sample, reallyExecute: true, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+    }
+}

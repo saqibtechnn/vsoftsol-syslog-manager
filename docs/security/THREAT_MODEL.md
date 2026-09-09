@@ -4,6 +4,11 @@ Phase 0 deliverable (SECURITY_STANDARDS.md §3). STRIDE per trust boundary. Revi
 updated at Phases 4, 7, and 11.
 
 **Review log:** Phase 0 — initial. Phase 4 — review #1 (B2 re-assessed, B3 hash chain).
+**Phase 7 — review #2 done** — B4 egress boundary fully re-drawn now the rule actions exist
+(SSRF, command injection, path traversal, SMTP-header injection, template injection, secret
+leakage on failure, forward-loop amplification, action idempotency); all B4 rows moved from
+*planned* to *implemented* with named tests. Phase 6 — B1 discovery-flood + B2 ReDoS-in-rules
+row updates (no scheduled review).
 **Phase 5 — review #2 done** (B2 stored-XSS row moved to **implemented** for the search
 render surfaces; new B2 rows for the query language and export added). **Phase 4 — review #1 done** (B2 re-assessed end to
 end now the UI/auth exist; B3 audit-tamper row updated for the hash chain; no boundary
@@ -112,15 +117,26 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 
 ## B4 — Application → outbound actions
 
-**Assets:** internal network reachability; the service account; target systems.
+**Assets:** internal network reachability; the service account; target systems; secrets.
+**Entry points:** the Phase 7 rule action list — `SendEmail`, `HttpWebhook`, `RunScript`,
+`ForwardSyslog`, `WriteToFile`, `WriteToOdbc`, `RaiseNotification` (`AddTag` / `RouteToStream`
+/ `Suppress` are inline, no egress).
+
+> **Threat-model review #2 (Phase 7).** The egress boundary is now real. Every row below is
+> re-assessed against the shipped executors and their guards; the matrix and the tests are
+> in `docs/evidence/phase-07/security/README.md`.
 
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
-| S | Spoof a notification's origin | Signed/authenticated SMTP and webhook config; branding footer from `BrandingInfo` | 7 | planned |
-| T | Path traversal via hostname/app-name reaching a file-write action or archive name | Allow-list of destination directories; sanitise path components to a safe charset; never interpolate raw fields into paths | 7, 10 | planned |
-| I | SSRF via webhook action hitting cloud metadata / internal ranges | Scheme allow-list (https only by default); block link-local, loopback, and private ranges unless explicitly permitted; no redirects to disallowed hosts; DNS-rebinding guard | 7 | planned |
-| D | A rule action fan-out (thousands of matches) hammers a target or the host | Per-rule rate limits and a global action budget; actions run off the accept path | 7 | planned |
-| E | Command injection via script action with attacker-controlled fields | Allow-list of script paths; pass fields as arguments/stdin, never build a shell string; run as the low-privilege account; `CA3006`/`SCS0001` as build errors (Phase 0) | 7 | implemented (gate) |
+| S | SMTP header injection — CR/LF in a templated subject / address adds a header or a Bcc recipient | `FieldTemplate` strips control chars from substituted values; `EmailExecutor` additionally truncates the subject and every address at the first CR/LF; recipients are rule config, never templated | 7 | **implemented** — `ActionExecutorTests.Email_SubjectCrLfInjection…` |
+| T | Path traversal via `{hostname}` / `{app}` reaching a file-write outside its directory | `SafeFilePath.Resolve` — reject `..`, UNC, ADS (`name:stream`), reserved device names, absolute paths; the final resolved path must stay under the configured base dir; a substituted value is reduced to `[A-Za-z0-9._-]` with dot-runs collapsed | 7, 10 | **implemented** — `ActionExecutorTests.File_PathTraversalAndTricks_AreRefused` (`../`, `..\`, absolute, UNC, ADS, `CON`) + `File_HostnameWithSeparators_IsSanitised` |
+| I | SSRF via the webhook action reaching cloud metadata (`169.254.169.254`) / loopback / RFC1918 / CGNAT / IPv6 ULA | `PrivateNetworkGuard` — scheme allow-list `{https,http}`; resolve the host and reject **every** resolved blocked address **before** the request; `AllowAutoRedirect = false` (a 3xx is a permanent failure); per-request timeout; bounded response read. An internal target needs both a per-action opt-in flag **and** an admin-configured CIDR allow-list. DNS-rebind covered — every resolved IP is checked | 7 | **implemented** — `WebhookSsrfTests` (13 cases) + `ActionExecutorTests.Webhook_Redirect_IsRefused` |
+| I | Secret leakage — a credential appears in an audit detail, a UI error, a log, or a config export | The model stores only a secret **name**; the value is resolved at execute time, held in a local, and never placed in the outbox payload, `ActionResult.Detail` (audited), a notification, or an export. `PWD=` is appended to an ODBC connection string only in-memory | 7 | **implemented** — `ActionSecretLeakageTests` (email auth-fail, ODBC connect-fail with PWD appended, missing secret) — zero hits |
+| D | A rule fan-out (thousands of matches) hammers a target or the host; a slow action stalls ingestion | Per-action token-bucket rate limit + cool-down; a global per-minute outbound budget that collapses the excess into one summary notification; **all actions run off the ingest thread** via a persisted outbox drained by `ActionDispatchService` | 7 | **implemented** — `RuleRuntimeTests` (exact rate-limit counts, storm collapse) + `RuleIngestIsolationTests` (2,000 msgs / 0.2 s with a blocking action) |
+| D | `ForwardSyslog` pointed at the collector's own listener — an amplification loop | The target `host:port` is compared against the collector's bound listener endpoints (injected from `IngestionOptions`); a match is refused at save time **and** at execute time; a literal loopback address on any local port is caught | 7 | **implemented** — `RuleCompilerTests.Compile_ForwardToOwnListener…` + `ActionExecutorTests.Forward_ToOwnListener_IsRefusedAsALoop_NeverSent` |
+| E | Command injection via the script action with attacker-controlled fields | `ProcessStartInfo.ArgumentList` (argument vector, `UseShellExecute = false`) — never a command string; `ExecutablePathGuard` — absolute path, no `..`, symlink-resolved (`ResolveLinkTarget`) and re-checked against the allow-list; a minimal scrubbed environment (OS variables only, not the service config); `CA3006` / `SCS0001` as build errors (Phase 0) | 7 | **implemented** — `ScriptSandboxTests` (argv token, allow-list, `..`, symlink target, timeout-kill, no env inheritance) |
+| E | Template injection — a `{token}` executes an expression or reaches outside the event | `FieldTemplate` is a literal single-field lookup against `ConditionFields` (+ a small render-only set) reusing `EventFieldReader`. No expressions, no method calls, no property traversal; unknown token → empty; output capped at 64 KB | 7 | **implemented** — `FieldTemplateTests` |
+| — | Idempotency — a re-evaluated rule after a restart double-fires an action | Actions are written to the `rule_action_queue` outbox **in the event transaction**; a `UNIQUE (rule_id, event_id, action_index)` key makes a re-enqueue a no-op; an un-committed (crash-replayed) event gets a new id and never collides | 7 | **implemented** — `ActionOutboxTests`, `Migration005Tests` |
 
 ---
 
@@ -153,7 +169,7 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 
 | When | Focus |
 |---|---|
-| Phase 4 | Re-draw B2 now that the UI, RBAC, sessions, and audit log exist |
-| Phase 7 | Re-draw B4 now that rule actions (SSRF, command injection, path traversal) exist |
+| Phase 4 | Re-draw B2 now that the UI, RBAC, sessions, and audit log exist — **done** |
+| Phase 7 | Re-draw B4 now that rule actions (SSRF, command injection, path traversal) exist — **done** (2026-09-09) |
 | Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import |
 | Phase 12 | Full pre-release pen test (SECURITY_STANDARDS.md §7) |

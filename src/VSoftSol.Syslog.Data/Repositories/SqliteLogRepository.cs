@@ -100,6 +100,26 @@ public sealed class SqliteLogRepository : ILogRepository
             """;
         SqliteParameter linkEventId = linkParseFailure.Parameters.Add("$event_id", SqliteType.Integer);
 
+        // Rule action outbox (PHASE_07; ADR 0015). The ingest enricher evaluates the rule set
+        // and attaches the matched side-effecting actions to SyslogEvent.PendingActions; the
+        // repository persists them here, in the event's transaction, so a re-evaluated event
+        // cannot double-fire (the UNIQUE (rule_id, event_id, action_index) key). A background
+        // dispatcher executes them off the ingest thread.
+        await using SqliteCommand enqueueAction = connection.CreateCommand();
+        enqueueAction.CommandText = """
+            INSERT OR IGNORE INTO rule_action_queue
+              (rule_id, action_index, event_id, kind, payload_json, was_escalation, next_attempt_utc, created_utc)
+            VALUES ($rule_id, $action_index, $event_id, $kind, $payload, $esc, $now, $now);
+            """;
+        SqliteParameter actionRuleId = enqueueAction.Parameters.Add("$rule_id", SqliteType.Integer);
+        SqliteParameter actionIndex = enqueueAction.Parameters.Add("$action_index", SqliteType.Integer);
+        SqliteParameter actionEventId = enqueueAction.Parameters.Add("$event_id", SqliteType.Integer);
+        SqliteParameter actionKind = enqueueAction.Parameters.Add("$kind", SqliteType.Text);
+        SqliteParameter actionPayload = enqueueAction.Parameters.Add("$payload", SqliteType.Text);
+        SqliteParameter actionEsc = enqueueAction.Parameters.Add("$esc", SqliteType.Integer);
+        SqliteParameter actionNow = enqueueAction.Parameters.Add("$now", SqliteType.Text);
+        string enqueueNow = StorageFormat.Timestamp(DateTimeOffset.UtcNow);
+
         // FTS is NOT written here — SearchIndexMaintainer copies new rows into events_fts
         // in the background. A per-row AFTER INSERT trigger (or an inline per-row FTS
         // insert) is ~10x slower and cannot meet the insert-throughput gate. See ADR 0009.
@@ -115,6 +135,7 @@ public sealed class SqliteLogRepository : ILogRepository
                 lastRowId.Transaction = transaction;
                 linkStream.Transaction = transaction;
                 linkParseFailure.Transaction = transaction;
+                enqueueAction.Transaction = transaction;
 
                 for (int i = 0; i < count; i++)
                 {
@@ -148,6 +169,21 @@ public sealed class SqliteLogRepository : ILogRepository
                     {
                         linkEventId.Value = id;
                         linkParseFailure.ExecuteNonQuery();
+                    }
+
+                    if (evt.PendingActions.Count > 0)
+                    {
+                        actionEventId.Value = id;
+                        actionNow.Value = enqueueNow;
+                        foreach (Core.Rules.PendingRuleAction pending in evt.PendingActions)
+                        {
+                            actionRuleId.Value = pending.RuleId;
+                            actionIndex.Value = pending.ActionIndex;
+                            actionKind.Value = pending.Kind;
+                            actionPayload.Value = pending.PayloadJson;
+                            actionEsc.Value = pending.WasEscalation ? 1 : 0;
+                            enqueueAction.ExecuteNonQuery();
+                        }
                     }
 
                     IReadOnlyList<EventField> fields = evt.Fields;

@@ -1,14 +1,89 @@
-@* Notification centre placeholder (PHASE_04 build item 7/10 — the shell slot later phases
-   fill with alert notifications). Scaffolded now, wired in Phase 8. *@
+@* Notification centre (PHASE_04 shell, wired in PHASE_07). Rules raise notifications via
+   the RaiseNotification action; the operator reads / dismisses them here. *@
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Notifications
+@using VSoftSol.Syslog.Web.Notifications
+@inject NotificationService Notifications
 
 <details class="ds-notifications">
-    <summary class="ds-icon-button" aria-label="Notifications" title="Notifications">
+    <summary class="ds-icon-button" aria-label="@($"Notifications ({_unread} unread)")" title="Notifications">
         🔔
+        @if (_unread > 0)
+        {
+            <span class="ds-nav__badge" aria-hidden="true">@(_unread > 99 ? "99+" : _unread.ToString())</span>
+        }
     </summary>
     <div class="ds-notifications__panel" role="region" aria-label="Notification centre">
-        <header class="ds-notifications__header">Notifications</header>
-        <EmptyState Title="You're all caught up"
-                    Explanation="Alert notifications will appear here once alerting is configured."
-                    Icon="🔔" />
+        <header class="ds-notifications__header">
+            <span>Notifications</span>
+            @if (_items.Count > 0)
+            {
+                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="MarkAllReadAsync">Mark all read</button>
+            }
+        </header>
+
+        @if (_loading)
+        {
+            <SkeletonLoader Rows="3" />
+        }
+        else if (_items.Count == 0)
+        {
+            <EmptyState Title="You're all caught up"
+                        Explanation="Notifications raised by rules appear here."
+                        Icon="🔔" />
+        }
+        else
+        {
+            <ul class="ds-notifications__list">
+                @foreach (NotificationRow n in _items)
+                {
+                    <li class="ds-notification ds-notification--@n.Level.ToString().ToLowerInvariant() @(n.ReadUtc is null ? "ds-notification--unread" : null)">
+                        <div class="ds-notification__body">
+                            <strong>@n.Title</strong>
+                            @if (!string.IsNullOrWhiteSpace(n.Body)) { <p>@n.Body</p> }
+                            <span class="ds-muted">@n.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                        </div>
+                        <button type="button" class="ds-icon-button" aria-label="Dismiss" @onclick="() => DismissAsync(n.NotificationId)">✕</button>
+                    </li>
+                }
+            </ul>
+        }
     </div>
 </details>
+
+@code {
+    private bool _loading = true;
+    private long _unread;
+    private IReadOnlyList<NotificationRow> _items = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            _items = await Notifications.RecentAsync(20, CancellationToken.None);
+            _unread = await Notifications.UnreadCountAsync(CancellationToken.None);
+        }
+        catch
+        {
+            _items = [];
+            _unread = 0;
+        }
+
+        _loading = false;
+    }
+
+    private async Task MarkAllReadAsync()
+    {
+        await Notifications.MarkAllReadAsync(CancellationToken.None);
+        await RefreshAsync();
+    }
+
+    private async Task DismissAsync(long id)
+    {
+        await Notifications.DismissAsync(id, CancellationToken.None);
+        await RefreshAsync();
+    }
+}

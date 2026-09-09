@@ -37,11 +37,14 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V5.2 | Untrusted data sanitised for the sink, not on ingest | I | **No sanitisation on ingest** — `<script>`, `=cmd\|`, `../../`, `${jndi:…}` stored byte-identical, asserted (Phase 3); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4). Phase 5: `StoredXssMatrixTests` — 10 OWASP payloads stored verbatim, encoded at every render surface, CSV formula guard applied on export only. Phase 6: wire-supplied device `hostname` / `vendor` / `name` render HTML-encoded on the pending-device queue and health card, byte-identical in storage (`DeviceWebTests`, `StreamScopeAndXssTests`) |
 | V5.3.4 | SQL injection prevented by parameterisation | I | `SqliteLogRepository` — CWE-89 sweep + `ToFtsPhrase` quote-doubling (Phase 1). Phase 5: `SearchCompiler` binds every user value; `SearchCompilerTests` asserts no user bytes in SQL text against injection payloads; `SearchInjectionTests` — SQL / FTS5 / unicode / 10 KB / stacked statements, no data mutated, no exception |
 | V5.3 | Output encoding per context (HTML, attr, JS, CSV, PDF) | I / P | Phase 5: HTML — Razor auto-encoding on the grid / expanded row / context / live tail (`StoredXssMatrixTests`); JSON — `JavaScriptEncoder.Default` (`<>&'` escaped); CSV — RFC-4180 quoting + `CsvFormulaGuard` (`= + - @ TAB` → `'` prefix), export-only. PDF surface — Phase 10 |
-| V5.3.5 | Query-language / expression injection | I | Phase 5 query language compiles to a parameterised AST → SQL; the **500-query golden-oracle differential** (`SearchOracleTests`, 0 divergences) proves the compiler is faithful. Phase 6 stream match rules compile to `CompiledCondition` (`ConditionCompiler`): unknown fields / bad values are save-time errors; `Matches` regexes use `RegexOptions.NonBacktracking` (linear-time, ReDoS-proof) + a 250 ms timeout, non-linear features rejected; the **10,000×50 routing oracle** (`StreamRoutingOracleTests`, 0 divergences) proves the evaluator is faithful; `ConditionCompilerReDoSTests` proves catastrophic patterns cannot stall ingest |
+| V5.3.5 | Query-language / expression injection | I | Phase 5 query language compiles to a parameterised AST → SQL; the **500-query golden-oracle differential** (`SearchOracleTests`, 0 divergences) proves the compiler is faithful. Phase 6 stream match rules compile to `CompiledCondition` (`ConditionCompiler`): unknown fields / bad values are save-time errors; `Matches` regexes use `RegexOptions.NonBacktracking` (linear-time, ReDoS-proof) + a 250 ms timeout, non-linear features rejected; the **10,000×50 routing oracle** (`StreamRoutingOracleTests`, 0 divergences) proves the evaluator is faithful; `ConditionCompilerReDoSTests` proves catastrophic patterns cannot stall ingest. Phase 7: the `{field}` action-template engine is a literal single-field lookup (no expressions), `FieldTemplateTests`; the rules-matcher oracle (`RuleSetOracleTests`, 10,000 cases, 0 divergences) |
+| V5.2.6 | SSRF defence on server-initiated requests | I | Phase 7 webhook action: `PrivateNetworkGuard` — scheme allow-list `{https,http}`; resolve the host and reject **every** resolved loopback / link-local / metadata (`169.254.0.0/16`) / RFC1918 / CGNAT / IPv6-ULA address before the request; `AllowAutoRedirect = false`; per-request timeout; bounded response read. An internal target needs a per-action opt-in **and** an admin CIDR allow-list. `WebhookSsrfTests` (13 cases) |
+| V5.3.8 | OS command injection prevented | I | Phase 7 script action: `ProcessStartInfo.ArgumentList` (argument vector, `UseShellExecute = false`) — never a command string; `ExecutablePathGuard` (absolute, no `..`, symlink-resolved, allow-list); minimal scrubbed environment. `ScriptSandboxTests` |
+| V5.3.9 | SMTP / IMAP injection | I | Phase 7 email action: CR/LF stripped from the templated subject and every address; recipients are config, never templated. `ActionExecutorTests.Email_SubjectCrLfInjection…` |
 | V5.5 | Safe deserialization; no arbitrary types | I / P | `JsonExtractor` uses `System.Text.Json` with a depth cap and no polymorphic types (Phase 3); config-bundle import — Phase 11 |
 | V5.2.x | ReDoS / regex safety | I | Every pack- and user-authorable pattern carries a mandatory match timeout; a timeout is caught and ingestion continues (Phase 3) |
 | **V6** | **Stored cryptography** | | |
-| V6.2 | Secrets encrypted at rest | I | `SqliteSecretStore` + `DpapiSecretProtector` (CurrentUser + app entropy); `SecretStoreTests` proves the stored blob is not the plaintext and the leak scan finds no plaintext in any table or audit diff (Phase 4). Consumed from Phase 7 |
+| V6.2 | Secrets encrypted at rest | I | `SqliteSecretStore` + `DpapiSecretProtector` (CurrentUser + app entropy); `SecretStoreTests` proves the stored blob is not the plaintext and the leak scan finds no plaintext in any table or audit diff (Phase 4). Phase 7: rule actions store only a secret **name**; the value is resolved at execute time and `ActionSecretLeakageTests` forces every failure path and greps `ActionResult.Detail` (audited) — zero hits |
 | V6.4 | Key management / rotation documented | P | Phase 12 hardening guide |
 | V6.x | No weak algorithms | I (gate) | `CA5350/5351/5358/5359` are build errors — `.editorconfig` |
 | **V7** | **Error handling and logging** | | |
@@ -63,7 +66,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V11.1 | Sequential-step and rate-limit enforcement | I / P | Per-source ingest token-bucket rate limiter with throttle / drop-with-counter / quarantine (Phase 2, tested); rule/action budgets (Phase 7) |
 | **V12** | **Files and resources** | | |
 | V12.1 | Upload size / type limits | P | Config-bundle import limits — Phase 11 |
-| V12.3 | No user input in file paths | P (gate) | Allow-listed destinations; path traversal tests — Phases 7, 10 |
+| V12.3 | No user input in file paths | I | Phase 7 `WriteToFile` action: `SafeFilePath.Resolve` rejects `..` / UNC / ADS / reserved names / absolute paths; the final path must stay under a configured base dir; a `{hostname}` substitution is reduced to a safe token. `ActionExecutorTests.File_*`. Retention/report paths — Phase 10 |
 | V12.4 | Files served with correct type, no execution | I | `X-Content-Type-Options: nosniff`; static files from `wwwroot` only |
 | **V13** | **API / web service** | | |
 | V13.1 | Same authz for all channels | I | The Blazor circuit, SSR form components, and the `/auth/logout` minimal-API endpoint all sit behind `app.UseAuthentication()`/`UseAuthorization()` and the same policy set (Phase 4) |
@@ -92,6 +95,15 @@ oracle, role re-checked at the service), V5.2 (device fields encoded at render, 
 storage), and V5.3.5 (condition compiler faithful — 10,000×50 oracle; ReDoS-proof via
 `NonBacktracking`) are **I**, each with a named test. See
 `docs/evidence/phase-06/security/README.md`.
+
+## Phase 7 L2 verification pass (V5.2.6, V5.3.5, V5.3.8, V5.3.9, V6.2, V12.3)
+
+Rule actions turn attacker-controllable log content into outbound HTTP / SMTP / process /
+file / ODBC / syslog operations — the egress boundary (THREAT_MODEL B4). SSRF (V5.2.6),
+command injection (V5.3.8), SMTP-header injection (V5.3.9), path traversal (V12.3),
+template injection (V5.3.5), and secret handling on failure (V6.2) are all **I**, each with
+a named test and a matrix in `docs/evidence/phase-07/security/README.md`. Threat-model
+review #2 done.
 
 ## Open L2 gaps carried out of Phase 0
 

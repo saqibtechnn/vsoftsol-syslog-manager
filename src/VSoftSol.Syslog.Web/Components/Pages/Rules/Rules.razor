@@ -1,0 +1,97 @@
+@page "/rules"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Rules
+@using VSoftSol.Syslog.Web.Rules
+@inject RuleAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Rules — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Rules</h1>
+        <div class="ds-page__headeractions">
+            <a class="ds-button ds-button--ghost" href="/rules/templates">Templates</a>
+            <a class="ds-button ds-button--ghost" href="/rules/tester">Test a message</a>
+            <a class="ds-button ds-button--primary" href="/rules/0">New rule</a>
+        </div>
+    </header>
+
+    <p class="ds-muted">Rules run in priority order at ingest — lower priority first. A <strong>Suppress</strong>
+        action stops the chain. Actions execute off the ingest thread; a slow action never delays a message.</p>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else if (_rules.Count == 0)
+    {
+        <EmptyState Title="No rules yet"
+                    Explanation="Rules turn matching messages into actions — email, webhook, script, forward, tag, and more. Start from a template."
+                    Icon="⚙" />
+    }
+    else
+    {
+        <table class="ds-table">
+            <thead><tr><th>#</th><th>Name</th><th>Actions</th><th>Hits</th><th>Last fired</th><th>Enabled</th><th></th></tr></thead>
+            <tbody>
+                @foreach (RuleRow r in _rules)
+                {
+                    <tr>
+                        <td class="ds-table__td--num">@r.Priority</td>
+                        <td><a href="/rules/@r.RuleId">@r.Name</a> @if (r.IsSystem) { <span class="ds-chip">system</span> }</td>
+                        <td>@string.Join(", ", r.Actions.Select(a => VSoftSol.Syslog.Core.Rules.RuleActionInfo.Label(a)))</td>
+                        <td class="ds-table__td--num">@r.HitCount.ToString("N0")</td>
+                        <td>@(r.LastFiredUtc is { } t ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "—")</td>
+                        <td>
+                            <label class="ds-switch">
+                                <input type="checkbox" checked="@r.Enabled" @onchange="e => ToggleAsync(r, (bool)e.Value!)" />
+                                <span>@(r.Enabled ? "on" : "off")</span>
+                            </label>
+                        </td>
+                        <td class="ds-table__td--num">
+                            <a class="ds-button ds-button--ghost ds-button--sm" href="/rules/@r.RuleId">Edit</a>
+                            @if (!r.IsSystem)
+                            {
+                                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => DeleteAsync(r)">Delete</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private IReadOnlyList<RuleRow> _rules = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _rules = await Admin.ListAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private async Task ToggleAsync(RuleRow rule, bool enabled)
+    {
+        RuleActionResult result = await Admin.SetEnabledAsync(rule.RuleId, enabled, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        await RefreshAsync();
+    }
+
+    private async Task DeleteAsync(RuleRow rule)
+    {
+        RuleActionResult result = await Admin.DeleteAsync(rule.RuleId, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            await RefreshAsync();
+        }
+    }
+}

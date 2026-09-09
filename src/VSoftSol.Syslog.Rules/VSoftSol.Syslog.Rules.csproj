@@ -12,4 +12,9 @@
     <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- WriteToOdbc action (Phase 7). No other action needs a package. -->
+    <PackageReference Include="System.Data.Odbc" />
+  </ItemGroup>
+
 </Project>

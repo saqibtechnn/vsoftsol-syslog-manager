@@ -35,6 +35,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSoftSol.Syslog.CrashProbe"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSoftSol.Syslog.IngestionProbe", "tests\VSoftSol.Syslog.IngestionProbe\VSoftSol.Syslog.IngestionProbe.csproj", "{4D2122AC-CE47-4766-BA23-DB2E0175BD8B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSoftSol.Syslog.ActionProbe", "tests\VSoftSol.Syslog.ActionProbe\VSoftSol.Syslog.ActionProbe.csproj", "{D15F82F4-7399-4D30-8245-C955B9B20D3E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -96,6 +98,10 @@ Global
 		{4D2122AC-CE47-4766-BA23-DB2E0175BD8B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4D2122AC-CE47-4766-BA23-DB2E0175BD8B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4D2122AC-CE47-4766-BA23-DB2E0175BD8B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D15F82F4-7399-4D30-8245-C955B9B20D3E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D15F82F4-7399-4D30-8245-C955B9B20D3E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D15F82F4-7399-4D30-8245-C955B9B20D3E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D15F82F4-7399-4D30-8245-C955B9B20D3E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B697AE41-80D5-4434-83ED-01F90ABEB3F8} = {8185DDD2-2FD0-44E4-AC6E-5AD61E0A4099}
@@ -111,5 +117,6 @@ Global
 		{DCE22BD1-46A7-4845-8BB2-2F5B622472F1} = {C6D4B14C-E75A-402E-82BF-F86C7B187F6E}
 		{334E9DBF-0A41-4BDA-B2EC-83C6E7795629} = {C6D4B14C-E75A-402E-82BF-F86C7B187F6E}
 		{4D2122AC-CE47-4766-BA23-DB2E0175BD8B} = {C6D4B14C-E75A-402E-82BF-F86C7B187F6E}
+		{D15F82F4-7399-4D30-8245-C955B9B20D3E} = {C6D4B14C-E75A-402E-82BF-F86C7B187F6E}
 	EndGlobalSection
 EndGlobal

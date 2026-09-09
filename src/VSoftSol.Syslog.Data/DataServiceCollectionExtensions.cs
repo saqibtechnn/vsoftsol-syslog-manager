@@ -60,6 +60,11 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<SqliteStreamStore>();
         services.TryAddSingleton<DeviceResolver>();
         services.TryAddSingleton<SqliteAuditLog>();
+
+        // Phase 7 — rules engine, action outbox, notification centre.
+        services.TryAddSingleton<Rules.SqliteRuleStore>();
+        services.TryAddSingleton<Rules.SqliteActionOutbox>();
+        services.TryAddSingleton<Notifications.SqliteNotificationStore>();
         if (OperatingSystem.IsWindows())
         {
             services.TryAddSingleton<ISecretProtector, DpapiSecretProtector>();

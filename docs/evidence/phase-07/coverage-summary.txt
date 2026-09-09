@@ -1,0 +1,39 @@
+Phase 7 — coverage (union of the unit and integration suites; a line counts as covered
+if hits > 0 in either). Computed over:
+  coverage-unittests.cobertura.xml    (666 tests)
+  coverage-integration.cobertura.xml  (421 tests)
+
+Gate: line coverage >= 80% on Ingestion, Rules, Reporting (TESTING_STANDARDS.md §3).
+
+  VSoftSol.Syslog.Ingestion   90.66%   (1902/2098)   PASS   (IngestionPipeline enrichment
+                                                            pass covered by
+                                                            RuleIngestIsolationTests)
+  VSoftSol.Syslog.Rules       83.67%   (989/1182)    PASS   (Rules/Rules/*, Rules/Actions/*
+                                                            — compiler, matcher, runtime,
+                                                            templating, 7 executors + guards,
+                                                            registry)
+  VSoftSol.Syslog.Reporting   93.81%   (106/113)     PASS   (unchanged — no Phase 7 code)
+
+Non-gated:
+  VSoftSol.Syslog.Core        90.47%   (778/860)     Rules/* — RuleAction hierarchy,
+                                                     RuleDefinition, ActionThrottle,
+                                                     PendingRuleAction; SyslogEvent
+                                                     WithRuleOutcome / CopyWith
+  VSoftSol.Syslog.Data        85.27%   (3150/3694)   Rules/* + Notifications/* stores,
+                                                     migration 005, DefaultRuleTemplates,
+                                                     RuleJson; SqliteLogRepository outbox
+                                                     write
+  VSoftSol.Syslog.Web         60.29%   (1687/2798)   no gate; the rule editor / action-card
+                                                     interactive branches (@onclick, @bind,
+                                                     the RuleActionEditor per-kind forms)
+                                                     are unreachable without a browser
+                                                     (P4-2). RuleAdminService is covered by
+                                                     RuleWebTests.
+  VSoftSol.Syslog.Service     68.67%   (309/450)     no gate (composition root); the ingest
+                                                     enricher closure + ActionDispatchService
+                                                     are exercised by RuleIngestIsolationTests
+                                                     + ActionDispatchServiceTests
+  VSoftSol.Syslog.BrandingGen 86.55%   (193/223)     build tool (unchanged)
+
+Gate: PASS on all three gated assemblies. No assembly that was above 80% regressed below it
+(Data 84.20% -> 85.27%, non-gated).

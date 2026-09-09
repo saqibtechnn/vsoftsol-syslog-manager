@@ -8,6 +8,8 @@ using VSoftSol.Syslog.Data.Security;
 using VSoftSol.Syslog.Data.Sqlite;
 using VSoftSol.Syslog.Data.Users;
 using VSoftSol.Syslog.Ingestion;
+using VSoftSol.Syslog.Rules.Actions;
+using VSoftSol.Syslog.Rules.Rules;
 
 namespace VSoftSol.Syslog.Service.Hosting;
 
@@ -66,6 +68,52 @@ public static class SyslogPlatformExtensions
         // (the stream tester); the collector host uses it via the ingest enricher.
         services.TryAddSingleton<StreamRouterProvider>();
 
+        // Phase 7 — the rules engine. The compiled rule set + the action executors, wired
+        // with the secret store, the notification store, and the host-supplied action
+        // limits. The Web host uses RuleSetProvider (the rule tester) and the executor
+        // registry (the SMTP/webhook "test" buttons); the collector host runs the pipeline
+        // and the ActionDispatchService.
+        services.AddOptions<ActionExecutorOptions>()
+            .Bind(configuration.GetSection(ActionExecutorOptions.SectionName))
+            .PostConfigure<IOptions<IngestionOptions>>((actions, ingestion) =>
+            {
+                if (actions.LocalSyslogEndpoints.Count == 0)
+                {
+                    IngestionOptions io = ingestion.Value;
+                    if (io.UdpEnabled)
+                    {
+                        actions.LocalSyslogEndpoints.Add($"{io.UdpBindAddress}:{io.UdpPort}");
+                    }
+
+                    if (io.TcpEnabled)
+                    {
+                        actions.LocalSyslogEndpoints.Add($"{io.TcpBindAddress}:{io.TcpPort}");
+                    }
+                }
+            });
+        services.AddOptions<RuleRuntimeOptions>().Bind(configuration.GetSection(RuleRuntimeOptions.SectionName));
+        services.AddOptions<ActionDispatchOptions>().Bind(configuration.GetSection(ActionDispatchOptions.SectionName));
+
+        services.TryAddSingleton<RuleSetProvider>();
+        services.TryAddSingleton<RuleHitTracker>();
+        services.TryAddSingleton<ActionExecutorRegistry>();
+        services.TryAddSingleton<RuleRuntime>(sp => new RuleRuntime(
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IOptions<RuleRuntimeOptions>>().Value));
+
+        // Delegates the executors need — composition, not seams (ADR 0008 / 0014 / 0015).
+        services.TryAddSingleton<SecretResolver>(sp =>
+        {
+            var store = sp.GetRequiredService<VSoftSol.Syslog.Data.Secrets.SqliteSecretStore>();
+            return (name, ct) => new ValueTask<string?>(store.GetAsync(name, ct));
+        });
+        services.TryAddSingleton<NotificationSink>(sp =>
+        {
+            var store = sp.GetRequiredService<VSoftSol.Syslog.Data.Notifications.SqliteNotificationStore>();
+            return async (level, title, body, ruleId, ct) =>
+                await store.RaiseAsync(level, title, body, ruleId, ct).ConfigureAwait(false);
+        });
+
         return services;
     }
 
@@ -90,23 +138,86 @@ public static class SyslogPlatformExtensions
                 }
             });
 
-        // The ingest enricher: resolve the source IP to a device (auto-discovering unknown
-        // sources) and route the event to its streams, once, before the batch commits
-        // (PHASE_06 items 3 & 6). Only the collector host runs the pipeline, so this is
-        // registered here rather than in AddSyslogPlatform.
+        // The ingest enricher (PHASE_06 items 3 & 6, PHASE_07 item 2): resolve the source IP
+        // to a device (auto-discovering unknown sources), route the event to its streams,
+        // then evaluate the rule set — all once, before the batch commits. Side-effecting
+        // actions are attached to the event and persisted to the outbox in the same
+        // transaction; the ActionDispatchService executes them OFF this thread.
         services.TryAddSingleton<EventEnricher>(sp =>
         {
             var resolver = sp.GetRequiredService<VSoftSol.Syslog.Data.Devices.DeviceResolver>();
             var routers = sp.GetRequiredService<StreamRouterProvider>();
+            var rules = sp.GetRequiredService<RuleSetProvider>();
+            var runtime = sp.GetRequiredService<RuleRuntime>();
+            var hits = sp.GetRequiredService<RuleHitTracker>();
+            var time = sp.GetRequiredService<TimeProvider>();
+
             return async (parsed, cancellationToken) =>
             {
                 long? deviceId = await resolver.ResolveAsync(parsed.SourceIp, parsed.Hostname, cancellationToken)
                     .ConfigureAwait(false);
                 VSoftSol.Syslog.Rules.Streams.StreamRouter router =
                     await routers.GetAsync(cancellationToken).ConfigureAwait(false);
-                return parsed.WithRouting(deviceId, router.Route(parsed));
+                VSoftSol.Syslog.Core.Events.SyslogEvent routed = parsed.WithRouting(deviceId, router.Route(parsed));
+
+                RuleSet ruleSet = await rules.GetAsync(cancellationToken).ConfigureAwait(false);
+                if (ruleSet.RuleCount == 0)
+                {
+                    return routed;
+                }
+
+                IReadOnlyList<long> groups = deviceId is { } id
+                    ? await resolver.ResolveGroupsAsync(id, cancellationToken).ConfigureAwait(false)
+                    : [];
+
+                DateTimeOffset now = time.GetUtcNow();
+                IReadOnlyList<CompiledRule> matched = ruleSet.Match(routed, groups, now);
+                if (matched.Count == 0)
+                {
+                    return routed;
+                }
+
+                foreach (CompiledRule rule in matched)
+                {
+                    hits.Record(rule.RuleId, now);
+                }
+
+                RuleOutcome outcome = runtime.Apply(matched, routed);
+                if (!outcome.HasWork)
+                {
+                    return routed;
+                }
+
+                var pending = new List<VSoftSol.Syslog.Core.Rules.PendingRuleAction>(outcome.Dispatches.Count + 1);
+                foreach (PendingDispatch d in outcome.Dispatches)
+                {
+                    pending.Add(new VSoftSol.Syslog.Core.Rules.PendingRuleAction(
+                        d.RuleId, d.RuleName, d.ActionIndex,
+                        VSoftSol.Syslog.Core.Rules.RuleActionInfo.Kind(d.Action),
+                        VSoftSol.Syslog.Data.Rules.RuleJson.SerializeAction(d.Action),
+                        d.WasEscalation));
+                }
+
+                if (outcome.Storm is { } storm)
+                {
+                    var summary = new VSoftSol.Syslog.Core.Rules.RaiseNotificationAction
+                    {
+                        Level = VSoftSol.Syslog.Core.Rules.NotificationLevel.Warning,
+                        Title = "Alert-storm protection engaged",
+                        Body = $"{storm.TotalCollapsed} outbound action(s) suppressed in the last minute: " +
+                               string.Join(", ", storm.ByKind.Select(kv => $"{kv.Value}× {kv.Key}")),
+                    };
+                    pending.Add(new VSoftSol.Syslog.Core.Rules.PendingRuleAction(
+                        0, "system", 0, "notify",
+                        VSoftSol.Syslog.Data.Rules.RuleJson.SerializeAction(summary), WasEscalation: false));
+                }
+
+                return routed.WithRuleOutcome(outcome.Tags, outcome.ExtraStreamIds, pending);
             };
         });
+
+        // The dispatcher executes queued actions off the ingest thread (PHASE_07 isolation).
+        services.AddHostedService<ActionDispatchService>();
 
         return services;
     }

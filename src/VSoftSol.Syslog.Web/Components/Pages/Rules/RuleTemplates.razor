@@ -1,0 +1,50 @@
+@page "/rules/templates"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Seed
+@using VSoftSol.Syslog.Web.Rules
+@inject RuleAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Rule templates — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Rule templates</h1>
+        <a class="ds-button ds-button--ghost" href="/rules">Back to rules</a>
+    </header>
+
+    <p class="ds-muted">Clone a template to get a working starting point, then fill in the destination
+        (SMTP host, webhook URL, script path…) and enable it. A clone starts disabled.</p>
+
+    <div class="ds-templategrid">
+        @for (int i = 0; i < RuleAdminService.Templates.Count; i++)
+        {
+            int index = i;
+            DefaultRuleTemplates.Template t = RuleAdminService.Templates[index];
+            <div class="ds-templatecard">
+                <span class="ds-chip">@t.Category</span>
+                <h3>@t.Rule.Name</h3>
+                <p>@t.Summary</p>
+                <p class="ds-muted ds-templatecard__actions">
+                    Actions: @string.Join(", ", t.Rule.Actions.Select(a => VSoftSol.Syslog.Core.Rules.RuleActionInfo.Label(a)))
+                    @if (t.Rule.Escalation is not null) { <text> · escalation</text> }
+                </p>
+                <button type="button" class="ds-button ds-button--primary ds-button--sm" @onclick="() => CloneAsync(index)">Clone &amp; edit</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private async Task CloneAsync(int index)
+    {
+        RuleActionResult result = await Admin.CloneTemplateAsync(index, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            Nav.NavigateTo("/rules");
+        }
+    }
+}

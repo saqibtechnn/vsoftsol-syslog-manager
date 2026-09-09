@@ -83,11 +83,47 @@ public sealed class SyslogEvent
     /// </summary>
     public IReadOnlyList<long> StreamIds { get; init; } = [];
 
+    /// <summary>
+    /// Side-effecting rule actions that matched this event (PHASE_07; ADR 0015). Transient —
+    /// the repository writes them to the <c>rule_action_queue</c> outbox in the event's
+    /// transaction. Empty on a freshly parsed event.
+    /// </summary>
+    public IReadOnlyList<Rules.PendingRuleAction> PendingActions { get; init; } = [];
+
     /// <summary>Returns a copy with the ingest-time device resolution and stream routing applied.</summary>
     public SyslogEvent WithRouting(long? deviceId, IReadOnlyList<long> streamIds)
     {
         ArgumentNullException.ThrowIfNull(streamIds);
-        return new SyslogEvent
+        return CopyWith(deviceId: deviceId ?? DeviceId, streamIds: streamIds);
+    }
+
+    /// <summary>
+    /// Returns a copy with a rule engine's inline outcome applied: extra tag fields, extra
+    /// stream ids (unioned with the routing result), and the side-effecting actions to
+    /// enqueue (PHASE_07).
+    /// </summary>
+    public SyslogEvent WithRuleOutcome(
+        IReadOnlyList<EventField> addedFields,
+        IReadOnlyList<long> addedStreamIds,
+        IReadOnlyList<Rules.PendingRuleAction> pendingActions)
+    {
+        ArgumentNullException.ThrowIfNull(addedFields);
+        ArgumentNullException.ThrowIfNull(addedStreamIds);
+        ArgumentNullException.ThrowIfNull(pendingActions);
+
+        IReadOnlyList<EventField> fields = addedFields.Count == 0 ? Fields : [.. Fields, .. addedFields];
+        IReadOnlyList<long> streams = addedStreamIds.Count == 0
+            ? StreamIds
+            : [.. StreamIds, .. addedStreamIds.Where(id => !StreamIds.Contains(id))];
+
+        return CopyWith(fields: fields, streamIds: streams, pendingActions: pendingActions);
+    }
+
+    private SyslogEvent CopyWith(
+        long? deviceId = null,
+        IReadOnlyList<EventField>? fields = null,
+        IReadOnlyList<long>? streamIds = null,
+        IReadOnlyList<Rules.PendingRuleAction>? pendingActions = null) => new()
         {
             EventId = EventId,
             ReceivedUtc = ReceivedUtc,
@@ -108,8 +144,8 @@ public sealed class SyslogEvent
             StructuredDataJson = StructuredDataJson,
             DeviceId = deviceId ?? DeviceId,
             Vendor = Vendor,
-            Fields = Fields,
-            StreamIds = streamIds,
+            Fields = fields ?? Fields,
+            StreamIds = streamIds ?? StreamIds,
+            PendingActions = pendingActions ?? PendingActions,
         };
-    }
 }
