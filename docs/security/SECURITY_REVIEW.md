@@ -51,6 +51,33 @@ PASS (hostname·vendor·name encoded on pending queue + health card, byte-identi
 storage) / authorization-on-approval PASS (Administrator-only enforced at the service, not
 just the page `[Authorize]`; Operator + Read-Only refused, device stays pending)**.
 
+## Phase 9 — environmental carry (not a finding)
+
+| ID | Item | Severity | Disposition | Operator sign-off |
+|---|---|---|---|---|
+| P9-1 | Dashboard-load acceptance ("< 3 s against the 50M-event database from Phase 5") not run at 50M — a ~1.5 h seed on the 2-vCPU VMware VM with noise-dominated percentiles | Info | Same disposition as P1-1 / P5-1 / P6-1. `DashboardBenchmark` measures a 4-widget load cold + warm against a 2M-event DB; `DashboardConcurrencyTests` proves 20 concurrent loads are safe and the cache collapses the work. Every aggregation is index-backed off `received_utc`. Literal 50M seed + `< 3 s` p95 → Phase 12 clean-VM acceptance run. | _pending_ |
+| P4-1 | OWASP ZAP DAST still not executed | Info | Carried. The `/dashboards*` surfaces get compensating xUnit assertions against real Kestrel over HTTPS (`DashboardWebTests`) and component render tests (`WidgetComponentTests`). | _pending_ |
+| P4-2 | axe-core + live keyboard/AT traversal + 1366×768 screenshot still not executed | Info | Carried. Structural a11y for the dashboard list / view / editor / picker verified in source + `ds.css`; the widget components rendered and asserted via `HtmlRenderer`. `docs/evidence/phase-09/ux-gate.md`. | _pending_ |
+
+Phase 9 security gate: **SAST PASS / SCA PASS (no new dependency — the aggregation cache is
+hand-rolled, `HtmlRenderer` is the ASP.NET shared framework) / secrets PASS / branding
+literal guard PASS / cross-scope aggregate isolation PASS (every widget aggregation compiled
+on the Phase 5 `SearchCompiler` predicate — the viewer's `UserScope` clauses are part of the
+`WHERE`; two scopes on one shared widget → 120 vs 45 and 30 vs 7, grouped aggregate never
+names an out-of-scope group) / cache keying PASS (key carries `ScopeFingerprint`; one
+viewer's cached aggregate never served to another; 20 concurrent → 1 query) / stored-XSS
+PASS (widget titles / dashboard names / log-derived labels stored byte-identical, encoded at
+render — verbatim-storage test + byte-stable component snapshots) / IDOR PASS
+(`SqliteDashboardStore` owner/shared/system gate, no existence oracle; system dashboards
+non-editable/non-deletable; role re-checked at `DashboardService`; every mutation audited
+with the true actor) / aggregation oracle PASS (every function × grouped/flat × bucketed/flat
+vs independent SQL, 0 divergences) / time-bucketing matrix PASS (DST±, leap day, year
+boundary, +13 tz — no double-counted or dropped buckets) / empty-state PASS (every widget
+renders an empty state, never an exception; 100k-point series, all-identical, negative
+values)**. DAST (ZAP) NOT RUN (P4-1). Mutation run BLOCKED (P3-3). Threat model **not**
+reviewed (scheduled: Phases 4, 7, 11) — B2 addendum + 4 dashboard rows recorded for the
+Phase 11 review.
+
 ## Phase 8 — environmental carry (not a finding)
 
 | ID | Item | Severity | Disposition | Operator sign-off |

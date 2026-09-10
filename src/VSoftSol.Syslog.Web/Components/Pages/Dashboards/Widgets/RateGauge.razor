@@ -1,0 +1,45 @@
+@* PHASE_09 — a single rate against a soft ceiling. *@
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+
+<div class="ds-gauge">
+    <svg viewBox="0 0 120 78" role="img" aria-label="@AriaLabel">
+        <path class="ds-gauge__track" d="M 12 66 A 48 48 0 0 1 108 66" />
+        <path class="ds-gauge__fill" d="@_fillPath" />
+        <line class="ds-gauge__needle" x1="60" y1="66" x2="@_needleX" y2="@_needleY" />
+    </svg>
+    <span class="ds-gauge__value">@WidgetChartModel.FormatValue(Value, Unit)</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public double Value { get; set; }
+
+    [Parameter] public double Max { get; set; } = 100;
+
+    [Parameter] public string? Unit { get; set; }
+
+    [Parameter] public string AriaLabel { get; set; } = "Gauge";
+
+    private string _fillPath = "M 12 66 A 48 48 0 0 1 12 66";
+    private double _needleX = 60;
+    private double _needleY = 18;
+
+    protected override void OnParametersSet()
+    {
+        double max = ChartGeometry.NiceCeiling(Math.Max(Max, Value));
+        double angle = ChartGeometry.GaugeAngle(Value, 0, max);
+        double rad = angle * Math.PI / 180;
+        _needleX = Math.Round(60 + 40 * Math.Cos(rad), 1);
+        _needleY = Math.Round(66 + 40 * Math.Sin(rad), 1);
+
+        // Fill arc from the left end (-135°) to the needle angle.
+        double startRad = -135 * Math.PI / 180;
+        double sx = 60 + 48 * Math.Cos(startRad);
+        double sy = 66 + 48 * Math.Sin(startRad);
+        double ex = 60 + 48 * Math.Cos(rad);
+        double ey = 66 + 48 * Math.Sin(rad);
+        int large = angle - (-135) > 180 ? 1 : 0;
+        _fillPath = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"M {sx:0.#} {sy:0.#} A 48 48 0 {large} 1 {ex:0.#} {ey:0.#}");
+    }
+}

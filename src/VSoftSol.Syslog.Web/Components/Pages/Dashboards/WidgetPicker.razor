@@ -1,0 +1,259 @@
+@* PHASE_09 UX gate — widget creation is a guided picker: pick a source → pick a
+   visualization → set options → preview → add. Never a JSON editor. *@
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Conditions
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Components.Pages.Dashboards.Widgets
+@using VSoftSol.Syslog.Web.Dashboards
+@using VSoftSol.Syslog.Data.Search
+
+<Modal Title="Add a widget" Visible="true" OnClose="OnClose">
+    <ChildContent>
+    <div class="ds-picker">
+        <ol class="ds-picker__steps">
+            <li class="@StepClass(1)">1 · Configure</li>
+            <li class="@StepClass(2)">2 · Preview &amp; add</li>
+        </ol>
+
+        @if (_step == 1)
+        {
+            <FormField Label="Where does the data come from?" FieldId="p-src">
+                <select id="p-src" class="ds-input" @bind="_sourceChoice">
+                    <option value="all">Every event</option>
+                    <option value="query">A quick query</option>
+                    @foreach (SavedSearch s in _savedSearches)
+                    {
+                        <option value="saved:@s.Id">Saved search — @s.Name</option>
+                    }
+                    <option value="metric">A collector-health metric</option>
+                </select>
+            </FormField>
+
+            @if (_sourceChoice == "query")
+            {
+                <FormField Label="Query" FieldId="p-q" Help="The same query language as Search. Leave blank for everything.">
+                    <input id="p-q" class="ds-input" @bind="_query" placeholder="e.g. severity:>=error" />
+                </FormField>
+            }
+            else if (_sourceChoice == "metric")
+            {
+                <FormField Label="Metric" FieldId="p-metric">
+                    <select id="p-metric" class="ds-input" @bind="_metric">
+                        @foreach (SystemMetricInfo m in Picker.SystemMetrics)
+                        {
+                            <option value="@m.Metric">@m.Label (@m.Unit)</option>
+                        }
+                    </select>
+                </FormField>
+            }
+        }
+
+        @if (_step == 1)
+        {
+            <FormField Label="How should it look?" FieldId="p-viz">
+                <select id="p-viz" class="ds-input" @bind="_visualization">
+                    @foreach (VisualizationType v in Visualizations)
+                    {
+                        <option value="@v">@Humanize(v)</option>
+                    }
+                </select>
+            </FormField>
+
+            @if (!IsSystemSource && !IsListViz)
+            {
+                <FormField Label="Calculate" FieldId="p-fn">
+                    <select id="p-fn" class="ds-input" @bind="_function">
+                        <option value="Count">Count of events</option>
+                        <option value="DistinctCount">Distinct values</option>
+                        <option value="Sum">Sum of a field</option>
+                        <option value="Average">Average of a field</option>
+                        <option value="Min">Minimum of a field</option>
+                        <option value="Max">Maximum of a field</option>
+                    </select>
+                </FormField>
+
+                @if (_function is not "Count")
+                {
+                    <FormField Label="Field" FieldId="p-vf">
+                        <select id="p-vf" class="ds-input" @bind="_valueField">
+                            <option value="">— choose —</option>
+                            @foreach (ConditionFieldInfo f in _function == "DistinctCount" ? Picker.GroupableFields : Picker.NumericFields)
+                            {
+                                <option value="@f.Name">@f.Label</option>
+                            }
+                        </select>
+                    </FormField>
+                }
+
+                @if (WantsGroupBy)
+                {
+                    <FormField Label="Break down by" FieldId="p-gb">
+                        <select id="p-gb" class="ds-input" @bind="_groupBy">
+                            <option value="">— none —</option>
+                            @foreach (ConditionFieldInfo f in Picker.GroupableFields)
+                            {
+                                <option value="@f.Name">@f.Label</option>
+                            }
+                        </select>
+                    </FormField>
+                    <FormField Label="Show top" FieldId="p-topn">
+                        <input id="p-topn" class="ds-input ds-input--sm" type="number" min="1" max="50" @bind="_topN" />
+                    </FormField>
+                }
+
+                @if (WantsBucket)
+                {
+                    <FormField Label="Time bucket" FieldId="p-bucket">
+                        <select id="p-bucket" class="ds-input ds-input--sm" @bind="_bucket">
+                            <option value="Auto">Automatic</option>
+                            <option value="FiveMinutes">5 minutes</option>
+                            <option value="OneHour">1 hour</option>
+                            <option value="OneDay">1 day</option>
+                        </select>
+                    </FormField>
+                }
+            }
+
+            <FormField Label="Title" FieldId="p-title">
+                <input id="p-title" class="ds-input" @bind="_title" placeholder="Give it a name" />
+            </FormField>
+        }
+
+        @if (_step == 2)
+        {
+            @if (_validation is { Ok: false })
+            {
+                <ul class="ds-picker__errors">
+                    @foreach (string e in _validation.Errors) { <li>@e</li> }
+                </ul>
+            }
+            else if (_preview is not null)
+            {
+                <div class="ds-picker__preview">
+                    <WidgetCard Widget="_candidate!" DashboardRange="TimeSpan.FromHours(24)" RefreshSeconds="0" @key="_candidate!.Id" />
+                </div>
+            }
+        }
+    </div>
+    </ChildContent>
+    <Footer>
+        @if (_step > 1)
+        {
+            <button type="button" class="ds-button ds-button--ghost" @onclick="() => _step--">Back</button>
+        }
+        @if (_step < 2)
+        {
+            <button type="button" class="ds-button ds-button--primary" @onclick="NextAsync">Preview</button>
+        }
+        else
+        {
+            <button type="button" class="ds-button ds-button--primary" @onclick="Add" disabled="@(_validation is not { Ok: true })">Add widget</button>
+        }
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public WidgetPickerModel Picker { get; set; } = default!;
+
+    [Parameter] public EventCallback<WidgetDefinition> OnAdd { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private int _step = 1;
+    private string _sourceChoice = "all";
+    private string _query = string.Empty;
+    private string _metric = nameof(SystemMetric.IngestRate);
+    private string _visualization = nameof(VisualizationType.Counter);
+    private string _function = "Count";
+    private string _valueField = string.Empty;
+    private string _groupBy = string.Empty;
+    private string _bucket = nameof(BucketInterval.Auto);
+    private int _topN = 10;
+    private string _title = string.Empty;
+
+    private IReadOnlyList<SavedSearch> _savedSearches = [];
+    private WidgetDefinition? _candidate;
+    private ValidationResult? _validation;
+    private object? _preview;
+
+    protected override async Task OnInitializedAsync() =>
+        _savedSearches = await Picker.SavedSearchesAsync(CancellationToken.None);
+
+    private bool IsSystemSource => _sourceChoice == "metric";
+
+    private bool IsListViz => Enum.Parse<VisualizationType>(_visualization) is VisualizationType.RecentEventsTable or VisualizationType.DeviceStatusGrid;
+
+    private bool WantsGroupBy => Enum.Parse<VisualizationType>(_visualization) is VisualizationType.Bar or VisualizationType.TopNTable or VisualizationType.TimeSeriesLine or VisualizationType.TimeSeriesArea;
+
+    private bool WantsBucket => Enum.Parse<VisualizationType>(_visualization) is VisualizationType.TimeSeriesLine or VisualizationType.TimeSeriesArea;
+
+    private IReadOnlyList<VisualizationType> Visualizations =>
+        WidgetPickerModel.VisualizationsFor(IsSystemSource ? WidgetSourceKind.SystemSeries : WidgetSourceKind.EventQuery);
+
+    private string StepClass(int n) => n == _step ? "ds-picker__step--on" : n < _step ? "ds-picker__step--done" : string.Empty;
+
+    private static string Humanize(VisualizationType v) => v switch
+    {
+        VisualizationType.TimeSeriesLine => "Line chart over time",
+        VisualizationType.TimeSeriesArea => "Area chart over time",
+        VisualizationType.Bar => "Bar chart",
+        VisualizationType.Counter => "Single number",
+        VisualizationType.TopNTable => "Top-N table",
+        VisualizationType.SeverityDonut => "Severity donut",
+        VisualizationType.RateGauge => "Gauge",
+        VisualizationType.RecentEventsTable => "Recent events",
+        VisualizationType.DeviceStatusGrid => "Device status grid",
+        _ => v.ToString(),
+    };
+
+    private async Task NextAsync()
+    {
+        Build();
+        _step = 2;
+        await Task.CompletedTask;
+    }
+
+    private void Build()
+    {
+        WidgetSource source = _sourceChoice switch
+        {
+            "all" => WidgetSource.MatchAll,
+            "query" => WidgetSource.Query(_query),
+            "metric" => WidgetSource.System(Enum.Parse<SystemMetric>(_metric)),
+            _ when _sourceChoice.StartsWith("saved:", StringComparison.Ordinal)
+                => WidgetSource.Saved(long.Parse(_sourceChoice["saved:".Length..], System.Globalization.CultureInfo.InvariantCulture)),
+            _ => WidgetSource.MatchAll,
+        };
+
+        var viz = Enum.Parse<VisualizationType>(_visualization);
+        BucketInterval bucket = viz is VisualizationType.TimeSeriesLine or VisualizationType.TimeSeriesArea
+            ? Enum.Parse<BucketInterval>(_bucket)
+            : BucketInterval.None;
+
+        (_candidate, _validation) = WidgetPickerModel.Build(
+            string.IsNullOrWhiteSpace(_title) ? DefaultTitle() : _title,
+            source,
+            Enum.Parse<AggregationFunction>(_function),
+            _valueField,
+            WantsGroupBy ? _groupBy : null,
+            bucket,
+            _topN,
+            viz);
+
+        _preview = _validation.Ok ? new object() : null;
+    }
+
+    private string DefaultTitle() => _sourceChoice switch
+    {
+        "metric" => Picker.SystemMetrics.First(m => m.Metric.ToString() == _metric).Label,
+        _ => $"{_function} by {(string.IsNullOrEmpty(_groupBy) ? "all" : _groupBy)}",
+    };
+
+    private async Task Add()
+    {
+        if (_candidate is not null && _validation is { Ok: true })
+        {
+            await OnAdd.InvokeAsync(_candidate);
+        }
+    }
+}

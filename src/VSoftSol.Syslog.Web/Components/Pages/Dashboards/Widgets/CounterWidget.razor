@@ -1,0 +1,18 @@
+@* PHASE_09 — a single headline number. *@
+@using VSoftSol.Syslog.Web.Dashboards
+
+<div class="ds-counter">
+    <span class="ds-counter__value">@WidgetChartModel.FormatValue(Value, Unit)</span>
+    @if (!string.IsNullOrWhiteSpace(Caption))
+    {
+        <span class="ds-counter__caption">@Caption</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public double Value { get; set; }
+
+    [Parameter] public string? Unit { get; set; }
+
+    [Parameter] public string? Caption { get; set; }
+}

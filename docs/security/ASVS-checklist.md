@@ -30,13 +30,13 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V3.4 | Cookies: `Secure`, `HttpOnly`, `SameSite` | I | Secure + HttpOnly + SameSite=Strict; `SecurityHeadersTests.AuthCookie_IsSecure_HttpOnly_AndSameSiteStrict` asserts the Set-Cookie string (Phase 4) |
 | **V4** | **Access control** | | |
 | V4.1 | Enforced server-side, deny by default | I | Policy-based authz with a `RequireAuthenticatedUser` `FallbackPolicy`; the route-discovery test fails the build if a page has no `[Authorize]`; the scope filter returns nothing when it cannot resolve (Phase 4) |
-| V4.2 | No IDOR; object-level checks | I | `ScopedEventReader.GetByIdAsync` returns null (not "forbidden") for an out-of-scope id; `ScopedEventReaderTests` covers by-id / query-param / context-view bypass (Phase 4). Phase 5: `SqliteSavedSearchStore` / `SqliteColumnLayoutStore` re-check ownership on every mutation. Phase 6: `StreamAdminService.GetAsync/SaveAsync/ListAsync` scope-check every by-id access — an out-of-scope stream id returns the same `null` as a missing id (no existence oracle); `DeviceAdminService.ApproveAsync/RejectAsync/SaveDiscoverySettingsAsync` re-check `Role.Administrator` **at the service**, not just the page `[Authorize]` (`StreamScopeAndXssTests`, `DeviceWebTests`) |
+| V4.2 | No IDOR; object-level checks | I | `ScopedEventReader.GetByIdAsync` returns null (not "forbidden") for an out-of-scope id; `ScopedEventReaderTests` covers by-id / query-param / context-view bypass (Phase 4). Phase 5: `SqliteSavedSearchStore` / `SqliteColumnLayoutStore` re-check ownership on every mutation. Phase 6: `StreamAdminService.GetAsync/SaveAsync/ListAsync` scope-check every by-id access — an out-of-scope stream id returns the same `null` as a missing id (no existence oracle); `DeviceAdminService.ApproveAsync/RejectAsync/SaveDiscoverySettingsAsync` re-check `Role.Administrator` **at the service**, not just the page `[Authorize]` (`StreamScopeAndXssTests`, `DeviceWebTests`). Phase 9: `SqliteDashboardStore` returns a dashboard only if owned / shared / system, `Update`/`Delete` require `owner_user_id AND NOT is_system`; `DashboardService` re-checks the role at the service; **widget aggregations run under the viewer's `UserScope` via `SearchCompiler`** so a shared dashboard's aggregate never spans out-of-scope events, and the result cache is scope-fingerprinted (`AggregationScopeTests`, `DashboardSecurityTests`, `DashboardPersistenceTests`) |
 | V4.3 | Admin interfaces need extra authz | I | `Administer` policy (Administrator only) on `/settings*`; the 4 roles x every route matrix test asserts allow/deny per `AuthPolicies.RolesFor` (Phase 4) |
 | **V5** | **Validation, sanitisation, encoding** | | |
 | V5.1 | Input validation with allow-lists | I / P | Schema CHECK constraints reject invalid rows at the store (Phase 1); the parser fallback chain never rejects a message (Constraint 4) — it validates the PRI range, the RFC 5424 version, and timestamp format and falls back to `raw` otherwise (Phase 3); config validation — every UI phase |
 | V5.2 | Untrusted data sanitised for the sink, not on ingest | I | **No sanitisation on ingest** — `<script>`, `=cmd\|`, `../../`, `${jndi:…}` stored byte-identical, asserted (Phase 3); NUL replaced only for the SQLite-TEXT sink while `raw_message` keeps the true bytes (Constraint 4). Phase 5: `StoredXssMatrixTests` — 10 OWASP payloads stored verbatim, encoded at every render surface, CSV formula guard applied on export only. Phase 6: wire-supplied device `hostname` / `vendor` / `name` render HTML-encoded on the pending-device queue and health card, byte-identical in storage (`DeviceWebTests`, `StreamScopeAndXssTests`) |
 | V5.3.4 | SQL injection prevented by parameterisation | I | `SqliteLogRepository` — CWE-89 sweep + `ToFtsPhrase` quote-doubling (Phase 1). Phase 5: `SearchCompiler` binds every user value; `SearchCompilerTests` asserts no user bytes in SQL text against injection payloads; `SearchInjectionTests` — SQL / FTS5 / unicode / 10 KB / stacked statements, no data mutated, no exception |
-| V5.3 | Output encoding per context (HTML, attr, JS, CSV, PDF) | I / P | Phase 5: HTML — Razor auto-encoding on the grid / expanded row / context / live tail (`StoredXssMatrixTests`); JSON — `JavaScriptEncoder.Default` (`<>&'` escaped); CSV — RFC-4180 quoting + `CsvFormulaGuard` (`= + - @ TAB` → `'` prefix), export-only. PDF surface — Phase 10 |
+| V5.3 | Output encoding per context (HTML, attr, JS, CSV, PDF) | I / P | Phase 5: HTML — Razor auto-encoding on the grid / expanded row / context / live tail (`StoredXssMatrixTests`); JSON — `JavaScriptEncoder.Default` (`<>&'` escaped); CSV — RFC-4180 quoting + `CsvFormulaGuard` (`= + - @ TAB` → `'` prefix), export-only. Phase 9: dashboard widget titles, dashboard names, and log-derived category labels (bar / donut / table / recent-events) render Razor-encoded, stored byte-identical — `DashboardSecurityTests` (verbatim storage) + `WidgetComponentTests` (byte-stable snapshots confirm labels are text, not markup). PDF surface — Phase 10 |
 | V5.3.5 | Query-language / expression injection | I | Phase 5 query language compiles to a parameterised AST → SQL; the **500-query golden-oracle differential** (`SearchOracleTests`, 0 divergences) proves the compiler is faithful. Phase 6 stream match rules compile to `CompiledCondition` (`ConditionCompiler`): unknown fields / bad values are save-time errors; `Matches` regexes use `RegexOptions.NonBacktracking` (linear-time, ReDoS-proof) + a 250 ms timeout, non-linear features rejected; the **10,000×50 routing oracle** (`StreamRoutingOracleTests`, 0 divergences) proves the evaluator is faithful; `ConditionCompilerReDoSTests` proves catastrophic patterns cannot stall ingest. Phase 7: the `{field}` action-template engine is a literal single-field lookup (no expressions), `FieldTemplateTests`; the rules-matcher oracle (`RuleSetOracleTests`, 10,000 cases, 0 divergences) |
 | V5.2.6 | SSRF defence on server-initiated requests | I | Phase 7 webhook action: `PrivateNetworkGuard` — scheme allow-list `{https,http}`; resolve the host and reject **every** resolved loopback / link-local / metadata (`169.254.0.0/16`) / RFC1918 / CGNAT / IPv6-ULA address before the request; `AllowAutoRedirect = false`; per-request timeout; bounded response read. An internal target needs a per-action opt-in **and** an admin CIDR allow-list. `WebhookSsrfTests` (13 cases) |
 | V5.3.8 | OS command injection prevented | I | Phase 7 script action: `ProcessStartInfo.ArgumentList` (argument vector, `UseShellExecute = false`) — never a command string; `ExecutablePathGuard` (absolute, no `..`, symlink-resolved, allow-list); minimal scrubbed environment. `ScriptSandboxTests` |
@@ -136,6 +136,39 @@ volume into notifications and — via the same Phase 7 executors — outbound ac
 Threat model **not** reviewed this phase (scheduled: Phases 4, 7, 11); new entries
 B-alerts-1..4 recorded in `docs/evidence/phase-08/security/README.md` for the Phase 11
 review.
+
+## Phase 9 L2 verification pass (V4.2, V4.3, V5.3, V11.1)
+
+Dashboards add one output surface (widgets) and one shared artifact (a shared dashboard
+viewed by users with different scopes).
+
+- **V4.2 (no IDOR, object-level checks)** — `SqliteDashboardStore.GetAsync` returns a row
+  only if the caller owns it, it is shared, or it is a shipped system dashboard;
+  `UpdateAsync` / `DeleteAsync` require `owner_user_id = $uid AND is_system = 0`; a forbidden
+  id returns `null`, not 403 (no existence oracle). `DashboardPersistenceTests`,
+  `DashboardSecurityTests.Idor_…`.
+- **V4.3 (server-side, deny by default; admin scope at the service)** — routes: view =
+  `ViewData`, edit = `Operate`; `DashboardService` re-checks the role at the service
+  (create/edit = Administrator/Operator, delete = Administrator/Operator, copy = any
+  authenticated user — default dashboards are "copyable"). **Widget aggregations run under
+  the viewer's `UserScope`**: every query is parsed by the Phase 5 parser and compiled by
+  `SearchCompiler`, whose scope clauses become part of the `WHERE` — a shared dashboard's
+  count / sum / distinct-count aggregate can never include an out-of-scope event (a leak
+  even with no row shown). The result cache key carries a `ScopeFingerprint`, so a cached
+  aggregate is never served across scopes. `AggregationScopeTests`, `DashboardSecurityTests`
+  (Web layer, 30 vs 7), `AggregationCacheTests`.
+- **V5.3 (output encoding)** — widget titles, dashboard names, and log-derived category
+  labels (hostnames / app names from the wire) render Razor-encoded; stored byte-identical
+  (Constraint 4). `DashboardSecurityTests.StoredXss_…`, `WidgetComponentTests` byte-stable
+  snapshots.
+- **V11.1 (anti-abuse)** — a 15 s scope-keyed result cache (`Dashboards:CacheTtl`) with
+  stampede protection stops a shared wall dashboard re-scanning the database per viewer;
+  `TimeBucketing.MaxBuckets` (500) and `TopN` (≤ 50) cap result size.
+  `AggregationCacheTests`, `DashboardConcurrencyTests` (20 concurrent → 1 query per key).
+
+Threat model **not** reviewed this phase (scheduled: Phases 4, 7, 11); 4 dashboard entries
+recorded in `docs/evidence/phase-09/security/README.md` (a B2 addendum in `THREAT_MODEL.md`)
+for the Phase 11 review. No new dependency; DAST (ZAP) / axe-core NOT RUN (P4-1 / P4-2).
 
 ## Open L2 gaps carried out of Phase 0
 

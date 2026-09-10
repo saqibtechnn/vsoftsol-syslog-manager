@@ -1,0 +1,50 @@
+@* PHASE_09 — event count by severity as a donut. *@
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+
+@if (_slices.Count == 0)
+{
+    <p class="ds-muted">No data.</p>
+}
+else
+{
+    <div class="ds-donut">
+        <svg viewBox="0 0 120 120" role="img" aria-label="Severity distribution">
+            @for (int i = 0; i < _slices.Count; i++)
+            {
+                <path class="ds-donut__slice ds-sev-@Slug(_categories[i].Label)" d="@_slices[i].Path" />
+            }
+        </svg>
+        <ul class="ds-donut__legend">
+            @foreach (ChartCategory c in _categories)
+            {
+                <li>
+                    <span class="ds-donut__swatch ds-sev-@Slug(c.Label)"></span>
+                    @c.Label <span class="ds-muted">@c.Value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</span>
+                </li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AggregationResult Result { get; set; } = AggregationResult.Empty;
+
+    private IReadOnlyList<ChartCategory> _categories = [];
+    private IReadOnlyList<ChartGeometry.DonutSlice> _slices = [];
+
+    protected override void OnParametersSet()
+    {
+        _categories = WidgetChartModel.Categories(Result, severityLabels: true);
+        _slices = ChartGeometry.Donut([.. _categories.Select(c => c.Value)], 60, 60, 52, 32);
+    }
+
+    private static string Slug(string label) => label.ToLowerInvariant() switch
+    {
+        "emergency" or "alert" or "critical" => "critical",
+        "error" => "error",
+        "warning" => "warning",
+        "notice" or "informational" => "info",
+        _ => "debug",
+    };
+}

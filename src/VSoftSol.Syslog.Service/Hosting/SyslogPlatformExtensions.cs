@@ -125,6 +125,14 @@ public static class SyslogPlatformExtensions
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IOptions<AlertRuntimeOptions>>().Value));
 
+        // Phase 9 — dashboards. The aggregation cache's TTL binds to the Dashboards config
+        // section; the Web host reads dashboards and runs widget aggregations, the collector
+        // host additionally runs the CollectorStatSampler (in AddCollectorRuntime).
+        services.AddOptions<DashboardOptions>().Bind(configuration.GetSection(DashboardOptions.SectionName));
+        services.TryAddSingleton<VSoftSol.Syslog.Data.Dashboards.AggregationCache>(sp => new VSoftSol.Syslog.Data.Dashboards.AggregationCache(
+            sp.GetRequiredService<TimeProvider>(),
+            () => sp.GetRequiredService<IOptions<DashboardOptions>>().Value.CacheTtl));
+
         return services;
     }
 
@@ -234,6 +242,12 @@ public static class SyslogPlatformExtensions
         // host only (the Web host never schedules evaluations).
         services.AddHostedService<AlertEvaluationService>();
         services.AddHostedService<AlertActionDispatchService>();
+
+        // Phase 9 — the collector-health sampler. Writes collector_stat_samples for the
+        // Collector Health dashboard. Collector host only; the Web host, run standalone,
+        // has no live counters to sample.
+        services.AddOptions<CollectorStatOptions>().Bind(configuration.GetSection(CollectorStatOptions.SectionName));
+        services.AddHostedService<CollectorStatSampler>();
 
         return services;
     }

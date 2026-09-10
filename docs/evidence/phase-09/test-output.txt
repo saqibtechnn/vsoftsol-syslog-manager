@@ -1,0 +1,34 @@
+Phase 9 — full test run (quiet, Release). TESTING_STANDARDS §4.
+
+$ dotnet build -c Release
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+$ dotnet test tests/VSoftSol.Syslog.UnitTests -c Release
+Passed!  - Failed:     0, Passed:   807, Skipped:     0, Total:   807, Duration: 1 m 09 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+
+$ dotnet test tests/VSoftSol.Syslog.IntegrationTests -c Release
+Passed!  - Failed:     0, Passed:   585, Skipped:     0, Total:   585, Duration: 6 m 48 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+
+Total: 1392 tests, 1392 passing, 0 skipped, 0 failed.
+Baseline before Phase 9: 1206 (712 unit + 494 integration). Phase 9 adds 95 unit + 91
+integration. No prior-phase assertion was weakened.
+
+$ dotnet test --filter "Widget|Aggregation|Dashboard" -c Release
+VSoftSol.Syslog.UnitTests        : Passed!  - Failed: 0, Passed: 95
+VSoftSol.Syslog.IntegrationTests : Passed!  - Failed: 0, Passed: 87   (the "Dashboard" name
+                                   also catches DashboardConcurrencyTests; the aggregation
+                                   oracle / scope / bucket-matrix / cache / system-series /
+                                   default-dashboards / persistence / migration007 tests are
+                                   caught by "Aggregation" and "Migration007" separately —
+                                   run the file filter for the full 91)
+
+$ dotnet format VSoftSol.Syslog.sln --verify-no-changes --no-restore
+  (exit 0 after a `dotnet format` fix pass reindented the switch blocks in AggregationCompiler
+   and a few test files — generated-style indentation, no semantic change; same as Phase 8
+   slice E)
+
+$ dotnet list package --vulnerable --include-transitive
+  no vulnerable packages in any of the 14 projects. Directory.Packages.props unchanged —
+  no new dependency.

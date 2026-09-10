@@ -1,0 +1,130 @@
+@page "/dashboards/{DashboardId:long}"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Components.Pages.Dashboards.Widgets
+@using VSoftSol.Syslog.Web.Dashboards
+@inject DashboardService Service
+@inject NavigationManager Nav
+
+<PageTitle>@(_dashboard?.Name ?? "Dashboard") — @BrandingInfo.ProductName</PageTitle>
+
+@if (_loading)
+{
+    <div class="ds-page"><SkeletonLoader Rows="6" /></div>
+}
+else if (_dashboard is null)
+{
+    <div class="ds-page">
+        <EmptyState Title="Dashboard not found" Explanation="It may have been deleted, or it is not shared with you." Icon="▤" />
+        <a class="ds-button ds-button--ghost" href="/dashboards">All dashboards</a>
+    </div>
+}
+else
+{
+    <div class="ds-page ds-dashview @(_fullscreen ? "ds-dashview--full" : null)">
+        <header class="ds-page__header ds-dashview__header">
+            <div>
+                <h1>@_dashboard.Name</h1>
+                @if (!string.IsNullOrWhiteSpace(_dashboard.Description)) { <p class="ds-muted">@_dashboard.Description</p> }
+            </div>
+            <div class="ds-page__headeractions">
+                <label class="ds-dashview__range">
+                    Range
+                    <select class="ds-input ds-input--sm" @bind="_rangeHours" @bind:after="StateHasChanged">
+                        <option value="1">Last hour</option>
+                        <option value="4">Last 4 hours</option>
+                        <option value="24">Last 24 hours</option>
+                        <option value="168">Last 7 days</option>
+                        <option value="720">Last 30 days</option>
+                    </select>
+                </label>
+                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="Refresh">Refresh</button>
+                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="ToggleFullscreen">
+                    @(_fullscreen ? "Exit full screen" : "Full screen")
+                </button>
+                @if (_dashboard.OwnedByCurrentUser)
+                {
+                    <a class="ds-button ds-button--ghost ds-button--sm" href="/dashboards/@_dashboard.Id/edit">Edit</a>
+                }
+                else if (_dashboard.IsSystem)
+                {
+                    <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="CopyAsync">Copy to edit</button>
+                }
+            </div>
+        </header>
+
+        @if (_dashboard.Widgets.Count == 0)
+        {
+            <EmptyState Title="This dashboard has no widgets yet"
+                        Explanation="Open the editor and add one — pick a saved search, choose how to show it, preview, add."
+                        Icon="▤" />
+        }
+        else
+        {
+            <div class="ds-dashgrid" @key="_refreshKey">
+                @foreach (WidgetDefinition widget in _dashboard.Widgets)
+                {
+                    WidgetLayout cell = _dashboard.LayoutFor(widget);
+                    <div class="ds-dashgrid__cell"
+                         style="grid-column: @(cell.Column + 1) / span @(cell.ColumnSpan); grid-row: span @(cell.RowSpan);">
+                        <WidgetCard Widget="widget" DashboardRange="Range" RefreshSeconds="RefreshSeconds" />
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public long DashboardId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "fullscreen")] public string? FullscreenParam { get; set; }
+
+    private bool _loading = true;
+    private bool _fullscreen;
+    private int _rangeHours = 24;
+    private int _refreshKey;
+    private DashboardDefinition? _dashboard;
+
+    private TimeSpan Range => TimeSpan.FromHours(_rangeHours);
+
+    private int RefreshSeconds => (int)_dashboard!.RefreshInterval.TotalSeconds;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _fullscreen = FullscreenParam == "1";
+        _loading = true;
+        _dashboard = await Service.GetAsync(DashboardId, CancellationToken.None);
+        if (_dashboard is not null)
+        {
+            _rangeHours = NearestPreset(_dashboard.DefaultTimeRange);
+        }
+
+        _loading = false;
+    }
+
+    private static int NearestPreset(TimeSpan range)
+    {
+        int[] presets = [1, 4, 24, 168, 720];
+        double hours = range.TotalHours;
+        return presets.OrderBy(p => Math.Abs(p - hours)).First();
+    }
+
+    private void Refresh() => _refreshKey++;
+
+    private void ToggleFullscreen()
+    {
+        _fullscreen = !_fullscreen;
+        Nav.NavigateTo(_fullscreen ? $"/dashboards/{DashboardId}?fullscreen=1" : $"/dashboards/{DashboardId}", replace: true);
+    }
+
+    private async Task CopyAsync()
+    {
+        var r = await Service.CopyAsync(DashboardId, CancellationToken.None);
+        if (r.Ok)
+        {
+            Nav.NavigateTo($"/dashboards/{r.DashboardId}/edit");
+        }
+    }
+}

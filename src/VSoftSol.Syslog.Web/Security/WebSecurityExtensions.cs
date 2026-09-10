@@ -28,6 +28,9 @@ public static class WebSecurityExtensions
         services.TryAddScoped<VSoftSol.Syslog.Web.Rules.RuleAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Alerts.AlertAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Notifications.NotificationService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Dashboards.DashboardService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Dashboards.WidgetDataService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Dashboards.WidgetPickerModel>();
 
         services.AddOptions<WebAuthOptions>()
             .Bind(configuration.GetSection(WebAuthOptions.SectionName))

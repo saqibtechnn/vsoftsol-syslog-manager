@@ -1,0 +1,122 @@
+@page "/dashboards"
+@attribute [Authorize(Policy = AuthPolicies.ViewData)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+@inject DashboardService Service
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Dashboards — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Dashboards</h1>
+        <div class="ds-page__headeractions">
+            <button type="button" class="ds-button ds-button--primary" @onclick="NewDashboard">New dashboard</button>
+        </div>
+    </header>
+
+    <p class="ds-muted">Dashboards answer “is anything wrong right now”. The four shipped dashboards work
+        with zero setup; copy one to make it your own, or build a new one from your saved searches.</p>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="4" />
+    }
+    else
+    {
+        <section class="ds-dashlist">
+            <h2>Shipped</h2>
+            <div class="ds-dashlist__grid">
+                @foreach (DashboardDefinition d in _dashboards.Where(x => x.IsSystem))
+                {
+                    <article class="ds-dashcard">
+                        <a class="ds-dashcard__title" href="/dashboards/@d.Id">@d.Name</a>
+                        <p class="ds-dashcard__desc">@d.Description</p>
+                        <div class="ds-dashcard__actions">
+                            <a class="ds-button ds-button--ghost ds-button--sm" href="/dashboards/@d.Id">Open</a>
+                            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => CopyAsync(d.Id)">Copy to edit</button>
+                        </div>
+                    </article>
+                }
+            </div>
+        </section>
+
+        <section class="ds-dashlist">
+            <h2>Yours &amp; shared</h2>
+            @{
+                var mine = _dashboards.Where(x => !x.IsSystem).ToList();
+            }
+            @if (mine.Count == 0)
+            {
+                <EmptyState Title="No custom dashboards yet"
+                            Explanation="Build one from a saved search, or copy a shipped dashboard and tweak it."
+                            Icon="▤" />
+            }
+            else
+            {
+                <div class="ds-dashlist__grid">
+                    @foreach (DashboardDefinition d in mine)
+                    {
+                        <article class="ds-dashcard">
+                            <a class="ds-dashcard__title" href="/dashboards/@d.Id">@d.Name</a>
+                            <p class="ds-dashcard__desc">@d.Description
+                                @if (d.IsShared) { <span class="ds-chip">shared</span> }
+                                @if (!d.OwnedByCurrentUser) { <span class="ds-chip">by someone else</span> }
+                            </p>
+                            <div class="ds-dashcard__actions">
+                                <a class="ds-button ds-button--ghost ds-button--sm" href="/dashboards/@d.Id">Open</a>
+                                @if (d.OwnedByCurrentUser)
+                                {
+                                    <a class="ds-button ds-button--ghost ds-button--sm" href="/dashboards/@d.Id/edit">Edit</a>
+                                    <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => DeleteAsync(d.Id)">Delete</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => CopyAsync(d.Id)">Copy to edit</button>
+                                }
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private IReadOnlyList<DashboardDefinition> _dashboards = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _dashboards = await Service.ListAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private void NewDashboard() => Nav.NavigateTo("/dashboards/new/edit");
+
+    private async Task CopyAsync(long id)
+    {
+        DashboardActionResult r = await Service.CopyAsync(id, CancellationToken.None);
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Message);
+        if (r.Ok)
+        {
+            Nav.NavigateTo($"/dashboards/{r.DashboardId}/edit");
+        }
+    }
+
+    private async Task DeleteAsync(long id)
+    {
+        DashboardActionResult r = await Service.DeleteAsync(id, CancellationToken.None);
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Message);
+        if (r.Ok)
+        {
+            await RefreshAsync();
+        }
+    }
+}

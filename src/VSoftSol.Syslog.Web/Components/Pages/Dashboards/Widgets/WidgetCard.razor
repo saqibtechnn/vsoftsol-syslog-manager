@@ -1,0 +1,156 @@
+@* PHASE_09 — the widget frame: title, loading / empty / error states, one render path per
+   visualization, and optional auto-refresh. The only widget component that touches DI. *@
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+@implements IDisposable
+@inject WidgetDataService Data
+
+<section class="ds-widget" aria-label="@Widget.Title">
+    <header class="ds-widget__head">
+        <h3 class="ds-widget__title">@Widget.Title</h3>
+        @if (_data is { Approximate: true })
+        {
+            <span class="ds-widget__tag" title="Sampled — the underlying scan was capped.">approx.</span>
+        }
+        <button type="button" class="ds-widget__refresh" title="Refresh" @onclick="LoadAsync" aria-label="Refresh @Widget.Title">↻</button>
+    </header>
+
+    <div class="ds-widget__body">
+        @if (_loading && _data is null)
+        {
+            <SkeletonLoader Rows="3" />
+        }
+        else if (_data is null || _data.Kind == WidgetRenderKind.Error)
+        {
+            <EmptyState Title="Could not load" Explanation="@(_data?.Message ?? "This widget failed to load.")" Icon="⚠" />
+        }
+        else if (_data.Kind == WidgetRenderKind.Empty)
+        {
+            <EmptyState Title="Nothing to show" Explanation="@(_data.Message ?? "No data in this time range.")" Icon="▤" />
+        }
+        else
+        {
+            @RenderBody
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public WidgetDefinition Widget { get; set; } = default!;
+
+    [Parameter, EditorRequired] public TimeSpan DashboardRange { get; set; }
+
+    /// <summary>Auto-refresh cadence in seconds; 0 disables.</summary>
+    [Parameter] public int RefreshSeconds { get; set; }
+
+    private WidgetData? _data;
+    private bool _loading;
+    private Timer? _timer;
+    private int _lastRefreshSeconds = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+
+        if (RefreshSeconds != _lastRefreshSeconds)
+        {
+            _lastRefreshSeconds = RefreshSeconds;
+            _timer?.Dispose();
+            _timer = null;
+            if (RefreshSeconds > 0)
+            {
+                var period = TimeSpan.FromSeconds(Math.Max(10, RefreshSeconds));
+                _timer = new Timer(async _ => await InvokeAsync(LoadAsync), null, period, period);
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _data = await Data.LoadAsync(Widget, DashboardRange, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _data = WidgetData.Error(ex.Message);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private RenderFragment RenderBody => builder =>
+    {
+        int seq = 0;
+        AggregationResult agg = _data!.Aggregation ?? AggregationResult.Empty;
+
+        switch (Widget.Visualization)
+        {
+            case VisualizationType.TimeSeriesLine:
+            case VisualizationType.TimeSeriesArea:
+                builder.OpenComponent<TimeSeriesChart>(seq++);
+                builder.AddComponentParameter(seq++, nameof(TimeSeriesChart.Result), agg);
+                builder.AddComponentParameter(seq++, nameof(TimeSeriesChart.Area), Widget.Visualization == VisualizationType.TimeSeriesArea);
+                builder.AddComponentParameter(seq++, nameof(TimeSeriesChart.AriaLabel), Widget.Title);
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.Bar:
+                builder.OpenComponent<BarChart>(seq++);
+                builder.AddComponentParameter(seq++, nameof(BarChart.Result), agg);
+                builder.AddComponentParameter(seq++, nameof(BarChart.TopN), Widget.Aggregation.TopN);
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.TopNTable:
+                builder.OpenComponent<TopNTable>(seq++);
+                builder.AddComponentParameter(seq++, nameof(TopNTable.Result), agg);
+                builder.AddComponentParameter(seq++, nameof(TopNTable.TopN), Widget.Aggregation.TopN);
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.SeverityDonut:
+                builder.OpenComponent<SeverityDonut>(seq++);
+                builder.AddComponentParameter(seq++, nameof(SeverityDonut.Result), agg);
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.Counter:
+                builder.OpenComponent<CounterWidget>(seq++);
+                builder.AddComponentParameter(seq++, nameof(CounterWidget.Value), agg.Scalar());
+                builder.AddComponentParameter(seq++, nameof(CounterWidget.Unit), UnitFor());
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.RateGauge:
+                builder.OpenComponent<RateGauge>(seq++);
+                builder.AddComponentParameter(seq++, nameof(RateGauge.Value), agg.Scalar());
+                builder.AddComponentParameter(seq++, nameof(RateGauge.Max), Math.Max(1, agg.Scalar() * 1.5));
+                builder.AddComponentParameter(seq++, nameof(RateGauge.Unit), UnitFor());
+                builder.AddComponentParameter(seq++, nameof(RateGauge.AriaLabel), Widget.Title);
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.RecentEventsTable:
+                builder.OpenComponent<RecentEventsTable>(seq++);
+                builder.AddComponentParameter(seq++, nameof(RecentEventsTable.Rows), _data.Events ?? []);
+                builder.CloseComponent();
+                break;
+
+            case VisualizationType.DeviceStatusGrid:
+                builder.OpenComponent<DeviceStatusGrid>(seq++);
+                builder.AddComponentParameter(seq++, nameof(DeviceStatusGrid.Rows), _data.Devices ?? []);
+                builder.CloseComponent();
+                break;
+        }
+    };
+
+    private string? UnitFor() =>
+        Widget.Source is { Kind: WidgetSourceKind.SystemSeries, Metric: { } m } ? SystemMetrics.Info(m).Unit : null;
+
+    public void Dispose() => _timer?.Dispose();
+}

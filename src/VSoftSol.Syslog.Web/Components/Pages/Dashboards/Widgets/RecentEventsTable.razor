@@ -1,0 +1,39 @@
+@* PHASE_09 — the most recent matching events, newest first. Message bodies are hostile
+   input; Blazor encodes them here (the six-output-surface XSS rule). *@
+@using VSoftSol.Syslog.Web.Dashboards
+@using VSoftSol.Syslog.Core.Enums
+
+@if (Rows.Count == 0)
+{
+    <p class="ds-muted">No matching events.</p>
+}
+else
+{
+    <table class="ds-table ds-table--compact">
+        <thead><tr><th>Time</th><th>Host</th><th>Sev</th><th>Message</th></tr></thead>
+        <tbody>
+            @foreach (RecentEventRow r in Rows)
+            {
+                <tr>
+                    <td class="ds-recent__time">@r.ReceivedUtc.ToLocalTime().ToString("HH:mm:ss")</td>
+                    <td>@(r.Hostname ?? "—")</td>
+                    <td><span class="ds-sevtag ds-sev-@Slug(r.Severity)">@((Severity)r.Severity)</span></td>
+                    <td class="ds-recent__msg" title="@r.Message">@r.Message</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<RecentEventRow> Rows { get; set; } = [];
+
+    private static string Slug(int severity) => severity switch
+    {
+        <= 2 => "critical",
+        3 => "error",
+        4 => "warning",
+        <= 6 => "info",
+        _ => "debug",
+    };
+}

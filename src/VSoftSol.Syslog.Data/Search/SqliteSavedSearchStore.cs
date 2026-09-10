@@ -57,6 +57,24 @@ public sealed class SqliteSavedSearchStore
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(reader, requestingUserId) : null;
     }
 
+    /// <summary>
+    /// The query text of a saved search by id, with no ownership check. A dashboard widget
+    /// stores a saved-search reference, and a shared dashboard may be viewed by someone who
+    /// does not own that search; the query text is not sensitive (it is a filter
+    /// expression) and every result row the widget shows is still scope-filtered. Returns
+    /// null if the search was deleted.
+    /// </summary>
+    public async Task<string?> GetQueryTextAsync(long id, CancellationToken cancellationToken)
+    {
+        await using SqliteConnection connection = await _factory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT query_text FROM saved_searches WHERE saved_search_id = $id;";
+        command.Parameters.AddWithValue("$id", id);
+
+        object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value as string;
+    }
+
     public async Task<long> CreateAsync(
         long ownerUserId, string name, string queryText, string? timeRangeJson, bool isShared,
         CancellationToken cancellationToken)

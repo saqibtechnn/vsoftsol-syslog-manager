@@ -7,20 +7,128 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 8 — Aggregation Alerts
-- **Last tag:** `v1.0.0-phase.8`
-- **Next phase:** 9 — Dashboards
-- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1206/1206** (712 unit + 494 integration) on a quiet run. `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, **no new dependency** in Phase 8).
+- **Last completed phase:** 9 — Dashboards
+- **Last tag:** `v1.0.0-phase.9`
+- **Next phase:** 10 — Retention & Reports
+- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1392/1392** (807 unit + 585 integration) on a quiet run. `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, **no new dependency** in Phase 9 — the aggregation cache is hand-rolled, `HtmlRenderer` is the ASP.NET shared framework).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
 - **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC pipeline **~13,600 msg/sec**; vendor extraction **~5,300** worst case. Phase 6 (stream routing): RFC + 20 streams **6,706** (gate PASS); vendor + 20 streams ~3,200 (P6-1). **Phase 7 (rules engine on the ingest path):** RFC + 50 active rules **9,433 msg/sec** (gate PASS); vendor + 50 rules **~3,600** — the vendor path is sub-gate at *baseline* on this VM (P3-2), rules add ~21 % on top → carried to Phase 12 (P7-4). Actions execute **off** the ingest thread (outbox + `ActionDispatchService`): a rule with a blocking action → 2,000 msgs commit in 0.2 s. See `docs/evidence/phase-07/benchmarks.md`.
 - **Phase 8 (alerts):** alert evaluation is a scheduled `BackgroundService` in the collector host — **entirely off the ingest path** (`git diff --stat src/…Ingestion` = 0 files this phase), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run (Phases 3/6/7/12 only). Scheduled-evaluation timing at 2M-event scale carried to Phase 12 (P8-3).
+- **Phase 9 (dashboards):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — the new `CollectorStatSampler` only *reads* `IngestionStatistics.Snapshot()`), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. Dashboard-load benchmark (`DashboardBenchmark`, 2M events, 4 widgets, cold + warm): **cold ~310 ms p95 / warm sub-µs** per 4-widget dashboard (2M events, 24h window); ÷20 from a `InvocationCount=20` monitoring run — the 50M-event `< 3 s` p95 acceptance carried to the Phase 12 clean-VM run (**P9-1**, the P1-1 / P5-1 / P6-1 pattern).
 
 ---
 
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 9 — Dashboards — 2026-09-11 — tag `v1.0.0-phase.9`
+
+> A generic widget framework — every widget is a data source + an aggregation spec + a
+> visualization, one data path and one render path — and the four shipped default
+> dashboards (Network Overview, Security Overview, Device Health, Collector Health), all
+> `is_system`, non-deletable, copyable. One item carried on the accepted precedent (no FAIL
+> line): **P9-1** the 50M-event `< 3 s` dashboard-load acceptance runs on the Phase 12
+> clean VM (same class as P1-1 / P5-1 / P6-1); measured here at 2M events.
+
+**Shipped**
+- **Core `Dashboards/`** — `AggregationSpec` / `WidgetSource` / `WidgetDefinition` /
+  `WidgetLayout` / `DashboardDefinition` models; `TimeBucketing` (fixed-origin integer-second
+  bucket plan, DST/leap/year/tz-safe); `DashboardWidgetCatalog` + `WidgetValidator` +
+  `DashboardValidator` (the picker cannot produce an invalid widget, an imported one is
+  rejected); `ChartGeometry` (pure SVG maths — decimate, nice-ceiling, polyline, area,
+  donut, gauge); `AggregationResult`.
+- **Data `Dashboards/`** — migration 007 (`dashboards` with `widgets_json` + `layout_json`,
+  `collector_stat_samples`); `SqliteDashboardStore` (owner/shared/system gate, `Version`
+  counter); `AggregationCompiler` + `SqliteAggregationReader` — **compiles the aggregation
+  on top of the Phase 5 `SearchCompiler` scoped predicate**, so an aggregate never spans
+  out-of-scope events; `SystemSeriesReader` (Collector Health); `AggregationCache`
+  (hand-rolled, 15 s TTL, **scope-fingerprinted key**, stampede protection); `EventColumns`
+  (allow-list, parity-tested against the Phase 8 alert window reader); `DefaultDashboards`
+  seeded idempotently by `DatabaseSeeder`.
+- **Service `Hosting/`** — `CollectorStatSampler` (`BackgroundService`, collector host only,
+  writes a sample every 30 s from `IngestionStatistics` + DB file bytes + disk free, pruned
+  to 72 h); `DashboardOptions` / `CollectorStatOptions`; `AggregationCache` TTL bound to the
+  `Dashboards` section in `AddSyslogPlatform`.
+- **Web `Dashboards/`** — `DashboardService` (CRUD + copy + save-layout, role at the
+  service, audited); `WidgetDataService` (widget + viewer scope → typed `WidgetData`,
+  cache-served); `WidgetPickerModel`; `WidgetChartModel`. Pages: `/dashboards` (list),
+  `/dashboards/{id}` (view + full-screen), `/dashboards/{id}/edit` + `/dashboards/new/edit`
+  (editor with HTML5-drag + arrow-button reorder), the `WidgetPicker` modal (2-step guided
+  Configure → Preview & add). 9 pure viz components + `WidgetCard`. `ds.css` Phase 9 block.
+  Old `Components/Pages/Dashboards.razor` `ComingSoon` deleted (route conflict).
+- ADR 0017 (widget framework / aggregation on the scoped predicate / scope-keyed cache /
+  Collector Health sample table / dashboards-as-a-whole).
+
+**Decisions**
+- Every event widget aggregates through `SearchCompiler` — scope is part of the `WHERE` by
+  construction, not a second filter that could drift (ADR 0017 Decision 2).
+- The result cache key carries a `ScopeFingerprint` — a shared wall dashboard can never
+  serve one viewer's aggregate to another (Decision 3).
+- Collector Health reads a sample table through the **same** aggregation / visualization
+  path — one extra typed source, not per-widget bespoke code (Decision 4).
+- Charts are server-rendered inline SVG — **no JS charting library**, no new dependency
+  (Phase 7/8 precedent).
+- Time buckets are integer `strftime('%s')` seconds from a fixed origin, never `julianday`
+  floats (the Phase 8 `sqlite-time-bucketing` note) — a bucket that straddles a DST change
+  or midnight is still uniform width.
+
+**Sign-off block** (TESTING_STANDARDS.md §9)
+```
+PHASE 9 SIGN-OFF
+  Tests added:            95 unit (time bucketing incl. DST/leap/year/+13tz, widget +
+                          dashboard validators, chart geometry, EventColumns parity) + ~93
+                          integration (migration 007, dashboard persistence + IDOR,
+                          aggregation oracle [every function x grouped/flat x bucketed/flat
+                          vs independent SQL, 0 divergences], cross-scope aggregate
+                          isolation, time-bucket matrix on real strftime, cache TTL/
+                          invalidation/scope-keying/stampede, system-series reader, collector
+                          sampler, default-dashboards compile+run, web surface + role-at-
+                          service + audit, security [cross-scope leak, stored XSS, IDOR,
+                          cache poisoning], widget component render [empty/sparse/extreme +
+                          7 byte-stable visual snapshots], 20-way concurrency). ~188 new.
+  Total suite:            unit 807/807; integration 585/585. 0 skipped.
+  Red-green observed:     yes (docs/evidence/phase-09/red-green.md). Slice A: 11 logic
+                          entrypoints guarded, 78 red. Slice B: migration 007 held back +
+                          5 store/reader entrypoints guarded, 46 red; GREEN-phase fix —
+                          system_key partial index → plain UNIQUE (ON CONFLICT target).
+                          Slice C: SampleAsync guarded, 3 red. Slice D: SaveAsync/CopyAsync/
+                          LoadAsync guarded, 11 red. Slice E: 7 visual snapshots absent →
+                          Assert.Fail, then committed; GREEN-phase fixes — RateGauge coords
+                          rounded, axis-label text redacted in the snapshot (TZ-dependent),
+                          snapshot dir resolved by walking to the .sln (PathMap breaks
+                          CallerFilePath).
+  Coverage:              Ingestion 90.56% / Rules 84.34% / Reporting 93.81% (union unit+integration) — all PASS, unchanged from Phase 8 (no gated-assembly code this phase)
+  Mutation score:         n/a (Stryker blocked on the SDK-only host — P3-3); compensating:
+                          the aggregation oracle (0 divergences) + the time-bucketing matrix
+                          + the SQL-vs-hand-SQL differential.
+  Performance gates:      dashboard load (4 widgets, 2M events, 24h window): cold ~310 ms p95, warm sub-µs (cache hit). PASS vs the < 3 s target at 2M. The 50M-event
+                          < 3 s p95 acceptance -> Phase 12 clean-VM run (P9-1, the P1-1 /
+                          P5-1 / P6-1 pattern). Not a FAIL — no gate applies to this phase's
+                          ingest-path code (0 ingest files changed).
+  UX gate:               PASS — 5 clicks from the dashboard to add a widget (3 from an
+                          existing editor); guided 2-step picker, never a JSON editor; every
+                          screen + every widget has a teaching empty state; every rejection
+                          says how to fix it; arrow-button reorder fallback; single-column
+                          collapse < 900px. Live axe-core / 1366x768 screenshot -> Phase 12
+                          (P4-2). docs/evidence/phase-09/ux-gate.md.
+  Regression:            all Phase 0-8 tests green (1206 -> 1392, none weakened). One shared
+                          file touched — DatabaseSeeder now also upserts the 4 default
+                          dashboards; SqliteSavedSearchStore gains GetQueryTextAsync (no
+                          ownership check — the query text is a filter expression, results
+                          stay scoped). No prior assertion changed.
+  Evidence committed:    docs/evidence/phase-09/ (+ security/)
+  Known issues:          1 (P9-1), listed in known-issues.md. 0 C / 0 H / 0 M / 0 L findings.
+```
+
+**Deferred**
+- [ ] P9-1: 50M-event dashboard-load `< 3 s` p95 acceptance — Phase 12 clean-VM run (measured at 2M here; same disposition as P1-1 / P5-1 / P6-1).
+
+**Known issues** — `docs/evidence/phase-09/known-issues.md` (P9-1; carried P4-1, P4-2, P3-3, P5-1, P5-3).
+
+**Open decisions needing the operator**
+- **Phase 9 sign-off** — P9-1 carried on the accepted precedent (no FAIL line). Operator to accept at the `v1.0.0-phase.9` tag.
 
 ### Phase 8 — Aggregation Alerts — 2026-09-10 — tag `v1.0.0-phase.8`
 

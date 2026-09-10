@@ -1,0 +1,40 @@
+@* PHASE_09 — the top N group values in a compact table. *@
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+
+@if (_categories.Count == 0)
+{
+    <p class="ds-muted">No data.</p>
+}
+else
+{
+    <table class="ds-table ds-table--compact">
+        <thead><tr><th>Value</th><th class="ds-table__th--num">Count</th><th class="ds-table__th--num">Share</th></tr></thead>
+        <tbody>
+            @foreach (ChartCategory c in _categories.Take(TopN))
+            {
+                <tr>
+                    <td title="@c.Label">@c.Label</td>
+                    <td class="ds-table__td--num">@c.Value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</td>
+                    <td class="ds-table__td--num">@((c.Fraction * 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    @if (_categories.Count > TopN)
+    {
+        <p class="ds-muted">+@(_categories.Count - TopN) more not shown.</p>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public AggregationResult Result { get; set; } = AggregationResult.Empty;
+
+    [Parameter] public int TopN { get; set; } = 10;
+
+    [Parameter] public bool SeverityLabels { get; set; }
+
+    private IReadOnlyList<ChartCategory> _categories = [];
+
+    protected override void OnParametersSet() => _categories = WidgetChartModel.Categories(Result, SeverityLabels);
+}

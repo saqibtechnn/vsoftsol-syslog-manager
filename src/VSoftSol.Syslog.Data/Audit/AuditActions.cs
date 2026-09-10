@@ -61,4 +61,9 @@ public static class AuditActions
     public const string AlertAutoResolved = "alert.autoresolved";
     public const string AlertRenotified = "alert.renotified";
     public const string AlertEvaluationMissed = "alert.evaluation.missed";
+
+    public const string DashboardCreate = "dashboard.create";
+    public const string DashboardUpdate = "dashboard.update";
+    public const string DashboardDelete = "dashboard.delete";
+    public const string DashboardCopy = "dashboard.copy";
 }

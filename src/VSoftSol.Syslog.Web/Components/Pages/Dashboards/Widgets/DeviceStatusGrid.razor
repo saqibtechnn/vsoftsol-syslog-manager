@@ -1,0 +1,33 @@
+@* PHASE_09 — one tile per in-scope device, coloured by how recently it was heard from. *@
+@using VSoftSol.Syslog.Web.Dashboards
+
+@if (Rows.Count == 0)
+{
+    <p class="ds-muted">No devices are visible to you yet.</p>
+}
+else
+{
+    <div class="ds-statusgrid">
+        @foreach (DeviceStatusRow d in Rows)
+        {
+            <a class="ds-statustile ds-statustile--@d.Status" href="/devices/@d.DeviceId" title="@Title(d)">
+                <span class="ds-statustile__name">@d.Name</span>
+                <span class="ds-statustile__seen">@Seen(d)</span>
+            </a>
+        }
+    </div>
+    <p class="ds-statusgrid__legend">
+        <span class="ds-statuskey ds-statustile--ok">healthy</span>
+        <span class="ds-statuskey ds-statustile--quiet">quiet</span>
+        <span class="ds-statuskey ds-statustile--silent">silent</span>
+    </p>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DeviceStatusRow> Rows { get; set; } = [];
+
+    private static string Seen(DeviceStatusRow d) =>
+        d.LastSeenUtc is { } s ? s.ToLocalTime().ToString("MMM d HH:mm") : "never";
+
+    private static string Title(DeviceStatusRow d) => $"{d.Name} — {d.Status}, last seen {Seen(d)}";
+}

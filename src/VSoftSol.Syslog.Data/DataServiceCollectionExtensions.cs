@@ -78,6 +78,13 @@ public static class DataServiceCollectionExtensions
 
         services.TryAddSingleton<SqliteSecretStore>();
 
+        // Phase 9 — dashboards: definition store, aggregation reader, collector-stat series.
+        // AggregationCache is registered by the composition root (it binds its TTL to the
+        // Dashboards options section).
+        services.TryAddSingleton<Dashboards.SqliteDashboardStore>();
+        services.TryAddSingleton<Dashboards.SqliteAggregationReader>();
+        services.TryAddSingleton<Dashboards.SystemSeriesReader>();
+
         services.AddHostedService<SearchIndexMaintainer>();
 
         return services;

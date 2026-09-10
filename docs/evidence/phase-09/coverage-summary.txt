@@ -1,0 +1,47 @@
+Phase 9 — coverage (union of the unit and integration suites; a line counts as covered
+if hits > 0 in either). Computed over:
+  coverage-unittests.cobertura.xml     (807 tests)
+  coverage-integration.cobertura.xml   (585 tests)
+
+Gate: line coverage >= 80% on Ingestion, Rules, Reporting (TESTING_STANDARDS.md §3).
+
+  VSoftSol.Syslog.Ingestion   90.56%   (1900/2098)   PASS   (unchanged — Phase 9 adds no
+                                                            Ingestion code; the new
+                                                            CollectorStatSampler only *reads*
+                                                            IngestionStatistics.Snapshot())
+  VSoftSol.Syslog.Rules       84.34%   (1223/1450)   PASS   (unchanged — the aggregation
+                                                            logic lives in Data, not Rules;
+                                                            no Rules file changed this phase)
+  VSoftSol.Syslog.Reporting   93.81%   (106/113)     PASS   (unchanged — no Phase 9 code)
+
+All three gated assemblies are byte-identical to Phase 8; coverage cannot regress when the
+code does not change and the test suite only grows.
+
+Non-gated:
+  VSoftSol.Syslog.Core        87.62%   (1281/1462)   Dashboards/* — the models,
+                                                     TimeBucketing, ChartGeometry,
+                                                     Widget/DashboardValidator,
+                                                     DashboardWidgetCatalog,
+                                                     AggregationResult (was 90.00% at Phase 8
+                                                     — ~1,400 new lines, record boilerplate
+                                                     and a few validator error branches not
+                                                     hit; the pure maths is well covered)
+  VSoftSol.Syslog.Data        87.16%   (4582/5257)   Dashboards/* stores + AggregationCompiler
+                                                     + SqliteAggregationReader + SystemSeriesReader
+                                                     + AggregationCache + EventColumns + migration 007
+                                                     + DefaultDashboards + DashboardJson
+                                                     (was 86.84% at Phase 8 — went up)
+  VSoftSol.Syslog.Service     74.54%   (723/970)     no gate (composition root); CollectorStatSampler
+                                                     .SampleAsync covered by CollectorStatSamplerTests,
+                                                     the ExecuteAsync loop not
+  VSoftSol.Syslog.Web         55.50%   (2257/4067)   no gate; the razor interactive branches
+                                                     (@onclick / drag handlers / the picker's
+                                                     per-kind form / the WidgetCard RenderBody
+                                                     switch) are unreachable without a browser
+                                                     (P4-2). WidgetChartModel, DashboardService,
+                                                     WidgetDataService, WidgetPickerModel, and the
+                                                     pure viz components (via HtmlRenderer) are
+                                                     covered
+  VSoftSol.Syslog.BrandingGen 86.55%   (193/223)     build tool (unchanged)
+
+Gate: PASS on all three gated assemblies. No assembly above 80% regressed below it.

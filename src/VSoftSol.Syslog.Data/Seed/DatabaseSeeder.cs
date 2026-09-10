@@ -1,7 +1,9 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using VSoftSol.Syslog.Core.Dashboards;
 using VSoftSol.Syslog.Core.Enums;
+using VSoftSol.Syslog.Data.Dashboards;
 using VSoftSol.Syslog.Data.Sqlite;
 using VSoftSol.Syslog.Data.Streams;
 
@@ -86,9 +88,40 @@ public sealed class DatabaseSeeder
                     ("$match", (object?)matchJson ?? DBNull.Value));
             }
 
+            // Phase 9 — the four shipped dashboards. Keyed by system_key so re-seeding is
+            // idempotent; a definition change ships by bumping the widgets/layout here and
+            // the ON CONFLICT refreshes the system row (never a user's copy).
+            foreach (DashboardDefinition dashboard in DefaultDashboards.All)
+            {
+                await ExecuteAsync(connection, transaction, """
+                    INSERT INTO dashboards
+                        (owner_user_id, name, description, is_shared, is_system, system_key,
+                         default_range_seconds, refresh_seconds, widgets_json, layout_json, created_utc, updated_utc, updated_by)
+                    VALUES
+                        (NULL, $name, $desc, 1, 1, $key, $range, $refresh, $widgets, $layout, $now, $now, 'system')
+                    ON CONFLICT(system_key) DO UPDATE SET
+                        name = excluded.name,
+                        description = excluded.description,
+                        default_range_seconds = excluded.default_range_seconds,
+                        refresh_seconds = excluded.refresh_seconds,
+                        widgets_json = excluded.widgets_json,
+                        layout_json = excluded.layout_json,
+                        updated_utc = excluded.updated_utc;
+                    """, cancellationToken,
+                    ("$name", dashboard.Name),
+                    ("$desc", (object?)dashboard.Description ?? DBNull.Value),
+                    ("$key", dashboard.SystemKey!),
+                    ("$range", (long)dashboard.DefaultTimeRange.TotalSeconds),
+                    ("$refresh", (long)dashboard.RefreshInterval.TotalSeconds),
+                    ("$widgets", DashboardJson.SerializeWidgets(dashboard.Widgets)),
+                    ("$layout", DashboardJson.SerializeLayout(dashboard.Layout)),
+                    ("$now", nowUtc));
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Database seed verified: {RoleCount} roles, seeded admin, {StreamCount} default streams.",
-                Enum.GetValues<Role>().Length, DefaultStreams.Count);
+            _logger.LogInformation(
+                "Database seed verified: {RoleCount} roles, seeded admin, {StreamCount} default streams, {DashboardCount} default dashboards.",
+                Enum.GetValues<Role>().Length, DefaultStreams.Count, DefaultDashboards.All.Count);
         }
         catch
         {

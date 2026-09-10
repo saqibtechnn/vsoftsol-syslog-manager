@@ -1,0 +1,52 @@
+@* PHASE_09 — one horizontal bar per group value, largest first. Category labels can be
+   attacker-controlled hostnames; Blazor encodes them here. *@
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+
+@if (_categories.Count == 0)
+{
+    <p class="ds-muted">No data.</p>
+}
+else
+{
+    <ul class="ds-barchart">
+        @foreach (ChartCategory c in _categories.Take(TopN))
+        {
+            <li class="ds-barchart__row">
+                <span class="ds-barchart__label" title="@c.Label">@c.Label</span>
+                <span class="ds-barchart__track">
+                    <span class="ds-barchart__fill" style="width:@Pct(c)"></span>
+                </span>
+                <span class="ds-barchart__value">@c.Value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</span>
+            </li>
+        }
+        @if (_categories.Count > TopN)
+        {
+            <li class="ds-barchart__more">+@(_categories.Count - TopN) more</li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired] public AggregationResult Result { get; set; } = AggregationResult.Empty;
+
+    [Parameter] public int TopN { get; set; } = 10;
+
+    [Parameter] public bool SeverityLabels { get; set; }
+
+    private IReadOnlyList<ChartCategory> _categories = [];
+    private double _max = 1;
+
+    protected override void OnParametersSet()
+    {
+        _categories = WidgetChartModel.Categories(Result, SeverityLabels);
+        _max = _categories.Select(c => c.Value).DefaultIfEmpty(0).Max();
+        if (_max <= 0)
+        {
+            _max = 1;
+        }
+    }
+
+    private string Pct(ChartCategory c) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Math.Clamp(c.Value / _max, 0, 1) * 100:0.#}%");
+}

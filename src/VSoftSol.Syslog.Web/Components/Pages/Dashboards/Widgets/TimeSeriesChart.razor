@@ -1,0 +1,74 @@
+@* PHASE_09 — a time-bucketed series as a line or filled area. Pure: parameters only,
+   server-rendered SVG, no client charting library. *@
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+
+@if (_series.Count == 0)
+{
+    <p class="ds-muted">No data.</p>
+}
+else
+{
+    <div class="ds-chart">
+        <svg viewBox="0 0 @W @H" preserveAspectRatio="none" role="img" aria-label="@AriaLabel">
+            @for (int s = 0; s < _series.Count; s++)
+            {
+                IReadOnlyList<double> values = ChartGeometry.Decimate(_series[s].Values, MaxPoints);
+                @if (Area)
+                {
+                    <path class="ds-chart__area ds-chart__c@(s % 6)" d="@ChartGeometry.AreaPath(values, W, H, _axisMax)" />
+                }
+                <polyline class="ds-chart__line ds-chart__c@(s % 6)" points="@ChartGeometry.Polyline(values, W, H, _axisMax)" />
+            }
+        </svg>
+        <div class="ds-chart__axis">
+            <span>@Label(0)</span>
+            <span>@Label(_bucketStarts.Count / 2)</span>
+            <span>@Label(_bucketStarts.Count - 1)</span>
+        </div>
+        @if (_series.Count > 1)
+        {
+            <ul class="ds-chart__legend">
+                @for (int s = 0; s < _series.Count; s++)
+                {
+                    <li><span class="ds-chart__swatch ds-chart__c@(s % 6)"></span>@_series[s].Name</li>
+                }
+            </ul>
+        }
+    </div>
+}
+
+@code {
+    private const double W = 600;
+    private const double H = 160;
+    private const int MaxPoints = 240;
+
+    [Parameter, EditorRequired] public AggregationResult Result { get; set; } = AggregationResult.Empty;
+
+    [Parameter] public bool Area { get; set; }
+
+    [Parameter] public string AriaLabel { get; set; } = "Time series";
+
+    private IReadOnlyList<ChartSeries> _series = [];
+    private IReadOnlyList<DateTimeOffset> _bucketStarts = [];
+    private double _axisMax = 1;
+    private int _bucketSeconds = 3600;
+
+    protected override void OnParametersSet()
+    {
+        (_series, _bucketStarts) = WidgetChartModel.Series(Result);
+        _bucketSeconds = Result.Plan?.BucketSeconds ?? 3600;
+        double dataMax = _series.SelectMany(s => s.Values).DefaultIfEmpty(0).Max();
+        _axisMax = ChartGeometry.NiceCeiling(dataMax);
+    }
+
+    private string Label(int index)
+    {
+        if (index < 0 || index >= _bucketStarts.Count)
+        {
+            return string.Empty;
+        }
+
+        return TimeBucketing.AxisLabel(_bucketStarts[index].ToLocalTime(), _bucketSeconds);
+    }
+}

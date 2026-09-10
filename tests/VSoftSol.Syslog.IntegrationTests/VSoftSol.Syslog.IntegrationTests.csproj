@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <None Include="..\fixtures\alerts\**\*.json" LinkBase="fixtures\alerts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\dashboards\**\*" LinkBase="fixtures\dashboards" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

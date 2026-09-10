@@ -1,0 +1,265 @@
+@page "/dashboards/new/edit"
+@page "/dashboards/{DashboardId:long}/edit"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Dashboards
+@using VSoftSol.Syslog.Web.Dashboards
+@inject DashboardService Service
+@inject WidgetPickerModel Picker
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>@(_isNew ? "New dashboard" : "Edit dashboard") — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>@(_isNew ? "New dashboard" : "Edit dashboard")</h1>
+        <div class="ds-page__headeractions">
+            <a class="ds-button ds-button--ghost" href="@BackHref">Cancel</a>
+            <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync" disabled="@_saving">Save</button>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="5" />
+    }
+    else if (_notAllowed)
+    {
+        <EmptyState Title="You cannot edit this dashboard" Explanation="Shipped dashboards are read-only — use “Copy to edit”." Icon="▤" />
+    }
+    else
+    {
+        <div class="ds-form">
+            <FormField Label="Name" FieldId="d-name">
+                <input id="d-name" class="ds-input" @bind="_name" maxlength="120" />
+            </FormField>
+            <FormField Label="Description" FieldId="d-desc">
+                <input id="d-desc" class="ds-input" @bind="_description" maxlength="500" />
+            </FormField>
+            <div class="ds-form__row">
+                <FormField Label="Default range" FieldId="d-range">
+                    <select id="d-range" class="ds-input ds-input--sm" @bind="_rangeHours">
+                        <option value="1">Last hour</option>
+                        <option value="4">Last 4 hours</option>
+                        <option value="24">Last 24 hours</option>
+                        <option value="168">Last 7 days</option>
+                        <option value="720">Last 30 days</option>
+                    </select>
+                </FormField>
+                <FormField Label="Auto-refresh" FieldId="d-refresh">
+                    <select id="d-refresh" class="ds-input ds-input--sm" @bind="_refreshSeconds">
+                        <option value="0">Off</option>
+                        <option value="30">Every 30s</option>
+                        <option value="60">Every minute</option>
+                        <option value="300">Every 5 minutes</option>
+                    </select>
+                </FormField>
+                <FormField Label="Sharing" FieldId="d-shared">
+                    <label class="ds-switch"><input id="d-shared" type="checkbox" @bind="_shared" /> <span>Visible to everyone (read-only)</span></label>
+                </FormField>
+            </div>
+        </div>
+
+        <section class="ds-editorsection">
+            <div class="ds-editorsection__head">
+                <h2>Widgets</h2>
+                <button type="button" class="ds-button ds-button--primary ds-button--sm" @onclick="() => _showPicker = true">Add widget</button>
+            </div>
+
+            @if (_widgets.Count == 0)
+            {
+                <EmptyState Title="No widgets yet"
+                            Explanation="Add one: pick a saved search or a quick query, choose how to show it, preview, add."
+                            Icon="▤" />
+            }
+            else
+            {
+                <ol class="ds-widgetlist">
+                    @for (int i = 0; i < _widgets.Count; i++)
+                    {
+                        int index = i;
+                        WidgetDefinition w = _widgets[index];
+                        <li class="ds-widgetlist__item @(_dragIndex == index ? "ds-widgetlist__item--drag" : null)"
+                            draggable="true"
+                            @ondragstart="() => _dragIndex = index"
+                            @ondragover:preventDefault="true"
+                            @ondrop="() => DropOn(index)">
+                            <span class="ds-widgetlist__grip" aria-hidden="true">⋮⋮</span>
+                            <span class="ds-widgetlist__name">@w.Title</span>
+                            <span class="ds-widgetlist__meta">@w.Visualization</span>
+                            <span class="ds-widgetlist__span">
+                                width
+                                <select class="ds-input ds-input--xs" @onchange="e => SetSpan(index, e.Value)">
+                                    @foreach (int span in new[] { 4, 6, 8, 12 })
+                                    {
+                                        <option value="@span" selected="@(_layout[index].ColumnSpan == span)">@span</option>
+                                    }
+                                </select>
+                            </span>
+                            <span class="ds-widgetlist__moves">
+                                <button type="button" class="ds-button ds-button--ghost ds-button--xs" @onclick="() => Move(index, -1)" disabled="@(index == 0)" aria-label="Move up">↑</button>
+                                <button type="button" class="ds-button ds-button--ghost ds-button--xs" @onclick="() => Move(index, 1)" disabled="@(index == _widgets.Count - 1)" aria-label="Move down">↓</button>
+                                <button type="button" class="ds-button ds-button--ghost ds-button--xs" @onclick="() => Remove(index)" aria-label="Remove">✕</button>
+                            </span>
+                        </li>
+                    }
+                </ol>
+            }
+        </section>
+    }
+</div>
+
+@if (_showPicker)
+{
+    <WidgetPicker Picker="Picker" OnAdd="AddWidget" OnClose="() => _showPicker = false" />
+}
+
+@code {
+    [Parameter] public long? DashboardId { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private bool _notAllowed;
+    private bool _isNew;
+    private bool _showPicker;
+    private int? _dragIndex;
+
+    private string _name = "New dashboard";
+    private string? _description;
+    private int _rangeHours = 24;
+    private int _refreshSeconds;
+    private bool _shared;
+    private readonly List<WidgetDefinition> _widgets = [];
+    private readonly List<WidgetLayout> _layout = [];
+
+    private string BackHref => _isNew ? "/dashboards" : $"/dashboards/{DashboardId}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _isNew = DashboardId is null;
+        if (!_isNew)
+        {
+            DashboardDefinition? existing = await Service.GetAsync(DashboardId!.Value, CancellationToken.None);
+            if (existing is null || !existing.OwnedByCurrentUser)
+            {
+                _notAllowed = true;
+                _loading = false;
+                return;
+            }
+
+            _name = existing.Name;
+            _description = existing.Description;
+            _rangeHours = (int)existing.DefaultTimeRange.TotalHours;
+            _refreshSeconds = (int)existing.RefreshInterval.TotalSeconds;
+            _shared = existing.IsShared;
+            _widgets.Clear();
+            _widgets.AddRange(existing.Widgets);
+            _layout.Clear();
+            _layout.AddRange(existing.Widgets.Select(w => existing.LayoutFor(w)));
+        }
+
+        _loading = false;
+    }
+
+    private void AddWidget(WidgetDefinition widget)
+    {
+        _widgets.Add(widget);
+        _layout.Add(new WidgetLayout { WidgetId = widget.Id, ColumnSpan = 4 });
+        _showPicker = false;
+        Reflow();
+    }
+
+    private void Remove(int index)
+    {
+        _widgets.RemoveAt(index);
+        _layout.RemoveAt(index);
+        Reflow();
+    }
+
+    private void Move(int index, int delta)
+    {
+        int target = index + delta;
+        if (target < 0 || target >= _widgets.Count)
+        {
+            return;
+        }
+
+        (_widgets[index], _widgets[target]) = (_widgets[target], _widgets[index]);
+        (_layout[index], _layout[target]) = (_layout[target], _layout[index]);
+        Reflow();
+    }
+
+    private void DropOn(int index)
+    {
+        if (_dragIndex is not { } from || from == index)
+        {
+            _dragIndex = null;
+            return;
+        }
+
+        WidgetDefinition w = _widgets[from];
+        WidgetLayout l = _layout[from];
+        _widgets.RemoveAt(from);
+        _layout.RemoveAt(from);
+        int to = from < index ? index - 1 : index;
+        _widgets.Insert(to, w);
+        _layout.Insert(to, l);
+        _dragIndex = null;
+        Reflow();
+    }
+
+    private void SetSpan(int index, object? value)
+    {
+        if (int.TryParse(value?.ToString(), out int span))
+        {
+            _layout[index] = _layout[index] with { ColumnSpan = span };
+            Reflow();
+        }
+    }
+
+    /// <summary>Re-flows the reading order into a 12-column grid.</summary>
+    private void Reflow()
+    {
+        int col = 0;
+        int row = 0;
+        for (int i = 0; i < _widgets.Count; i++)
+        {
+            int span = Math.Clamp(_layout[i].ColumnSpan, 4, 12);
+            if (col + span > 12)
+            {
+                col = 0;
+                row++;
+            }
+
+            _layout[i] = new WidgetLayout { WidgetId = _widgets[i].Id, Column = col, Row = row, ColumnSpan = span, RowSpan = _layout[i].RowSpan };
+            col += span;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        Reflow();
+        var dashboard = new DashboardDefinition
+        {
+            Id = DashboardId ?? 0,
+            Name = _name.Trim(),
+            Description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            IsShared = _shared,
+            DefaultTimeRange = TimeSpan.FromHours(Math.Max(1, _rangeHours)),
+            RefreshInterval = TimeSpan.FromSeconds(Math.Max(0, _refreshSeconds)),
+            Widgets = [.. _widgets],
+            Layout = [.. _layout],
+        };
+
+        DashboardActionResult r = await Service.SaveAsync(dashboard, CancellationToken.None);
+        _saving = false;
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Ok ? r.Message : string.Join(" ", new[] { r.Message }.Concat(r.Errors)));
+        if (r.Ok)
+        {
+            Nav.NavigateTo($"/dashboards/{r.DashboardId}");
+        }
+    }
+}
