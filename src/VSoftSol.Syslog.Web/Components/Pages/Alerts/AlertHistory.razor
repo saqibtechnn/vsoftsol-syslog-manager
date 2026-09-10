@@ -1,0 +1,165 @@
+@page "/alerts/history"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Alerts
+@using VSoftSol.Syslog.Data.Alerts
+@using VSoftSol.Syslog.Web.Alerts
+@inject AlertAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Alert history — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Alert history</h1>
+        <a class="ds-button ds-button--ghost" href="/alerts">Back to alerts</a>
+    </header>
+
+    <div class="ds-form__row ds-alertfilter">
+        <FormField Label="State" FieldId="h-state">
+            <select id="h-state" class="ds-input ds-input--sm" @bind="_state">
+                <option value="">Any</option>
+                <option value="firing">Firing</option>
+                <option value="acknowledged">Acknowledged</option>
+                <option value="resolved">Resolved</option>
+            </select>
+        </FormField>
+        <FormField Label="From" FieldId="h-from"><input id="h-from" class="ds-input ds-input--sm" type="date" @bind="_from" /></FormField>
+        <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="RefreshAsync">Apply</button>
+    </div>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else if (_rows.Count == 0)
+    {
+        <EmptyState Title="Nothing here yet" Explanation="Fired alerts and their full lifecycle appear here." Icon="🔔" />
+    }
+    else
+    {
+        <table class="ds-table">
+            <thead><tr><th>Alert</th><th>Group</th><th>Observed</th><th>Opened</th><th>State</th><th>Resolved</th><th></th></tr></thead>
+            <tbody>
+                @foreach (AlertInstanceView v in _rows)
+                {
+                    <tr>
+                        <td>@v.AlertName</td>
+                        <td>@(v.Instance.GroupValue ?? "—")</td>
+                        <td class="ds-table__td--num">@v.Instance.ObservedValue.ToString("N0")</td>
+                        <td>@v.Instance.OpenedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                        <td><span class="ds-statepill ds-statepill--@v.Instance.State.ToString().ToLowerInvariant()">@v.Instance.State</span></td>
+                        <td>@(v.Instance.ResolvedUtc is { } r ? r.ToLocalTime().ToString("yyyy-MM-dd HH:mm") + (v.Instance.AutoResolved ? " (auto)" : "") : "—")</td>
+                        <td class="ds-table__td--num">
+                            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => ToggleDetailAsync(v.Instance.InstanceId)">
+                                @(_expanded == v.Instance.InstanceId ? "Hide" : "Details")
+                            </button>
+                        </td>
+                    </tr>
+                    @if (_expanded == v.Instance.InstanceId)
+                    {
+                        <tr class="ds-alertdetail"><td colspan="7">
+                            <h3>Lifecycle</h3>
+                            <ol class="ds-timeline">
+                                @foreach (AlertTransition t in _transitions)
+                                {
+                                    <li><strong>@(t.From is { } f ? $"{f} → " : "")@t.To</strong> by @t.Actor
+                                        <span class="ds-muted">@t.OccurredUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                                        @if (!string.IsNullOrWhiteSpace(t.Note)) { <div class="ds-muted">@t.Note</div> }
+                                    </li>
+                                }
+                            </ol>
+                            <h3>Triggering events</h3>
+                            @if (_events.Count == 0)
+                            {
+                                <p class="ds-muted">No triggering events were recorded for this firing.</p>
+                            }
+                            else
+                            {
+                                <ul class="ds-triggerlist">
+                                    @foreach (TriggerEventView e in _events)
+                                    {
+                                        <li>
+                                            @if (e.Visible)
+                                            {
+                                                <a href="/search?q=event_id:@e.EventId">#@e.EventId</a>
+                                                <span class="ds-muted">@e.ReceivedUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                <span>@e.Hostname</span>
+                                                <span>@e.Message</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="ds-muted">#@e.EventId (outside your visible scope)</span>
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </td></tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "instance")] public long? InstanceParam { get; set; }
+
+    private bool _loading = true;
+    private string _state = string.Empty;
+    private DateOnly? _from;
+    private IReadOnlyList<AlertInstanceView> _rows = [];
+    private long? _expanded;
+    private IReadOnlyList<AlertTransition> _transitions = [];
+    private IReadOnlyList<TriggerEventView> _events = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        if (InstanceParam is { } id)
+        {
+            await ToggleDetailAsync(id);
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        var query = new AlertHistoryQuery
+        {
+            State = _state switch
+            {
+                "firing" => AlertState.Firing,
+                "acknowledged" => AlertState.Acknowledged,
+                "resolved" => AlertState.Resolved,
+                _ => null,
+            },
+            FromUtc = _from is { } d ? new DateTimeOffset(d.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null,
+            Limit = 300,
+        };
+        _rows = await Admin.ListHistoryAsync(query, CancellationToken.None);
+        _loading = false;
+    }
+
+    private async Task ToggleDetailAsync(long instanceId)
+    {
+        if (_expanded == instanceId)
+        {
+            _expanded = null;
+            return;
+        }
+
+        (AlertInstance? instance, IReadOnlyList<AlertTransition> transitions, IReadOnlyList<TriggerEventView> events) =
+            await Admin.GetInstanceAsync(instanceId, CancellationToken.None);
+        if (instance is null)
+        {
+            Toast.Error("That alert instance is not available.");
+            return;
+        }
+
+        _expanded = instanceId;
+        _transitions = transitions;
+        _events = events;
+    }
+}

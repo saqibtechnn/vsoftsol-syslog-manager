@@ -51,6 +51,34 @@ PASS (hostname·vendor·name encoded on pending queue + health card, byte-identi
 storage) / authorization-on-approval PASS (Administrator-only enforced at the service, not
 just the page `[Authorize]`; Operator + Read-Only refused, device stays pending)**.
 
+## Phase 8 — environmental carry (not a finding)
+
+| ID | Item | Severity | Disposition | Operator sign-off |
+|---|---|---|---|---|
+| P8-1 | The "would have fired N times in 7 days" preview is exact only for the SQL fast path (threshold, no filter, groupable field); filtered / distinct-count / absence alerts get a sampled estimate labelled "approximately" | Info | Not a correctness issue — evaluation itself is always exact. `AlertAdminService.PreviewAsync` samples 24 windows for the non-SQL path. Refine to a full replay if operators ask. `docs/evidence/phase-08/known-issues.md`. | _pending_ |
+| P8-2 | DeviceSilent live-daemon scenario ("send traffic from a fake device, stop it, confirm the alert fires") not run against `rsyslogd` — no daemon on the dev VM | Info | Reproduced deterministically on a virtual clock (`AlertDeviceSilentTests`). Same class as P3-1. Live run on the Phase 12 checklist. | _pending_ |
+| P8-3 | Scheduled-evaluation timing not benchmarked at scale (a filtered-window scan over a 2M-event DB; a tick over dozens of alerts) | Info | Alert evaluation is off the ingest path — the 5,000 msg/sec gate is unaffected (`git diff --stat src/…Ingestion` = 0 files this phase). Bounded by `Alerts:MaxWindowScan` (500k rows). Carried to the Phase 12 clean-VM acceptance run alongside P5-1 / P6-1 / P7-4. | _pending_ |
+| P4-1 | OWASP ZAP DAST still not executed | Info | Carried. The `/alerts*` surfaces get compensating xUnit assertions against real Kestrel over HTTPS (`AlertWebTests`). | _pending_ |
+| P4-2 | axe-core + live keyboard/AT traversal still not executed | Info | Carried. Structural a11y for the alert list / editor / templates / history verified in source + `ds.css`. `docs/evidence/phase-08/ux-gate.md`. | _pending_ |
+
+Phase 8 security gate: **SAST PASS / SCA PASS (no new dependency) / secrets PASS (alert
+actions reuse the Phase 7 name-only model; `alert_action_queue.payload_json` never carries a
+value) / branding literal guard PASS / notification-flood containment PASS (per-alert dedup
++ re-notify interval + per-action rate limit/cool-down + global per-minute budget with
+storm-collapse; a 40,000-event flood → 1 firing / 1 notification) / information-disclosure
+PASS (instance listings scope-filtered; triggering events via `ScopedEventReader` — an event
+in an unseen stream is not disclosed) / stored-XSS PASS (alert fields stored byte-identical,
+encoded at render, substituted literally by `FieldTemplate`; email is plain-text, CR/LF
+stripped from subjects) / lifecycle authorization PASS (ack/resolve Administrator/Operator
+only — Read-Only and Auditor refused at the service; audited with the true actor) /
+restart-safety PASS (checkpoint survives; missed run audited not skipped; 4 crash points
+converge to one instance) / evaluator oracle PASS (5,000 cases, 0 divergences) +
+SQL/in-memory fetch differential PASS + 12-scenario labelled FP/FN set (0.0% / 0.0%) /
+`RuleActionValidator` shared with Phase 7 → SSRF / command-injection / traversal /
+SMTP-injection guards unchanged, Phase 7 matrices still green**. DAST (ZAP) NOT RUN (P4-1).
+Mutation run BLOCKED (P3-3). Threat model **not** reviewed (scheduled: Phases 4, 7, 11) —
+B4 addendum + 4 alert rows recorded for the Phase 11 review.
+
 ## Phase 7 — environmental carry (not a finding)
 
 | ID | Item | Severity | Disposition | Operator sign-off |

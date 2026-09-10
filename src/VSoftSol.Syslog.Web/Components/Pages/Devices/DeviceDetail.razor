@@ -6,6 +6,7 @@
 @using VSoftSol.Syslog.Web.Devices
 @inject DeviceAdminService Admin
 @inject SqliteDeviceMetrics Metrics
+@inject VSoftSol.Syslog.Web.Alerts.AlertAdminService Alerts
 @inject ToastService Toast
 @inject NavigationManager Nav
 
@@ -50,6 +51,13 @@
                         }
                     </ul>
                 }
+                <AuthorizeView Policy="@AuthPolicies.Operate" Context="_">
+                    <div class="ds-healthcard__actions">
+                        <button type="button" class="ds-button ds-button--primary ds-button--sm" @onclick="AlertOnSilenceAsync">
+                            🔔 Alert me if this device goes silent
+                        </button>
+                    </div>
+                </AuthorizeView>
             </section>
         }
 
@@ -195,6 +203,13 @@
         {
             Toast.Error(result.Message);
         }
+    }
+
+    private async Task AlertOnSilenceAsync()
+    {
+        VSoftSol.Syslog.Web.Alerts.AlertActionResult result =
+            await Alerts.CreateDeviceSilentAsync(DeviceId, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
     }
 
     private static Device Blank() => new()

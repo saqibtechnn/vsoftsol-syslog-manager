@@ -1,0 +1,7 @@
+Phase 8 — full suite (Release, --no-build). unit + integration.
+
+Passed!  - Failed:     0, Passed:   712, Skipped:     0, Total:   712, Duration: 1 m 23 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+=== INTEGRATION ===
+Passed!  - Failed:     0, Passed:   494, Skipped:     0, Total:   494, Duration: 6 m 48 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+
+[exited with code 0]

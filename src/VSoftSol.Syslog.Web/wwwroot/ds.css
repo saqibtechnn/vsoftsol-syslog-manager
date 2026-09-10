@@ -352,3 +352,29 @@
     .ds-form__row { flex-direction: column; align-items: stretch; }
     .ds-templategrid { grid-template-columns: 1fr; }
 }
+
+/* ---- Phase 8: alerts ---- */
+.ds-alertsection { margin: 1.5rem 0; }
+.ds-alertsection h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+.ds-alertrow--critical { border-left: 3px solid var(--ds-danger, #b3261e); }
+.ds-alertrow--warning { border-left: 3px solid var(--ds-warn, #e37400); }
+.ds-alertrow--info { border-left: 3px solid var(--ds-accent, #1a73e8); }
+.ds-statepill { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; font-size: 0.75rem; border: 1px solid var(--ds-border); }
+.ds-statepill--firing { background: color-mix(in srgb, var(--ds-danger, #b3261e) 15%, transparent); }
+.ds-statepill--acknowledged { background: color-mix(in srgb, var(--ds-warn, #e37400) 15%, transparent); }
+.ds-statepill--resolved { background: color-mix(in srgb, var(--ds-ok, #188038) 12%, transparent); }
+.ds-preview { margin: 0.75rem 0; padding: 0.6rem 0.9rem; border: 1px solid var(--ds-border); border-radius: var(--ds-radius); background: var(--ds-surface); }
+.ds-preview__notes { margin: 0.4rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.ds-alertfilter { align-items: flex-end; }
+.ds-alertdetail > td { background: var(--ds-surface); padding: 0.9rem 1.2rem; }
+.ds-timeline { margin: 0.3rem 0 1rem; padding-left: 1.1rem; font-size: 0.9rem; }
+.ds-timeline li { margin: 0.25rem 0; }
+.ds-triggerlist { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+.ds-triggerlist li { padding: 0.25rem 0; border-bottom: 1px solid var(--ds-border); }
+.ds-healthcard__actions { margin-top: 0.75rem; }
+.ds-notifications__alerts { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--ds-border); }
+.ds-notifications__alerts a { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; text-decoration: none; color: inherit; }
+.ds-alertcount { font-size: 0.75rem; padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px solid var(--ds-border); }
+.ds-alertcount--critical { background: color-mix(in srgb, var(--ds-danger, #b3261e) 18%, transparent); }
+.ds-alertcount--warning { background: color-mix(in srgb, var(--ds-warn, #e37400) 18%, transparent); }
+.ds-alertcount--info { background: color-mix(in srgb, var(--ds-accent, #1a73e8) 15%, transparent); }

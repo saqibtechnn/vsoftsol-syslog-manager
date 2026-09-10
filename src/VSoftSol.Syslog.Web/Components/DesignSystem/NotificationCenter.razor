@@ -1,9 +1,12 @@
 @* Notification centre (PHASE_04 shell, wired in PHASE_07). Rules raise notifications via
    the RaiseNotification action; the operator reads / dismisses them here. *@
 @rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Rules
 @using VSoftSol.Syslog.Data.Notifications
 @using VSoftSol.Syslog.Web.Notifications
+@using VSoftSol.Syslog.Web.Alerts
 @inject NotificationService Notifications
+@inject AlertAdminService Alerts
 
 <details class="ds-notifications">
     <summary class="ds-icon-button" aria-label="@($"Notifications ({_unread} unread)")" title="Notifications">
@@ -14,6 +17,18 @@
         }
     </summary>
     <div class="ds-notifications__panel" role="region" aria-label="Notification centre">
+        @if (_openAlerts.Count > 0)
+        {
+            <div class="ds-notifications__alerts">
+                <a href="/alerts">
+                    <strong>Open alerts</strong>
+                    @foreach ((NotificationLevel level, int count) in _openAlerts.OrderByDescending(kv => kv.Key))
+                    {
+                        <span class="ds-alertcount ds-alertcount--@level.ToString().ToLowerInvariant()">@count @level.ToString().ToLowerInvariant()</span>
+                    }
+                </a>
+            </div>
+        }
         <header class="ds-notifications__header">
             <span>Notifications</span>
             @if (_items.Count > 0)
@@ -55,6 +70,7 @@
     private bool _loading = true;
     private long _unread;
     private IReadOnlyList<NotificationRow> _items = [];
+    private IReadOnlyDictionary<NotificationLevel, int> _openAlerts = new Dictionary<NotificationLevel, int>();
 
     protected override async Task OnInitializedAsync() => await RefreshAsync();
 
@@ -70,6 +86,15 @@
         {
             _items = [];
             _unread = 0;
+        }
+
+        try
+        {
+            _openAlerts = await Alerts.OpenCountsBySeverityAsync(CancellationToken.None);
+        }
+        catch
+        {
+            _openAlerts = new Dictionary<NotificationLevel, int>();
         }
 
         _loading = false;

@@ -1,0 +1,155 @@
+{
+  "_comment": "PHASE_08 labelled dataset for false-positive / false-negative measurement. Version-controlled data, never generated at test time (TESTING_STANDARDS 2.9). Each scenario: seed the events, create the alert, evaluate once at evaluateAtOffsetSeconds, and compare 'open instances > 0' with expectFire.",
+  "scenarios": [
+    {
+      "name": "threshold: 6 matching in a 5-min window, threshold 5 -> FIRE",
+      "alert": { "type": "threshold", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 5, "groupBy": "hostname", "filterContains": ["authentication failure"] },
+      "events": [
+        { "offsetSeconds": -240, "hostname": "sw1", "message": "authentication failure for root" },
+        { "offsetSeconds": -200, "hostname": "sw1", "message": "authentication failure for admin" },
+        { "offsetSeconds": -160, "hostname": "sw1", "message": "authentication failure for guest" },
+        { "offsetSeconds": -120, "hostname": "sw1", "message": "authentication failure for oper" },
+        { "offsetSeconds": -80, "hostname": "sw1", "message": "authentication failure for test" },
+        { "offsetSeconds": -40, "hostname": "sw1", "message": "authentication failure for x" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": true
+    },
+    {
+      "name": "threshold: exactly 5 matching, threshold 5 -> NO FIRE (exceeds N)",
+      "alert": { "type": "threshold", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 5, "groupBy": "hostname", "filterContains": ["authentication failure"] },
+      "events": [
+        { "offsetSeconds": -200, "hostname": "sw1", "message": "authentication failure a" },
+        { "offsetSeconds": -160, "hostname": "sw1", "message": "authentication failure b" },
+        { "offsetSeconds": -120, "hostname": "sw1", "message": "authentication failure c" },
+        { "offsetSeconds": -80, "hostname": "sw1", "message": "authentication failure d" },
+        { "offsetSeconds": -40, "hostname": "sw1", "message": "authentication failure e" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": false
+    },
+    {
+      "name": "threshold: 8 matching but 4 are outside the window -> NO FIRE",
+      "alert": { "type": "threshold", "windowSeconds": 120, "intervalSeconds": 60, "threshold": 4, "groupBy": "hostname", "filterContains": ["denied"] },
+      "events": [
+        { "offsetSeconds": -600, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -500, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -400, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -300, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -90, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -60, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -30, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -10, "hostname": "fw1", "message": "connection denied" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": false
+    },
+    {
+      "name": "threshold: 5 matching in-window, threshold 4 -> FIRE",
+      "alert": { "type": "threshold", "windowSeconds": 120, "intervalSeconds": 60, "threshold": 4, "groupBy": "hostname", "filterContains": ["denied"] },
+      "events": [
+        { "offsetSeconds": -100, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -90, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -60, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -30, "hostname": "fw1", "message": "connection denied" },
+        { "offsetSeconds": -10, "hostname": "fw1", "message": "connection denied" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": true
+    },
+    {
+      "name": "threshold grouped: group A breaches, group B does not -> FIRE (for A only)",
+      "alert": { "type": "threshold", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 3, "groupBy": "hostname", "filterContains": [] },
+      "events": [
+        { "offsetSeconds": -100, "hostname": "core-a", "message": "x" },
+        { "offsetSeconds": -90, "hostname": "core-a", "message": "x" },
+        { "offsetSeconds": -80, "hostname": "core-a", "message": "x" },
+        { "offsetSeconds": -70, "hostname": "core-a", "message": "x" },
+        { "offsetSeconds": -60, "hostname": "core-b", "message": "x" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": true
+    },
+    {
+      "name": "no matching messages at all -> NO FIRE",
+      "alert": { "type": "threshold", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 1, "groupBy": "hostname", "filterContains": ["kernel panic"] },
+      "events": [
+        { "offsetSeconds": -100, "hostname": "sw1", "message": "link up" },
+        { "offsetSeconds": -50, "hostname": "sw1", "message": "config saved" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": false
+    },
+    {
+      "name": "distinct-count: 6 distinct source IPs, threshold 5 -> FIRE",
+      "alert": { "type": "distinct_count", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 5, "groupBy": "source_ip", "filterContains": ["failed password"] },
+      "events": [
+        { "offsetSeconds": -100, "sourceIp": "10.0.0.1", "message": "failed password" },
+        { "offsetSeconds": -95, "sourceIp": "10.0.0.2", "message": "failed password" },
+        { "offsetSeconds": -90, "sourceIp": "10.0.0.3", "message": "failed password" },
+        { "offsetSeconds": -85, "sourceIp": "10.0.0.4", "message": "failed password" },
+        { "offsetSeconds": -80, "sourceIp": "10.0.0.5", "message": "failed password" },
+        { "offsetSeconds": -75, "sourceIp": "10.0.0.6", "message": "failed password" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": true
+    },
+    {
+      "name": "distinct-count: 5 distinct source IPs, threshold 5 -> NO FIRE",
+      "alert": { "type": "distinct_count", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 5, "groupBy": "source_ip", "filterContains": ["failed password"] },
+      "events": [
+        { "offsetSeconds": -100, "sourceIp": "10.0.0.1", "message": "failed password" },
+        { "offsetSeconds": -95, "sourceIp": "10.0.0.2", "message": "failed password" },
+        { "offsetSeconds": -90, "sourceIp": "10.0.0.3", "message": "failed password" },
+        { "offsetSeconds": -85, "sourceIp": "10.0.0.4", "message": "failed password" },
+        { "offsetSeconds": -80, "sourceIp": "10.0.0.5", "message": "failed password" },
+        { "offsetSeconds": -75, "sourceIp": "10.0.0.5", "message": "failed password again" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": false
+    },
+    {
+      "name": "absence: expected backup log is missing -> FIRE",
+      "alert": { "type": "absence", "windowSeconds": 3600, "intervalSeconds": 300, "threshold": 0, "groupBy": null, "filterContains": ["backup completed"] },
+      "events": [
+        { "offsetSeconds": -1000, "hostname": "backup-01", "message": "backup started" },
+        { "offsetSeconds": -500, "hostname": "backup-01", "message": "copying files" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": true
+    },
+    {
+      "name": "absence: expected backup log is present -> NO FIRE",
+      "alert": { "type": "absence", "windowSeconds": 3600, "intervalSeconds": 300, "threshold": 0, "groupBy": null, "filterContains": ["backup completed"] },
+      "events": [
+        { "offsetSeconds": -600, "hostname": "backup-01", "message": "backup started" },
+        { "offsetSeconds": -120, "hostname": "backup-01", "message": "backup completed successfully" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": false
+    },
+    {
+      "name": "threshold, no filter, ungrouped: 4 events, threshold 3 -> FIRE",
+      "alert": { "type": "threshold", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 3, "groupBy": null, "filterContains": [] },
+      "events": [
+        { "offsetSeconds": -100, "hostname": "h1", "message": "a" },
+        { "offsetSeconds": -80, "hostname": "h2", "message": "b" },
+        { "offsetSeconds": -60, "hostname": "h3", "message": "c" },
+        { "offsetSeconds": -40, "hostname": "h4", "message": "d" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": true
+    },
+    {
+      "name": "threshold with filter that matches nothing in window: events present but wrong text -> NO FIRE",
+      "alert": { "type": "threshold", "windowSeconds": 300, "intervalSeconds": 60, "threshold": 2, "groupBy": "hostname", "filterContains": ["temperature critical"] },
+      "events": [
+        { "offsetSeconds": -100, "hostname": "sensor-1", "message": "temperature normal" },
+        { "offsetSeconds": -80, "hostname": "sensor-1", "message": "humidity normal" },
+        { "offsetSeconds": -60, "hostname": "sensor-1", "message": "fan ok" }
+      ],
+      "evaluateAtOffsetSeconds": 0,
+      "expectFire": false
+    }
+  ]
+}

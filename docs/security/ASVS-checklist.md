@@ -105,6 +105,38 @@ template injection (V5.3.5), and secret handling on failure (V6.2) are all **I**
 a named test and a matrix in `docs/evidence/phase-07/security/README.md`. Threat-model
 review #2 done.
 
+## Phase 8 L2 verification pass (V4.2, V5.3.4/5, V7.1, V11.1)
+
+Aggregation alerts (`AlertEvaluationService`) turn windows of attacker-controllable log
+volume into notifications and — via the same Phase 7 executors — outbound actions.
+
+- **V4.2 (access control at the service, not the UI)** — `AlertAdminService` checks the
+  role at the service: create/edit = Administrator/Operator, delete = Administrator only,
+  acknowledge/resolve refused for **Read-Only and Auditor** (not merely hidden). Instance
+  listings are filtered by the caller's `UserScope`; triggering-event display routes through
+  `ScopedEventReader` (the Phase 4 chokepoint) — a notification never surfaces an event from
+  a stream the viewer cannot see. `AlertWebTests`, `AlertSecurityTests`.
+- **V5.3.4/5 (injection / stored XSS)** — every `Data/Alerts/` SQL statement is
+  parameterised; the group-by column is an allow-list lookup, never interpolated. Alert
+  name/description/remediation stored byte-identical, encoded at render (Razor), and
+  substituted literally by `FieldTemplate` (no expression engine). Email bodies are
+  plain-text; CR/LF stripped from templated subjects (`AlertSecurityTests`). Alert *actions*
+  reuse `RuleActionValidator` — the same SSRF/command/traversal/SMTP guards as a rule
+  (V5.2.6 / V5.3.8 / V5.3.9 / V12.3 unchanged).
+- **V7.1 (audit)** — `alert.fired` / `acknowledged` / `resolved` / `autoresolved` /
+  `renotified` / `evaluation.missed` are `AuditActions` constants, written with the true
+  actor into the Phase 4 SHA-256 hash-chained log. A missed scheduled run is **audited**,
+  not silently skipped.
+- **V11.1 (rate-limit / anti-abuse)** — per-alert dedup (one open instance per group), a
+  per-alert re-notify interval, per-action rate limit + cool-down, and a global
+  `Alerts:GlobalActionsPerMinute` budget with storm-collapse to one summary
+  (`AlertRuntimeTests`, `AlertStormContainmentTests` — a 40k-event flood → 1 firing / 1
+  notification).
+
+Threat model **not** reviewed this phase (scheduled: Phases 4, 7, 11); new entries
+B-alerts-1..4 recorded in `docs/evidence/phase-08/security/README.md` for the Phase 11
+review.
+
 ## Open L2 gaps carried out of Phase 0
 
 - ~~CSP `'unsafe-inline'` on `style-src`~~ — **RESOLVED in Phase 4** (nonce-based CSP,

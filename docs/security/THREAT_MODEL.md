@@ -138,6 +138,21 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 | E | Template injection — a `{token}` executes an expression or reaches outside the event | `FieldTemplate` is a literal single-field lookup against `ConditionFields` (+ a small render-only set) reusing `EventFieldReader`. No expressions, no method calls, no property traversal; unknown token → empty; output capped at 64 KB | 7 | **implemented** — `FieldTemplateTests` |
 | — | Idempotency — a re-evaluated rule after a restart double-fires an action | Actions are written to the `rule_action_queue` outbox **in the event transaction**; a `UNIQUE (rule_id, event_id, action_index)` key makes a re-enqueue a no-op; an un-committed (crash-replayed) event gets a new id and never collides | 7 | **implemented** — `ActionOutboxTests`, `Migration005Tests` |
 
+> **Phase 8 addendum (not a scheduled review — that is Phase 11).** Aggregation alerts add a
+> second path to the same egress boundary: `AlertEvaluationService` (scheduled, off the
+> ingest path) enqueues alert-triggered actions to `alert_action_queue`, drained by
+> `AlertActionDispatchService` through the **same `ActionExecutorRegistry` and guards**
+> (`RuleActionValidator` is shared between `RuleCompiler` and `AlertCompiler` — no drift).
+> New rows for the Phase 11 review, evidence in `docs/evidence/phase-08/security/README.md`:
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| D | Notification flooding — an attacker generates unlimited matching events to bury the admin's inbox / a webhook | Per-alert dedup (partial unique index — one open instance per `(alert, group)`); a per-alert re-notify interval; per-action rate limit + cool-down; a global `Alerts:GlobalActionsPerMinute` budget that collapses the excess into one summary | 8 | **implemented** — `AlertStormContainmentTests` (40k-event flood → 1 firing / 1 notification; 20 groups → budget's worth + summary), `AlertRuntimeTests` |
+| I | Information disclosure — an alert notification / history surfaces an event from a stream the viewer cannot see | Instance listings filtered by the viewer's `UserScope`; every triggering-event lookup goes through `ScopedEventReader.GetByIdAsync` (Phase 4 chokepoint); the history shows "#N (outside your visible scope)" with no body. Alert *action* recipients are the author's config (an Operator with full visibility) | 8, 11 | **implemented** — `AlertSecurityTests.TriggeringEvents_OutsideTheViewersScope_AreNotDisclosed` |
+| T | Stored XSS in alert name / description / remediation / group value rendered in the notification centre, history, and email | Stored byte-identical, encoded at render (Razor); `FieldTemplate` substitutes literally (no expression engine); email bodies are plain-text, CR/LF stripped from templated subjects | 8 | **implemented** — `AlertSecurityTests` (store byte-identical, literal template render, no CR/LF in subject) |
+| E | An unauthorised role acknowledges / resolves / edits an alert | Role checked **at the service** (`AlertAdminService`): create/edit = Administrator/Operator, delete = Administrator, ack/resolve refused for Read-Only **and Auditor**; every transition audited with the true actor into the hash-chained log | 8 | **implemented** — `AlertWebTests` (refusal + audit-with-actor) |
+| — | A scheduled evaluation is skipped after a restart / overload → a real incident is missed | `alert_eval_runs` checkpoint survives restart; a run overdue past the grace window writes an `alert.evaluation.missed` audit row and catches up on the current window — never silently skipped; instance dedup + the outbox UNIQUE key `(instance_id, action_index, notify_seq)` prevent a double-fire on catch-up | 8 | **implemented** — `AlertRestartTests` (restart no double-fire; 40-min outage caught up + audited; 4 crash points converge to one instance) |
+
 ---
 
 ## B5 — Operator → installer & config-bundle import
@@ -171,5 +186,6 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 |---|---|
 | Phase 4 | Re-draw B2 now that the UI, RBAC, sessions, and audit log exist — **done** |
 | Phase 7 | Re-draw B4 now that rule actions (SSRF, command injection, path traversal) exist — **done** (2026-09-09) |
-| Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import |
+| Phase 8 | (not a scheduled review) B4 addendum for alert-triggered actions + 4 alert-specific rows recorded for the Phase 11 review — **done** (2026-09-10) |
+| Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import; fold in the Phase 8 alert rows |
 | Phase 12 | Full pre-release pen test (SECURITY_STANDARDS.md §7) |

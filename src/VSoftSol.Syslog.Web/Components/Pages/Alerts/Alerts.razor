@@ -1,0 +1,174 @@
+@page "/alerts"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Alerts
+@using VSoftSol.Syslog.Core.Rules
+@using VSoftSol.Syslog.Data.Alerts
+@using VSoftSol.Syslog.Web.Alerts
+@inject AlertAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Alerts — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Alerts</h1>
+        <div class="ds-page__headeractions">
+            <a class="ds-button ds-button--ghost" href="/alerts/templates">Templates</a>
+            <a class="ds-button ds-button--ghost" href="/alerts/history">History</a>
+            <a class="ds-button ds-button--primary" href="/alerts/0">New alert</a>
+        </div>
+    </header>
+
+    <p class="ds-muted">Alerts watch a window of data on a schedule — a burst of failures, an unusual
+        number of sources, a device that has gone quiet. They fire once, stay open until acknowledged
+        or resolved, and auto-resolve when the condition clears.</p>
+
+    <section class="ds-alertsection">
+        <h2>Open alerts</h2>
+        @if (_loading)
+        {
+            <SkeletonLoader Rows="3" />
+        }
+        else if (_open.Count == 0)
+        {
+            <EmptyState Title="Nothing firing" Explanation="Open alerts appear here, most severe first." Icon="🔔" />
+        }
+        else
+        {
+            <table class="ds-table">
+                <thead><tr><th>Severity</th><th>Alert</th><th>Group</th><th>Observed</th><th>Opened</th><th>State</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (AlertInstanceView v in _open.OrderByDescending(x => x.Instance.Severity).ThenByDescending(x => x.Instance.OpenedUtc))
+                    {
+                        <tr class="ds-alertrow ds-alertrow--@v.Instance.Severity.ToString().ToLowerInvariant()">
+                            <td><SeverityBadge Severity="ToSeverity(v.Instance.Severity)" /></td>
+                            <td><a href="/alerts/history?instance=@v.Instance.InstanceId">@v.AlertName</a></td>
+                            <td>@(v.Instance.GroupValue ?? "—")</td>
+                            <td class="ds-table__td--num">@v.Instance.ObservedValue.ToString("N0") <span class="ds-muted">/ @v.Instance.Threshold</span></td>
+                            <td>@v.Instance.OpenedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td><span class="ds-statepill ds-statepill--@v.Instance.State.ToString().ToLowerInvariant()">@v.Instance.State</span></td>
+                            <td class="ds-table__td--num">
+                                @if (v.Instance.State == AlertState.Firing)
+                                {
+                                    <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => AckAsync(v.Instance.InstanceId)">Acknowledge</button>
+                                }
+                                <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => ResolveAsync(v.Instance.InstanceId)">Resolve</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+
+    <section class="ds-alertsection">
+        <h2>Alert definitions</h2>
+        @if (_loading)
+        {
+            <SkeletonLoader Rows="5" />
+        }
+        else if (_defs.Count == 0)
+        {
+            <EmptyState Title="No alerts yet"
+                        Explanation="Alerts catch incident patterns — five failed logins in two minutes, a switch that has gone silent. Start from a template."
+                        Icon="🔔" />
+        }
+        else
+        {
+            <table class="ds-table">
+                <thead><tr><th>Name</th><th>Type</th><th>Window</th><th>Fires</th><th>Last fired</th><th>Enabled</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (AlertRow a in _defs)
+                    {
+                        <tr>
+                            <td><a href="/alerts/@a.AlertId">@a.Name</a> @if (a.IsSystem) { <span class="ds-chip">system</span> }</td>
+                            <td>@Label(a.Type)</td>
+                            <td>@FormatWindow(a.WindowSeconds)</td>
+                            <td class="ds-table__td--num">@a.HitCount.ToString("N0")</td>
+                            <td>@(a.LastFiredUtc is { } t ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "—")</td>
+                            <td>
+                                <label class="ds-switch">
+                                    <input type="checkbox" checked="@a.Enabled" @onchange="e => ToggleAsync(a, (bool)e.Value!)" />
+                                    <span>@(a.Enabled ? "on" : "off")</span>
+                                </label>
+                            </td>
+                            <td class="ds-table__td--num">
+                                <a class="ds-button ds-button--ghost ds-button--sm" href="/alerts/@a.AlertId">Edit</a>
+                                @if (!a.IsSystem)
+                                {
+                                    <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="() => DeleteAsync(a)">Delete</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private bool _loading = true;
+    private IReadOnlyList<AlertRow> _defs = [];
+    private IReadOnlyList<AlertInstanceView> _open = [];
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _defs = await Admin.ListDefinitionsAsync(CancellationToken.None);
+        _open = await Admin.ListOpenAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private async Task ToggleAsync(AlertRow alert, bool enabled)
+    {
+        AlertActionResult r = await Admin.SetEnabledAsync(alert.AlertId, enabled, CancellationToken.None);
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Message);
+        await RefreshAsync();
+    }
+
+    private async Task DeleteAsync(AlertRow alert)
+    {
+        AlertActionResult r = await Admin.DeleteAsync(alert.AlertId, CancellationToken.None);
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Message);
+        if (r.Ok) { await RefreshAsync(); }
+    }
+
+    private async Task AckAsync(long instanceId)
+    {
+        AlertActionResult r = await Admin.AcknowledgeAsync(instanceId, null, CancellationToken.None);
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Message);
+        await RefreshAsync();
+    }
+
+    private async Task ResolveAsync(long instanceId)
+    {
+        AlertActionResult r = await Admin.ResolveAsync(instanceId, null, CancellationToken.None);
+        Toast.Show(r.Ok ? ToastLevel.Success : ToastLevel.Error, r.Message);
+        await RefreshAsync();
+    }
+
+    private static VSoftSol.Syslog.Core.Enums.Severity ToSeverity(NotificationLevel level) => level switch
+    {
+        NotificationLevel.Critical => VSoftSol.Syslog.Core.Enums.Severity.Critical,
+        NotificationLevel.Info => VSoftSol.Syslog.Core.Enums.Severity.Informational,
+        _ => VSoftSol.Syslog.Core.Enums.Severity.Warning,
+    };
+
+    private static string Label(AlertEvaluationType type) => type switch
+    {
+        AlertEvaluationType.Threshold => "Threshold",
+        AlertEvaluationType.DistinctCount => "Distinct count",
+        AlertEvaluationType.DeviceSilent => "Device silent",
+        AlertEvaluationType.Absence => "Absence",
+        _ => type.ToString(),
+    };
+
+    private static string FormatWindow(int seconds) => seconds >= 86400
+        ? $"{seconds / 86400} d"
+        : seconds >= 3600 ? $"{seconds / 3600} h" : $"{seconds / 60} min";
+}

@@ -49,4 +49,16 @@ public static class AuditActions
     public const string ActionTested = "action.tested";
 
     public const string NotificationRaised = "notification.raised";
+
+    public const string AlertCreate = "alert.create";
+    public const string AlertUpdate = "alert.update";
+    public const string AlertDelete = "alert.delete";
+    public const string AlertEnable = "alert.enable";
+    public const string AlertDisable = "alert.disable";
+    public const string AlertFired = "alert.fired";
+    public const string AlertAcknowledged = "alert.acknowledged";
+    public const string AlertResolved = "alert.resolved";
+    public const string AlertAutoResolved = "alert.autoresolved";
+    public const string AlertRenotified = "alert.renotified";
+    public const string AlertEvaluationMissed = "alert.evaluation.missed";
 }

@@ -26,6 +26,7 @@ public static class WebSecurityExtensions
         services.TryAddScoped<VSoftSol.Syslog.Web.Devices.DeviceAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Streams.StreamAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Rules.RuleAdminService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Alerts.AlertAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Notifications.NotificationService>();
 
         services.AddOptions<WebAuthOptions>()

@@ -1,0 +1,50 @@
+@page "/alerts/templates"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Seed
+@using VSoftSol.Syslog.Web.Alerts
+@inject AlertAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Alert templates — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Alert templates</h1>
+        <a class="ds-button ds-button--ghost" href="/alerts">Back to alerts</a>
+    </header>
+
+    <p class="ds-muted">Clone a template to get a working alert you can adjust. A clone starts disabled — review it, then turn it on.</p>
+
+    <div class="ds-templategrid">
+        @for (int i = 0; i < AlertAdminService.Templates.Count; i++)
+        {
+            int index = i;
+            DefaultAlertTemplates.Template t = AlertAdminService.Templates[index];
+            <article class="ds-templatecard">
+                <span class="ds-chip">@t.Category</span>
+                <h2>@t.Alert.Name</h2>
+                <p>@t.Summary</p>
+                <button type="button" class="ds-button ds-button--primary ds-button--sm" @onclick="() => CloneAsync(index)">Clone &amp; edit</button>
+            </article>
+        }
+    </div>
+</div>
+
+@code {
+    private async Task CloneAsync(int index)
+    {
+        AlertActionResult result = await Admin.CloneTemplateAsync(index, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            IReadOnlyList<VSoftSol.Syslog.Data.Alerts.AlertRow> all = await Admin.ListDefinitionsAsync(CancellationToken.None);
+            VSoftSol.Syslog.Data.Alerts.AlertRow? mine = all.LastOrDefault();
+            if (mine is not null)
+            {
+                Nav.NavigateTo($"/alerts/{mine.AlertId}");
+            }
+        }
+    }
+}

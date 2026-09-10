@@ -1,0 +1,43 @@
+Phase 8 — coverage (union of the unit and integration suites; a line counts as covered
+if hits > 0 in either). Computed over:
+  coverage-unittests.cobertura.xml    (712 tests)
+  coverage-integration.cobertura.xml  (494 tests)
+
+Gate: line coverage >= 80% on Ingestion, Rules, Reporting (TESTING_STANDARDS.md §3).
+
+  VSoftSol.Syslog.Ingestion   90.56%   (1900/2098)   PASS   (unchanged — no Phase 8 code;
+                                                            the -0.10 vs Phase 7's 90.66% is
+                                                            test-count noise on the enrich
+                                                            closure, still well clear)
+  VSoftSol.Syslog.Rules       84.34%   (1223/1450)   PASS   (Rules/Alerts/* — AlertCompiler,
+                                                            AlertEvaluator, AlertRuntime,
+                                                            AlertGrouping, RuleActionValidator;
+                                                            + the unchanged Phase 6/7 engine.
+                                                            Was 83.67% at Phase 7)
+  VSoftSol.Syslog.Reporting   93.81%   (106/113)     PASS   (unchanged — no Phase 8 code)
+
+Non-gated:
+  VSoftSol.Syslog.Core        90.00%   (909/1010)    Alerts/* — AlertDefinition,
+                                                     AlertInstance, AlertTransition, the two
+                                                     enums, AlertWindowData,
+                                                     SearchToConditionTranslator
+  VSoftSol.Syslog.Data        86.84%   (4018/4627)   Alerts/* stores, migration 006,
+                                                     DefaultAlertTemplates, AlertJson,
+                                                     SqliteAlertWindowReader (was 85.27% at
+                                                     Phase 7)
+  VSoftSol.Syslog.Web         58.69%   (1929/3287)   no gate; the alert editor / history
+                                                     interactive branches (@onclick, @bind,
+                                                     the RuleActionEditor per-kind forms
+                                                     reused) are unreachable without a
+                                                     browser (P4-2). AlertAdminService is
+                                                     covered by AlertWebTests /
+                                                     AlertSecurityTests
+  VSoftSol.Syslog.Service     75.08%   (663/883)     no gate (composition root); the
+                                                     AlertEvaluationService reconcile / fetch
+                                                     paths and AlertActionDispatchService are
+                                                     exercised by the ~26 scheduler
+                                                     integration tests + the harness
+  VSoftSol.Syslog.BrandingGen 86.55%   (193/223)     build tool (unchanged)
+
+Gate: PASS on all three gated assemblies. No assembly above 80% regressed below it
+(Data 85.27% -> 86.84%, non-gated).

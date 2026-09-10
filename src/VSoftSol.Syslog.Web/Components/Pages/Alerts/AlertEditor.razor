@@ -1,0 +1,269 @@
+@page "/alerts/{AlertId:long}"
+@attribute [Authorize(Policy = AuthPolicies.Operate)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Alerts
+@using VSoftSol.Syslog.Core.Conditions
+@using VSoftSol.Syslog.Core.Rules
+@using VSoftSol.Syslog.Data.Alerts
+@using VSoftSol.Syslog.Web.Alerts
+@using VSoftSol.Syslog.Web.Rules
+@using VSoftSol.Syslog.Web.Streams
+@using VSoftSol.Syslog.Web.Components.Pages.Rules
+@inject AlertAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>@(AlertId == 0 ? "New alert" : _model.Name) — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-ruleeditor">
+    <header class="ds-page__header">
+        <h1>@(AlertId == 0 ? "New alert" : "Edit alert")</h1>
+        <a class="ds-button ds-button--ghost" href="/alerts">Back to alerts</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="8" />
+    }
+    else if (_notFound)
+    {
+        <EmptyState Title="Alert not found" Explanation="It may have been deleted." Icon="🔔" />
+    }
+    else
+    {
+        <section class="ds-form__section">
+            <div class="ds-form__row">
+                <FormField Label="Name" FieldId="a-name" Required="true"><input id="a-name" class="ds-input" @bind="_model.Name" disabled="@_model.IsSystem" /></FormField>
+                <FormField Label="Severity" FieldId="a-sev">
+                    <select id="a-sev" class="ds-input ds-input--sm" @bind="_model.Severity">
+                        <option value="@NotificationLevel.Info">Info</option>
+                        <option value="@NotificationLevel.Warning">Warning</option>
+                        <option value="@NotificationLevel.Critical">Critical</option>
+                    </select>
+                </FormField>
+                <FormField Label="Enabled" FieldId="a-en"><label><input id="a-en" type="checkbox" @bind="_model.Enabled" /> Evaluate this alert</label></FormField>
+            </div>
+            <FormField Label="Description" FieldId="a-desc"><input id="a-desc" class="ds-input" @bind="_model.Description" /></FormField>
+        </section>
+
+        <section class="ds-form__section">
+            <h2>What to watch for</h2>
+            <div class="ds-form__row">
+                <FormField Label="Evaluation type" FieldId="a-type">
+                    <select id="a-type" class="ds-input" value="@_model.Type" @onchange="ChangeType">
+                        <option value="@AlertEvaluationType.Threshold">Threshold — count exceeds N</option>
+                        <option value="@AlertEvaluationType.DistinctCount">Distinct count — N+ distinct values</option>
+                        <option value="@AlertEvaluationType.DeviceSilent">Device silent — no traffic from a device</option>
+                        <option value="@AlertEvaluationType.Absence">Absence — nothing matched</option>
+                    </select>
+                </FormField>
+                <FormField Label="Window (minutes)" FieldId="a-win"><input id="a-win" class="ds-input ds-input--sm" type="number" min="1" value="@(_model.WindowSeconds / 60)" @onchange="e => _model.WindowSeconds = ParseMinutes(e.Value, 5)" /></FormField>
+                <FormField Label="Check every (seconds)" FieldId="a-int"><input id="a-int" class="ds-input ds-input--sm" type="number" min="1" @bind="_model.IntervalSeconds" /></FormField>
+            </div>
+
+            @if (_model.Type is AlertEvaluationType.Threshold or AlertEvaluationType.DistinctCount)
+            {
+                <div class="ds-form__row">
+                    <FormField Label="Threshold (fires above this)" FieldId="a-th"><input id="a-th" class="ds-input ds-input--sm" type="number" min="1" @bind="_model.Threshold" /></FormField>
+                    <FormField Label="@(_model.Type == AlertEvaluationType.DistinctCount ? "Count distinct values of" : "Group counts by (blank = one total)")" FieldId="a-gb">
+                        <select id="a-gb" class="ds-input" @bind="_model.GroupByField">
+                            <option value="">@(_model.Type == AlertEvaluationType.DistinctCount ? "— choose a field —" : "(no grouping)")</option>
+                            @foreach (ConditionField f in ConditionFieldCatalog.Fields.Where(f => f.Name != "message"))
+                            {
+                                <option value="@f.Name">@f.Label</option>
+                            }
+                        </select>
+                    </FormField>
+                </div>
+            }
+
+            @if (_model.Type != AlertEvaluationType.DeviceSilent)
+            {
+                <h3>Only count messages that match…</h3>
+                <p class="ds-muted">Leave empty to count every message in the window.</p>
+                <ConditionBuilder Group="_filter" Fields="ConditionFieldCatalog.Fields" GroupChanged="StateChanged" />
+            }
+            else
+            {
+                <p class="ds-muted">A device-silent alert watches every monitored device and honours each device's own
+                    heartbeat threshold (set on the device page). Restrict it to device groups below if you only care about some.</p>
+            }
+        </section>
+
+        <section class="ds-form__section">
+            <h2>When it fires…</h2>
+            @for (int i = 0; i < _model.Actions.Count; i++)
+            {
+                int index = i;
+                <RuleActionEditor Action="_model.Actions[index]"
+                                  Remove="() => RemoveAction(index)"
+                                  Move="d => MoveAction(index, d)"
+                                  KindChanged="a => ReplaceAction(index, a)" />
+            }
+            <button type="button" class="ds-button ds-button--ghost ds-button--sm" @onclick="AddAction">+ Add action</button>
+            <p class="ds-muted">An alert always shows in this list and the notification centre even with no actions.</p>
+        </section>
+
+        <details class="ds-form__advanced">
+            <summary>Re-notify, auto-resolve, remediation notes, scope (optional)</summary>
+            <div class="ds-form__row">
+                <FormField Label="Re-notify every (minutes, 0 = never)" FieldId="a-rn"><input class="ds-input ds-input--sm" type="number" min="0" value="@(_model.ReNotifySeconds / 60)" @onchange="e => _model.ReNotifySeconds = ParseMinutes(e.Value, 0)" /></FormField>
+                <FormField Label="Auto-resolve" FieldId="a-ar"><label><input type="checkbox" @bind="_model.AutoResolve" /> Close automatically when the condition clears</label></FormField>
+            </div>
+            <FormField Label="Remediation notes (shown on the firing alert)" FieldId="a-rem"><textarea class="ds-textarea" rows="3" @bind="_model.RemediationNotes"></textarea></FormField>
+            <FormField Label="Only device groups (comma-separated ids, blank = all)" FieldId="a-dg">
+                <input class="ds-input" value="@string.Join(", ", _model.DeviceGroupIds)" @onchange="e => _model.DeviceGroupIds = ParseIds(e.Value)" />
+            </FormField>
+            <FormField Label="Only streams (comma-separated ids, blank = all)" FieldId="a-st">
+                <input class="ds-input" value="@string.Join(", ", _model.StreamIds)" @onchange="e => _model.StreamIds = ParseIds(e.Value)" />
+            </FormField>
+        </details>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="ds-form__errors" role="alert">@foreach (string e in _errors) { <li>@e</li> }</ul>
+        }
+
+        <div class="ds-preview" role="status">
+            @if (_preview is { } p)
+            {
+                <strong>@p.Detail</strong>
+                @if (_previewNotes.Count > 0)
+                {
+                    <ul class="ds-preview__notes">@foreach (string n in _previewNotes) { <li>@n</li> }</ul>
+                }
+            }
+            else
+            {
+                <span class="ds-muted">Save or press “Preview” to see how often this would have fired.</span>
+            }
+        </div>
+
+        <div class="ds-form__actions">
+            <button type="button" class="ds-button ds-button--primary" @onclick="SaveAsync">Save alert</button>
+            <button type="button" class="ds-button ds-button--ghost" @onclick="PreviewAsync">Preview — “would have fired N times in 7 days”</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public long AlertId { get; set; }
+
+    private bool _loading = true;
+    private bool _notFound;
+    private AlertDefinition _model = new() { Name = string.Empty };
+    private ConditionGroup _filter = new();
+    private IReadOnlyList<string> _errors = [];
+    private AlertPreview? _preview;
+    private IReadOnlyList<string> _previewNotes = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _notFound = false;
+        _preview = null;
+        _errors = [];
+
+        if (AlertId == 0)
+        {
+            _model = new AlertDefinition
+            {
+                Name = string.Empty,
+                Type = AlertEvaluationType.Threshold,
+                WindowSeconds = 300,
+                IntervalSeconds = 60,
+                Threshold = 5,
+                Actions = [new RaiseNotificationAction { Title = "{hostname}: alert fired" }],
+            };
+
+            if (Nav.ToAbsoluteUri(Nav.Uri).Query is { Length: > 0 } q && q.Contains("fromSearch=", StringComparison.Ordinal))
+            {
+                string raw = System.Web.HttpUtility.ParseQueryString(q)["fromSearch"] ?? "0";
+                if (long.TryParse(raw, out long savedId))
+                {
+                    (AlertDefinition draft, IReadOnlyList<string> notes) = await Admin.PromoteFromSavedSearchAsync(savedId, CancellationToken.None);
+                    _model = draft;
+                    _previewNotes = notes;
+                }
+            }
+
+            _filter = _model.Filter as ConditionGroup ?? new ConditionGroup();
+        }
+        else
+        {
+            AlertRow? row = await Admin.GetAsync(AlertId, CancellationToken.None);
+            if (row is null)
+            {
+                _notFound = true;
+                _loading = false;
+                return;
+            }
+
+            _model = row.ToDefinition();
+            _filter = _model.Filter as ConditionGroup ?? new ConditionGroup();
+        }
+
+        _loading = false;
+    }
+
+    private void StateChanged() => StateHasChanged();
+
+    private void ChangeType(ChangeEventArgs e)
+    {
+        if (Enum.TryParse(e.Value?.ToString(), out AlertEvaluationType type))
+        {
+            _model.Type = type;
+        }
+    }
+
+    private void AddAction() => _model.Actions.Add(new RaiseNotificationAction { Title = "{hostname}: alert fired" });
+
+    private void RemoveAction(int index) => _model.Actions.RemoveAt(index);
+
+    private void ReplaceAction(int index, RuleAction action) => _model.Actions[index] = action;
+
+    private void MoveAction(int index, int delta)
+    {
+        int target = index + delta;
+        if (target < 0 || target >= _model.Actions.Count)
+        {
+            return;
+        }
+
+        (_model.Actions[index], _model.Actions[target]) = (_model.Actions[target], _model.Actions[index]);
+    }
+
+    private void ApplyFilter() => _model.Filter = _filter.Children.Count > 0 ? _filter : null;
+
+    private static int ParseMinutes(object? value, int fallback) =>
+        int.TryParse(value?.ToString(), out int m) && m >= 0 ? m * 60 : fallback * 60;
+
+    private static List<long> ParseIds(object? value) =>
+        (value?.ToString() ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => long.TryParse(s, out long id) ? id : 0)
+            .Where(id => id > 0)
+            .ToList();
+
+    private async Task SaveAsync()
+    {
+        ApplyFilter();
+        AlertActionResult result = await Admin.SaveAsync(_model, CancellationToken.None);
+        if (result.Ok)
+        {
+            Toast.Success(result.Message);
+            Nav.NavigateTo("/alerts");
+        }
+        else
+        {
+            _errors = result.Errors.Count > 0 ? result.Errors : [result.Message];
+        }
+    }
+
+    private async Task PreviewAsync()
+    {
+        ApplyFilter();
+        _errors = [];
+        _preview = await Admin.PreviewAsync(_model, TimeSpan.FromDays(7), CancellationToken.None);
+    }
+}

@@ -65,6 +65,12 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<Rules.SqliteRuleStore>();
         services.TryAddSingleton<Rules.SqliteActionOutbox>();
         services.TryAddSingleton<Notifications.SqliteNotificationStore>();
+
+        // Phase 8 — aggregation alerts: definitions, instance lifecycle, window reader, action outbox.
+        services.TryAddSingleton<Alerts.SqliteAlertStore>();
+        services.TryAddSingleton<Alerts.SqliteAlertInstanceStore>();
+        services.TryAddSingleton<Alerts.SqliteAlertWindowReader>();
+        services.TryAddSingleton<Alerts.SqliteAlertActionOutbox>();
         if (OperatingSystem.IsWindows())
         {
             services.TryAddSingleton<ISecretProtector, DpapiSecretProtector>();

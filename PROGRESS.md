@@ -7,19 +7,230 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 7 — Rules & Actions
-- **Last tag:** `v1.0.0-phase.7`
-- **Next phase:** 8 — Alerts
-- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1087/1087** on a quiet run (666 unit + 421 integration); one earlier Release run read 420/421 under benchmark contention — the load-dependent **P7-5** Argon2 timing flake (a Phase 4 test). `dotnet format` clean, SCA clean (14 projects).
+- **Last completed phase:** 8 — Aggregation Alerts
+- **Last tag:** `v1.0.0-phase.8`
+- **Next phase:** 9 — Dashboards
+- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1206/1206** (712 unit + 494 integration) on a quiet run. `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, **no new dependency** in Phase 8).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
 - **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC pipeline **~13,600 msg/sec**; vendor extraction **~5,300** worst case. Phase 6 (stream routing): RFC + 20 streams **6,706** (gate PASS); vendor + 20 streams ~3,200 (P6-1). **Phase 7 (rules engine on the ingest path):** RFC + 50 active rules **9,433 msg/sec** (gate PASS); vendor + 50 rules **~3,600** — the vendor path is sub-gate at *baseline* on this VM (P3-2), rules add ~21 % on top → carried to Phase 12 (P7-4). Actions execute **off** the ingest thread (outbox + `ActionDispatchService`): a rule with a blocking action → 2,000 msgs commit in 0.2 s. See `docs/evidence/phase-07/benchmarks.md`.
+- **Phase 8 (alerts):** alert evaluation is a scheduled `BackgroundService` in the collector host — **entirely off the ingest path** (`git diff --stat src/…Ingestion` = 0 files this phase), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run (Phases 3/6/7/12 only). Scheduled-evaluation timing at 2M-event scale carried to Phase 12 (P8-3).
 
 ---
 
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 8 — Aggregation Alerts — 2026-09-10 — tag `v1.0.0-phase.8`
+
+> Scheduled threshold / distinct-count / device-silent / absence alerts with a full
+> Firing → Acknowledged → Resolved lifecycle, a crash-safe second action outbox, and the
+> device-silent one-click on the health card. Two items carried on the accepted precedent
+> (no FAIL line): **P8-2** the DeviceSilent live-`rsyslogd` scenario is reproduced on a
+> virtual clock, the daemon run → Phase 12 (same class as P3-1); **P8-3** scheduled-
+> evaluation timing at 2M-event scale is not benchmarked here (alert evaluation is off the
+> ingest path — the 5,000 msg/sec gate is untouched) → Phase 12. **No new dependency.**
+
+**Shipped**
+
+*Alert model → Core (`Core/Alerts/`) — ADR 0016*
+- `AlertDefinition` (severity, `ConditionGroup? Filter` reusing Phase 6, `AlertEvaluationType`,
+  window/interval seconds, group-by field, threshold, remediation notes, `List<RuleAction>`
+  reusing Phase 7, device-group + stream restriction, re-notify seconds, auto-resolve),
+  `AlertInstance` (state, group value, observed value, ack/resolve actor+time+note,
+  `TriggerEventIds`), `AlertTransition`, `AlertEvaluationType` {Threshold, DistinctCount,
+  DeviceSilent, Absence}, `AlertState` {Firing, Acknowledged, Resolved}, `AlertWindowData`
+  (`GroupCount` / `DeviceSilence` — the fetched-then-decided split), `SearchToConditionTranslator`
+  (promote-a-saved-search → best-effort `ConditionGroup`, lossy parts flagged).
+
+*Alert engine (`Rules/Alerts/`)*
+- `RuleActionValidator` — **extracted** from `RuleCompiler.ValidateAction` (behaviour identical;
+  Phase 7's 35 + 84 tests stay green) so `AlertCompiler` holds an alert's actions to the same
+  SSRF / command-injection / traversal / SMTP guards as a rule's — no drift.
+- `AlertCompiler` → `CompiledAlert` / `CompiledAlertSet` (+ `CompileSet`) — validates the
+  filter (`ConditionCompiler`), window/interval/threshold ≥ 1, group-by resolves (rejects
+  `message`), type-specific rules; `MaxWindowSeconds` = 30 days.
+- `AlertEvaluator.Evaluate(CompiledAlert, AlertWindowData, now)` — **pure** decision half;
+  "exceeds N" (`> threshold`), device-silent = `(now − lastSeen) > thresholdMinutes` or never
+  seen. Oracle-tested (5,000 cases, 0 divergences).
+- `AlertRuntime` — mirrors the throttle half of `RuleRuntime`: per-action rate limit + cool-down
+  + a global `Alerts:GlobalActionsPerMinute` budget with storm-collapse to one summary.
+- `AlertGrouping.KeyFor` — the in-memory group key; mirrors the SQL `COALESCE(col,'(none)')`
+  expression exactly (differential test).
+
+*Data (`Data/Alerts/`) — migration `006_alerts.sql`*
+- `alert_definitions` (+ `alert_eval_runs` checkpoint), `alert_instances` with the partial
+  unique index `ux_alert_instances_open (alert_id, group_value) WHERE state <> 'resolved'` —
+  **the dedup guarantee**; `alert_instance_events` (trigger ids, never a copy),
+  `alert_transitions` (actor + note per transition), `alert_action_queue` (the second
+  crash-safe outbox — `UNIQUE (instance_id, action_index, notify_seq)` so a re-notify round
+  and a restart mid-dispatch are both idempotent).
+- `SqliteAlertStore` (in-process `Version`, like `SqliteRuleStore`), `SqliteAlertInstanceStore`
+  (`OpenAsync` idempotent, ack/resolve/auto-resolve with transitions, history filter),
+  `SqliteAlertActionOutbox` (mirror of `SqliteActionOutbox`), `SqliteAlertWindowReader`
+  (**hybrid** — SQL `GROUP BY` / `COUNT(DISTINCT)` for the no-filter path; a capped
+  `StreamWindowAsync` for the filtered path; `DeviceLastSeenAsync` per device;
+  `PreviewBucketCountsAsync` with integer-`strftime('%s')` bucketing for "would have fired"),
+  `AlertJson`, `DefaultAlertTemplates` (8 templates).
+- `AuditActions` += 11 alert verbs. `DataServiceCollectionExtensions` registers the 4 stores.
+
+*Service (`Service/Hosting/`)*
+- `AlertSetProvider` — rebuilds `CompiledAlertSet` on `SqliteAlertStore.Version` (mirrors
+  `RuleSetProvider`).
+- `AlertEvaluationService` (`BackgroundService`, collector host only) — ticks every 15 s;
+  a due alert (per its interval + the persisted checkpoint) is evaluated (SQL aggregate, or
+  an in-memory filtered scan capped at `MaxWindowScan` = 500k); instances reconciled — open
+  on a fresh breach, re-notify only on the interval, auto-resolve when the group clears (not
+  on a truncated scan); a run overdue past the grace window writes `alert.evaluation.missed`
+  and catches up — never silently skipped.
+- `AlertActionDispatchService` (`BackgroundService`) — drains `alert_action_queue` through
+  the Phase 7 `ActionExecutorRegistry`, handing each executor a **synthetic** `SyslogEvent`
+  built from the firing instance (`{hostname}` = group, `{field.alert_*}` = name/value/…).
+- `SyslogPlatformExtensions` — options + `AlertSetProvider` + `AlertRuntime` in
+  `AddSyslogPlatform`; the two hosted services in `AddCollectorRuntime` only.
+
+*Web (`Web/Alerts/`)*
+- `AlertAdminService` — CRUD (Operate at the service; delete Administrator-only), `PreviewAsync`
+  ("would have fired N times in 7 days" — exact for the SQL path, sampled for filtered/
+  distinct/absence, P8-1), `AcknowledgeAsync`/`ResolveAsync` (Read-Only **and Auditor**
+  refused; audited with the true actor), `ListOpenAsync`/`ListHistoryAsync` **scope-filtered**,
+  `GetInstanceAsync` (triggering events via `ScopedEventReader` — an unseen-stream event is
+  not disclosed), `PromoteFromSavedSearchAsync`, `CreateDeviceSilentAsync` (the one-click —
+  idempotent estate-wide alert).
+- Pages `Components/Pages/Alerts/` — `Alerts.razor` (open alerts by severity + definitions
+  list; replaces the `ComingSoon`), `AlertEditor.razor` (`ConditionBuilder` + reused
+  `RuleActionEditor` + live preview), `AlertTemplates.razor`, `AlertHistory.razor`
+  (lifecycle timeline + triggering events).
+- `DeviceDetail.razor` — "🔔 Alert me if this device goes silent" on the health card
+  (3 clicks from the dashboard). `NotificationCenter.razor` — an "Open alerts" section by
+  severity. `ds.css` Phase 8 block. `WebSecurityExtensions` registers `AlertAdminService`.
+
+**Verification output** (`docs/evidence/phase-08/`)
+- `dotnet build -c Release` → 0 warnings, 0 errors (14 projects)
+- `dotnet test` → unit **712/712**, integration **494/494**
+- `dotnet test --filter` (Alert) → unit 46, integration 67 — all pass
+- `dotnet format --verify-no-changes` → exit 0
+- SCA → **no new dependency**; 14 projects, not vulnerable
+- **Evaluator oracle** — `AlertEvaluatorOracleTests`: 5,000 generated (alert, window-data)
+  pairs vs an independent naive decision, **0 divergences**
+- **Fetch differential** — `AlertWindowReaderTests.CountByGroup_AgreesWithInMemoryGrouping`:
+  SQL `GROUP BY` == in-memory grouping of the same rows, 0 divergences
+- **Labelled FP/FN set** — `AlertFalseRateTests`: 12 hand-labelled scenarios in
+  `tests/fixtures/alerts/labelled-scenarios.json`, **FP rate 0.0 %, FN rate 0.0 %**
+- **Virtual-clock time-travel** — `AlertEvaluationServiceTests.TimeTravel_ThirtyDays…`:
+  30 days × hourly evaluation in seconds, **exactly 720 firings**
+- **Dedup** — a condition true for 10 consecutive evaluations → **1** open instance, **1**
+  `alert.fired`
+- **Boundary matrix** — at / ±1 threshold, window edges, midnight UTC, DST transition,
+  out-of-order arrival — all pass (`boundary-matrix.md`)
+- **Crash-during-evaluation** — every distinct persistence point in the reconcile cycle
+  converges to one open instance on restart; a 40-minute outage is caught up + audited
+  (`crash-point-results.md`)
+- **Storm containment** — 40,000-event flood → 1 firing / 1 notification; 20 simultaneous
+  breaches → budget's worth + one summary (`storm-containment.md`)
+- **Heartbeat accuracy** — fires within `heartbeat ± one interval`, auto-resolves within one
+  interval of resumption; per-device threshold honoured (`heartbeat-accuracy.md`)
+- Coverage (union): **Rules ≥ 80 %, Ingestion ≥ 80 %, Reporting ≥ 80 %** — gate PASS
+  (`coverage-summary.txt`)
+- **UX five-point gate** — PASS (`ux-gate.md`): cold-eyes "alert when a core switch stops
+  sending" = **3 clicks** from the dashboard (the health-card one-click); live "would have
+  fired" preview; **8** templates; every zero-result state teaches
+- **Security** — notification-flood containment / information-disclosure (scope-filtered
+  listings + `ScopedEventReader` triggering events) / stored-XSS (store-verbatim, literal
+  template, plain-text email) / lifecycle authz (Read-Only + Auditor refused, audited with
+  actor) — all PASS (`security/README.md`). Threat model **not** reviewed (scheduled: 4/7/11);
+  B4 addendum + 4 alert rows recorded for the Phase 11 review.
+
+**Decisions made**
+- **ADR 0016** — rule evaluation is per-message on ingest, alert evaluation is scheduled off
+  it (hosted timer + a persisted checkpoint, no Quartz — Constraint 2); a **hybrid** window
+  reader (SQL aggregate where possible, in-memory filtered scan otherwise) with a differential
+  test proving the two paths cannot diverge; a **second** crash-safe outbox
+  (`alert_action_queue`) + dispatcher rather than generalising the stable Phase 7
+  `rule_action_queue` (bounded blast radius); dedup = a partial unique index, re-notify = a
+  `notify_seq` column; the storm budget mirrors `RuleRuntime`; scope on alert *content* via
+  `ScopedEventReader`, alert *action recipients* are the author's config.
+- `RuleActionValidator` extracted (not duplicated) so alert and rule action validation cannot
+  drift.
+- DeviceSilent one-click creates a **single estate-wide** alert (watches every device, each
+  honouring its own `heartbeat_minutes`) — truly one click, no per-device alert sprawl.
+- The "would have fired" preview is **exact** for the SQL fast path, **sampled** (labelled
+  "approximately") for filtered / distinct / absence alerts (P8-1).
+
+**Sign-off block** (TESTING_STANDARDS.md §9)
+```
+PHASE 8 SIGN-OFF
+  Tests added:            ~46 unit (alert compiler / evaluator / runtime, 5,000-case
+                          evaluator oracle, saved-search translator) + ~73 integration
+                          (migration 006, alert store / instance store / action outbox /
+                          window reader + SQL-vs-in-memory differential, dedup, re-notify,
+                          device-silent + heartbeat accuracy, restart + crash points, storm
+                          containment, dispatcher, web surface + lifecycle authz, scope-leak
+                          + XSS, 12-scenario labelled FP/FN set). ~119 total new.
+  Total suite:            unit 712/712; integration 494/494. 0 skipped.
+  Red-green observed:     yes (docs/evidence/phase-08/red-green.md). Slice A: the 3 logic
+                          entrypoints stubbed to throw, 40 red. Slice B: migration 006 held
+                          back, 16 red; GREEN-phase fix — a test seeded real events for the
+                          alert_instance_events FK. Slice C: TickAsync / PassAsync /
+                          AlertRuntime.Reserve stubbed, 32 red; GREEN-phase test fixes only
+                          (window-edge tests, > N semantics, PurgedInstance replaced).
+                          Slice D: AlertAdminService entrypoints stubbed, 9 red; GREEN-phase
+                          code fix — PreviewBucketCounts switched from julianday float
+                          (rounded at a 60 s boundary) to integer strftime('%s'), locked by
+                          a boundary-aligned fixture.
+  Coverage:              union of both suites — Rules, Ingestion, Reporting all >= 80%
+                          (gate PASS). coverage-summary.txt.
+  Mutation score:         BLOCKED on this SDK-only host (P3-3). Compensating: the 5,000-case
+                          evaluator oracle (0 divergences), the SQL/in-memory fetch
+                          differential (0 divergences), the 12-scenario labelled FP/FN set
+                          (0.0% / 0.0%), the 30-day virtual-clock time-travel (exact count).
+  Performance gates:      ingest benchmark NOT re-run (Phases 3/6/7/12 only). Alert
+                          evaluation is off the ingest path — 0 files changed under
+                          src/…Ingestion this phase; the 5,000 msg/sec gate is unaffected.
+                          Scheduled-evaluation timing at 2M-event scale carried to Phase 12
+                          (P8-3). Not a FAIL — no gate applies to this phase's code path.
+  UX gate:               PASS — 5/5 (ux-gate.md). Cold-eyes "alert when a core switch stops
+                          sending" = 3 clicks (Devices -> device -> the health-card
+                          one-click). Live "would have fired" preview. 8 templates. axe-core
+                          / AT traversal / 1366x768 screenshot carried to Phase 12.
+  Regression:            all Phase 0-7 tests green (1087 -> 1206, none weakened). SyslogEvent
+                          unchanged. RuleCompiler delegates action validation to the
+                          extracted RuleActionValidator — byte-identical behaviour, Phase 7
+                          rule tests unchanged. No prior assertion changed.
+  Evidence committed:    docs/evidence/phase-08/ (+ security/)
+  Security gate:         notification-flood containment PASS (dedup + re-notify interval +
+                          per-action rate limit/cool-down + global per-minute budget with
+                          storm-collapse; 40k-event flood -> 1 firing / 1 notification) /
+                          information-disclosure PASS (instance listings scope-filtered;
+                          triggering events via ScopedEventReader -> unseen-stream event not
+                          disclosed) / stored-XSS PASS (fields byte-identical, encoded at
+                          render, literal FieldTemplate substitution, plain-text email,
+                          CR/LF stripped from subjects) / lifecycle authorization PASS
+                          (ack/resolve Administrator/Operator only; Read-Only + Auditor
+                          refused at the service; audited with the true actor) /
+                          restart-safety PASS (checkpoint survives; missed run audited not
+                          skipped; crash points converge to one instance) / evaluator oracle
+                          PASS (5,000, 0 divergences) / SQL-vs-in-memory fetch differential
+                          PASS / SAST PASS / SCA PASS (no new dependency) / secrets PASS
+                          (name-only model reused) / branding literal guard PASS.
+                          RuleActionValidator shared with Phase 7 -> SSRF / command-injection
+                          / traversal / SMTP guards unchanged. DAST (ZAP) NOT RUN (P4-1).
+                          Mutation BLOCKED (P3-3). Threat model NOT reviewed (scheduled
+                          4/7/11) - B4 addendum + 4 alert rows recorded for Phase 11.
+  Open findings:         0 C, 0 H, 0 M, 0 L. Carried info items: P8-1 (preview sampled for
+                          filtered alerts), P8-2 (device-silent live-daemon -> Phase 12),
+                          P8-3 (scheduled-eval timing at scale -> Phase 12), P3-3 (Stryker),
+                          P4-1 (DAST), P4-2 (axe-core), P5-3 (user extractors at ingest).
+```
+
+**Deferred**
+- [ ] P8-1: refine the "would have fired" preview to a full replay for filtered / distinct-count / absence alerts (currently sampled + labelled "approximately").
+- [ ] P8-2: DeviceSilent live-`rsyslogd` scenario — Phase 12 (container / daemon host).
+- [ ] P8-3: scheduled-evaluation timing over a 2M-event DB (filtered-window scan; a tick over dozens of alerts) — Phase 12 clean-VM run.
+- [ ] P5-3: wire `user_extractors` into the ingest path — still open (alert filters resolve `field.<name>` via the Phase 6 `ConditionGroup` already).
+
+**Known issues** — `docs/evidence/phase-08/known-issues.md` (P8-1, P8-2, P8-3; carried P3-3, P4-1, P4-2, P2-5, P7-5, P5-3).
 
 ### Phase 7 — Rules & Actions — 2026-09-09 — tag `v1.0.0-phase.7`
 
@@ -1263,6 +1474,18 @@ by the phase prompt; the five-point gate applies from Phase 4.
 
 ## Open decisions needing the operator
 
+- **Phase 8 sign-off** — three items carried on the accepted precedent (no FAIL line). No
+  ingest benchmark was re-run: alert evaluation runs in a scheduled `BackgroundService` in
+  the collector host, entirely off the ingest path (`git diff --stat src/…Ingestion` this
+  phase = 0 files), so the 5,000 msg/sec gate is untouched. **P8-3** — scheduled-evaluation
+  timing at 2M-event scale (a filtered-window scan; a tick over dozens of alerts) is not
+  benchmarked on this VM → Phase 12 clean-VM run, **same disposition as P1-1 / P5-1 / P6-1 /
+  P7-4**. **P8-2** — the DeviceSilent live scenario ("send from a fake device, stop it,
+  confirm the alert fires") is reproduced deterministically on a virtual clock; a live
+  `rsyslogd` run → Phase 12 (same class as P3-1). **P8-1** — the "would have fired N times"
+  preview is exact for the SQL fast path and a labelled estimate ("approximately N") for
+  filtered / distinct-count / absence alerts; evaluation itself is always exact. Operator to
+  accept at the `v1.0.0-phase.8` tag.
 - **Phase 7 sign-off** — two items are carried on the accepted precedent (no FAIL line):
   **P7-4** — the ingest benchmark with vendor extraction *and* 50 active rules reads ~3.6k
   msg/sec vs the 5,000 gate on the 2-vCPU VMware VM. **The gate is met on the RFC path:
@@ -1314,6 +1537,9 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | P6-1 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 20 active streams | `benchmarks` `--ingest-probe --streams 20` | 12 (clean-VM) |
 | P7-4 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 50 active rules | `benchmarks` `--ingest-probe --rules 50` | 12 (clean-VM) |
 | P7-3 `WriteToOdbc` live SQLite-ODBC round-trip | `IntegrationTests` | 12 (driver installed) |
+| P8-3 scheduled-alert-evaluation timing over a 2M-event DB (filtered-window scan; a tick over dozens of alerts) | `AlertWindowReader` / a bench | 12 (clean-VM) |
+| P8-2 DeviceSilent live-`rsyslogd` scenario | `IntegrationTests` | 12 (container / daemon host) |
+| P8-1 "would have fired" preview — full replay for filtered / distinct-count / absence alerts (currently sampled) | `AlertAdminService.PreviewAsync` | any |
 | P7-5 Argon2 decoy-timing test — widen / quiet-gate | `LocalAuthenticationProviderTests` | CI host with dedicated cores |
 | P5-4 unify `SqliteLogRepository` onto `EventRowMapper` | `Data` | any |
 | P2-2 spill / segment / cursor file ACLs | Phase 12 installer | 12 |

@@ -9,6 +9,7 @@ using VSoftSol.Syslog.Data.Sqlite;
 using VSoftSol.Syslog.Data.Users;
 using VSoftSol.Syslog.Ingestion;
 using VSoftSol.Syslog.Rules.Actions;
+using VSoftSol.Syslog.Rules.Alerts;
 using VSoftSol.Syslog.Rules.Rules;
 
 namespace VSoftSol.Syslog.Service.Hosting;
@@ -114,6 +115,16 @@ public static class SyslogPlatformExtensions
                 await store.RaiseAsync(level, title, body, ruleId, ct).ConfigureAwait(false);
         });
 
+        // Phase 8 — the alert scheduler. The compiled alert set + the alert-action budget.
+        // The Web host uses AlertSetProvider (the "would have fired" preview); the collector
+        // host runs AlertEvaluationService + AlertActionDispatchService.
+        services.AddOptions<AlertEvaluationOptions>().Bind(configuration.GetSection(AlertEvaluationOptions.SectionName));
+        services.AddOptions<AlertRuntimeOptions>().Bind(configuration.GetSection(AlertRuntimeOptions.SectionName));
+        services.TryAddSingleton<AlertSetProvider>();
+        services.TryAddSingleton<AlertRuntime>(sp => new AlertRuntime(
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IOptions<AlertRuntimeOptions>>().Value));
+
         return services;
     }
 
@@ -218,6 +229,11 @@ public static class SyslogPlatformExtensions
 
         // The dispatcher executes queued actions off the ingest thread (PHASE_07 isolation).
         services.AddHostedService<ActionDispatchService>();
+
+        // Phase 8 — the scheduled alert evaluator and its own action dispatcher. Collector
+        // host only (the Web host never schedules evaluations).
+        services.AddHostedService<AlertEvaluationService>();
+        services.AddHostedService<AlertActionDispatchService>();
 
         return services;
     }
