@@ -65,7 +65,9 @@ public sealed class StreamRoutingIntegrationTests
         StreamRouter router = await BuildRouterAsync(db);
 
         router.CompileErrors.Should().BeEmpty();
-        router.StreamCount.Should().Be(7);
+        // Phase 6's seven default streams + Phase 11's reserved "collector.health" stream
+        // (match_json = NULL, is_catch_all = 0 compiles cleanly to CompiledCondition.MatchNothing).
+        router.StreamCount.Should().Be(8);
     }
 
     [Theory]

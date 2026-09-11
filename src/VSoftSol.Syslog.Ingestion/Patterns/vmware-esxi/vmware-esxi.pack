@@ -1,0 +1,25 @@
+# VMware ESXi parser pack (VENDOR_SUPPORT.md extended seven). ESXi's own daemons (hostd,
+# vobd, vpxa, vmkernel) write free-text lines; the handful below cover the operationally
+# important classes: login, VM power state, and storage path redundancy.
+
+[pack]
+vendor = vmware-esxi
+priority = 45
+
+[match]
+appname ~ ^(Hostd|vobd|vpxa|vmkernel)$
+
+[regex]
+User (?<user>\S+)@(?<src_ip>%{IPV4}) logged (?<login_result>in|out)
+
+[regex]
+Virtual machine (?<vm_name>\S+) (?<vm_power_state>powered on|powered off|suspended)
+
+[regex]
+Lost path redundancy to storage device (?<storage_device>\S+)
+
+[regex]
+Restored path redundancy to storage device (?<storage_device>\S+)
+
+[regex]
+Device (?<storage_device>\S+) performance has deteriorated

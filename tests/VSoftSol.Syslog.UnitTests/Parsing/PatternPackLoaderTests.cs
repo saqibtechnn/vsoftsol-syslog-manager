@@ -9,8 +9,11 @@ namespace VSoftSol.Syslog.UnitTests.Parsing;
 public sealed class PatternPackLoaderTests
 {
     [Fact]
-    public void Load_TheCoreEight_AreAllPresentAndCompileWithoutError()
+    public void Load_TheCoreEightPlusTheExtendedSeven_AreAllPresentAndCompileWithoutError()
     {
+        // Widened in Phase 11: the extended seven (PHASE_11_HARDENING.md) ship as nine
+        // packs — pfSense/OPNsense and both Aruba AOS variants each count separately —
+        // alongside the Phase 3 core eight, for 17 total.
         (MessageParser _, DeduplicationWindow _2) = ParsingComposition.Build();
         var loader = new PatternPackLoader(
             Microsoft.Extensions.Options.Options.Create(new ParsingOptions()),
@@ -20,9 +23,11 @@ public sealed class PatternPackLoaderTests
 
         packs.Select(p => p.Vendor).Should().BeEquivalentTo(
             "cisco-ios", "cisco-asa", "fortigate", "paloalto",
-            "juniper-junos", "mikrotik-routeros", "ubiquiti-unifi", "linux");
+            "juniper-junos", "mikrotik-routeros", "ubiquiti-unifi", "linux",
+            "checkpoint-gaia", "sophos-xg", "sonicwall-sonicos", "pfsense", "opnsense",
+            "aruba-aos-switch", "aruba-aos-cx", "huawei-vrp", "vmware-esxi");
 
-        packs.Should().OnlyContain(p => p.MatchRules.Count > 0, "every core pack must be auto-detectable");
+        packs.Should().OnlyContain(p => p.MatchRules.Count > 0, "every pack must be auto-detectable");
         packs.Should().OnlyContain(p => p.Pipeline.StageCount > 0);
     }
 

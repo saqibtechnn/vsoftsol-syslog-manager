@@ -1,0 +1,32 @@
+# Check Point Gaia parser pack (VENDOR_SUPPORT.md extended seven).
+# Two sub-formats from the same product: the native Gaia syslog export (quoted key="value"
+# pairs after a "CheckPoint[pid]:" tag) and the CEF export from cp_log_export
+# (R80.20+, "format cef" — a pipe-delimited header, then space-separated key=value
+# extension fields). Both are fundamentally key=value once past their own header, so one
+# [kv] stage covers both; the CEF header fields are pulled out separately by [grok].
+# "CEF:0|..." is not treated as a BSD program tag (RFC3164Parser requires a tag's colon to
+# be immediately followed by whitespace; CEF's is not), so the message keeps its full
+# "CEF:..." prefix here.
+
+[pack]
+vendor = checkpoint-gaia
+priority = 50
+
+[match]
+appname ~ ^CheckPoint$
+message ~ ^CEF:\d
+
+[grok]
+^CEF:(?<cef_version>\d+)\|(?<cef_vendor>[^|]*)\|(?<cef_product>[^|]*)\|(?<cef_device_version>[^|]*)\|(?<cef_signature_id>[^|]*)\|(?<cef_name>[^|]*)\|(?<cef_severity>[^|]*)\|
+
+[kv]
+
+[transform]
+rename src src_ip
+rename dst dst_ip
+rename s_port src_port
+rename spt src_port
+rename dpt dst_port
+rename act cp_action
+rename action cp_action
+rename proto protocol

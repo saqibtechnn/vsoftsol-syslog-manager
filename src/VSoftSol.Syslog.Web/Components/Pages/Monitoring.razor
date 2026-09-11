@@ -1,0 +1,104 @@
+@page "/monitoring"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Web.Hardening
+@inject SelfMonitoringViewService MonitoringService
+
+<PageTitle>Self-monitoring — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Self-monitoring</h1>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="ReloadAsync">Refresh</button>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else if (_view!.Latest is null)
+    {
+        <EmptyState Title="No samples yet" Icon="📊"
+                    Explanation="The collector host samples its own health every 30 seconds. If this stays empty, either the collector host has not started, or this Web UI is running standalone without one." />
+    }
+    else
+    {
+        var s = _view.Latest;
+        <div class="ds-cardgrid">
+            <div class="ds-card">
+                <h2>Ingest queue</h2>
+                <p class="ds-stat">@s.ChannelDepth <span class="ds-muted">/ @s.ChannelCapacity</span></p>
+                <p class="ds-muted">@QueuePercent(s)% full</p>
+            </div>
+            <div class="ds-card">
+                <h2>Spill queue</h2>
+                <p class="ds-stat">@s.SpillFrames.ToString("N0")</p>
+                <p class="ds-muted">@FormatBytes(s.SpillBytes) on disk</p>
+            </div>
+            <div class="ds-card">
+                <h2>Committed (cumulative)</h2>
+                <p class="ds-stat">@s.CommittedTotal.ToString("N0")</p>
+            </div>
+            <div class="ds-card">
+                <h2>Dropped (cumulative)</h2>
+                <p class="ds-stat @(s.DropsTotal > 0 ? "ds-stat--danger" : "")">@s.DropsTotal.ToString("N0")</p>
+            </div>
+            <div class="ds-card">
+                <h2>Database size</h2>
+                <p class="ds-stat">@FormatBytes(s.DatabaseBytes)</p>
+            </div>
+            <div class="ds-card">
+                <h2>Disk free</h2>
+                <p class="ds-stat @(s.DiskFreeBytes < 5_000_000_000 ? "ds-stat--danger" : "")">@FormatBytes(s.DiskFreeBytes)</p>
+            </div>
+            <div class="ds-card">
+                <h2>Active TCP connections</h2>
+                <p class="ds-stat">@s.ActiveConnections</p>
+            </div>
+            <div class="ds-card">
+                <h2>Last archive job</h2>
+                <p class="ds-stat">@(_view.LastArchiveUtc is { } a ? a.ToLocalTime().ToString("g") : "none yet")</p>
+                @if (_view.TamperedArchiveCount > 0)
+                {
+                    <p class="ds-muted ds-stat--danger">@_view.TamperedArchiveCount tamper-detected</p>
+                }
+            </div>
+        </div>
+        <p class="ds-muted">Sampled @s.TakenUtc.ToLocalTime().ToString("G").</p>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private SelfMonitoringView? _view;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _view = await MonitoringService.GetAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private static int QueuePercent(VSoftSol.Syslog.Data.Dashboards.CollectorSample s) =>
+        s.ChannelCapacity > 0 ? (int)(100.0 * s.ChannelDepth / s.ChannelCapacity) : 0;
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 0)
+        {
+            return "unknown";
+        }
+
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = bytes;
+        int unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return $"{value:0.#} {units[unit]}";
+    }
+}

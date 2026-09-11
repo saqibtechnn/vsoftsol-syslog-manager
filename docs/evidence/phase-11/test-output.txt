@@ -1,0 +1,33 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  VSoftSol.Syslog.BrandingGen -> E:\Claoud Projects\vSoftsol Syslog Manager\build\VSoftSol.Syslog.BrandingGen\bin\Release\net8.0\VSoftSol.Syslog.BrandingGen.dll
+  branding: generated E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Core\Generated\BrandingInfo.g.cs
+  VSoftSol.Syslog.Core -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Core\bin\Release\net8.0\VSoftSol.Syslog.Core.dll
+  VSoftSol.Syslog.Reporting -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Reporting\bin\Release\net8.0\VSoftSol.Syslog.Reporting.dll
+  VSoftSol.Syslog.Ingestion -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Ingestion\bin\Release\net8.0\VSoftSol.Syslog.Ingestion.dll
+  VSoftSol.Syslog.Data -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Data\bin\Release\net8.0\VSoftSol.Syslog.Data.dll
+  VSoftSol.Syslog.Rules -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Rules\bin\Release\net8.0\VSoftSol.Syslog.Rules.dll
+  VSoftSol.Syslog.Service -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Service\bin\Release\net8.0\VSoftSol.Syslog.Service.dll
+  VSoftSol.Syslog.Web -> E:\Claoud Projects\vSoftsol Syslog Manager\src\VSoftSol.Syslog.Web\bin\Release\net8.0\VSoftSol.Syslog.Web.dll
+  VSoftSol.Syslog.UnitTests -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\bin\Release\net8.0\VSoftSol.Syslog.UnitTests.dll
+Test run for E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\bin\Release\net8.0\VSoftSol.Syslog.UnitTests.dll (.NETCoreApp,Version=v8.0)
+  VSoftSol.Syslog.CrashProbe -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.CrashProbe\bin\Release\net8.0\VSoftSol.Syslog.CrashProbe.dll
+VSTest version 17.11.1 (x64)
+
+  VSoftSol.Syslog.IngestionProbe -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IngestionProbe\bin\Release\net8.0\VSoftSol.Syslog.IngestionProbe.dll
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+  VSoftSol.Syslog.ActionProbe -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.ActionProbe\bin\Release\net8.0\action-probe.dll
+Results File: E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\TestResults\phase11-full2.trx
+
+Passed!  - Failed:     0, Passed:  1041, Skipped:     0, Total:  1041, Duration: 1 m 16 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+  VSoftSol.Syslog.IntegrationTests -> E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IntegrationTests\bin\Release\net8.0\VSoftSol.Syslog.IntegrationTests.dll
+Test run for E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IntegrationTests\bin\Release\net8.0\VSoftSol.Syslog.IntegrationTests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 17.11.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+Results File: E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IntegrationTests\TestResults\phase11-full2.trx
+
+Passed!  - Failed:     0, Passed:   730, Skipped:     0, Total:   730, Duration: 6 m 25 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)
+EXIT_CODE=0

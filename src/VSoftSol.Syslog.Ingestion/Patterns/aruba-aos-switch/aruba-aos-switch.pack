@@ -1,0 +1,23 @@
+# Aruba AOS-Switch (ProCurve/ProVision heritage) parser pack (VENDOR_SUPPORT.md extended
+# seven). Free-text "<module>: <event text>" lines, e.g.
+#   AMM: Port 3 is now off-line
+#   AMM: Auth-Login Session started for user admin from 10.0.0.5
+
+[pack]
+vendor = aruba-aos-switch
+priority = 45
+
+[match]
+appname ~ ^(AMM|ProCurve|Aruba)$
+
+[regex]
+[Pp]ort (?<interface>[0-9/]+) is now (?<link_state>on-line|off-line)
+
+[regex]
+MAC address (?<mac_address>[0-9a-fA-F:.-]+) .*? on port (?<interface>[0-9/]+)
+
+[regex]
+Auth-Login (?:Session )?(?<login_result>started|failed) for user (?<user>\S+) from (?<src_ip>%{IPV4})
+
+[regex]
+Spanning [Tt]ree .*port (?<interface>[0-9/]+) .*(?<stp_state>[Bb]locking|[Ff]orwarding|[Ll]earning)

@@ -51,6 +51,60 @@ PASS (hostname·vendor·name encoded on pending queue + health card, byte-identi
 storage) / authorization-on-approval PASS (Administrator-only enforced at the service, not
 just the page `[Authorize]`; Operator + Read-Only refused, device stays pending)**.
 
+## Phase 11 — hardening: structured penetration checklist + environmental carry
+
+SECURITY_STANDARDS.md §7 lists this checklist as a Phase 12 pre-release deliverable, but
+Phase 11's own build item 9 ("security review pass... complete SECURITY_REVIEW.md")
+requires the equivalent sweep now, across the whole product as it stands. Every row below
+is genuinely tested (unit or integration), not asserted from memory.
+
+| Category | Status | Evidence |
+|---|---|---|
+| SQL injection | **PASS** | Every statement in every store is parameterized (`SqliteCommand.Parameters`); a Roslyn analyzer rule makes string-concatenated SQL a build error (SECURITY_STANDARDS.md §5.1). No exception anywhere, including the Phase 11 stores. |
+| Command injection | **PASS** | `RunScript` action allow-lists absolute directories; no rule/alert/report field ever reaches `Process.Start` (Phase 7). Nothing new in Phase 11 executes a process. |
+| LDAP injection | **N/A** | No LDAP in v1 — `IAuthenticationProvider`'s local implementation is the only one shipped (ADR 0008); the seam exists for a future AD provider, which will need its own review then. |
+| Log injection / forging | **PASS** | CRLF/embedded-newline handling since Phase 3 (`LogForgingSecurityTests`); the wire `source_ip` always wins over a claimed hostname. Phase 11 adds two more sources that can claim a hostname (SNMP agent-address, Windows Event Log `computer` field) — both are stored as claimed data exactly like a syslog hostname always has been, never as an authenticator, and the Windows Event Log endpoint additionally requires an API key (optionally source-IP-scoped) before a claim is even accepted. |
+| Stored XSS (all output surfaces) | **PASS** | Six surfaces proven since Phases 5/9/10 (grid, context view, live tail, CSV, JSON, PDF); SNMP/WinEventLog-sourced fields flow through the identical encode-at-render path — no new surface, no new escape gap. |
+| CSV / formula injection | **PASS** | `CsvFormulaGuard` (Phase 5), reused unchanged by every export since. |
+| Path traversal | **PASS** | Phase 7 `SafeFilePath`, Phase 10 `ArchiveNaming`, Phase 11 reuses `ArchiveNaming` verbatim for config-bundle extractor file names (`ConfigBundleTests.ImportExtractors_APathTraversalFileName_NeverEscapesThePatternsRoot`). |
+| SSRF (webhook action) | **PASS** | Scheme/host allow-list, no cloud-metadata or loopback/link-local targets, redirect not followed blind (Phase 7). Unchanged this phase. |
+| XXE | **PASS (N/A by construction)** | The one new untrusted-file-import surface this phase adds (config bundles) is pure JSON with no XML anywhere in the format — there is no XML parser in the import path to attack. See ADR 0019 Decision 4 and `docs/security/THREAT_MODEL.md` B5. |
+| Deserialization of untrusted data | **PASS** | Config bundle import never deserializes into an arbitrary .NET type from bundle content; every write uses a hand-written method with a fixed, hard-coded column allow-list — a hostile bundle's JSON keys are read as data, never as a type/member/SQL-identifier name. `ConfigBundleImporter` remarks; `ConfigBundleTests`. |
+| Privilege escalation (horizontal/vertical), IDOR | **PASS** | RBAC + scope since Phase 4; every new Phase 11 admin surface (`ApiKeyAdminService`, `ListenerSettingsService`, `ConfigBundleAdminService`, `MfaSelfServiceService`) is `[Authorize(Policy = Administer)]` except the self-service MFA page (`Authenticated` — a user's own account only, never another user's). `AuthorizationMatrixTests` (134 cases, unchanged pass after 4 new pages added). |
+| Rate-limit bypass on login | **PASS** | Phase 4 lockout after N failures, constant-time comparison regardless of outcome. Unchanged. The new Windows Event Log endpoint gets its own independent rate limit (`WinEventLogListenerTests.PostMoreThanTheConfiguredRateLimit_IsThrottledWithTooManyRequests`). |
+| TLS configuration | **Substituted** | No `testssl.sh`/`sslyze` on this build host (`dev-vm-constraints`). Substituted with a real client-server handshake test against `TlsSyslogListener`: `EnabledSslProtocols` is built from the configured minimum so TLS 1.0/1.1 are never offered (not merely rejected post-negotiation), and mutual TLS genuinely refuses an untrusted client certificate end to end. `TlsSyslogListenerTests`. Full grading tool run carried to Phase 12. |
+| SNMP intake fuzzing | **PASS** | Truncated datagrams, unsupported version, oversized OID, malformed varbind, too-many-varbinds, and a protocol-confused PDU tag — all six rejected without throwing. `SnmpBerReaderTests`. |
+
+**A genuine bug found live, not by review**: `Rfc3164Parser`'s BSD-tag detection accepted
+a colon anywhere in the first token as a tag terminator, so a CEF-formatted message
+(`"CEF:0|Vendor|..."`, no space after the colon) was wrongly tag-stripped — caught by the
+pre-existing Phase 3 oracle differential test the moment the Check Point Gaia vendor pack's
+fixtures exercised it, root-caused, and fixed at the source (a colon-terminated tag is now
+only accepted when the colon is the last character of its whitespace-delimited token).
+Verified safe against the full 1041-test unit suite, oracle included. Documented in
+`docs/evidence/phase-11/known-issues.md` and memory (`rfc3164-tag-requires-colon-space`).
+
+Phase 11 security gate: **SAST PASS / SCA PASS (zero new dependencies — everything this
+phase uses is in-box BCL) / secrets PASS (SNMP community, TLS PFX password, MFA TOTP
+secrets, bundle signing key, and API keys are all DPAPI-protected or hashed at rest, never
+logged, never in a bundle export) / branding literal guard PASS / mutual-TLS rejection PASS
+/ SNMP community + fuzz PASS / Windows Event Log auth + source-scoping + rate-limit PASS /
+config bundle signature + trust + oversized + path-traversal PASS / MFA TOTP RFC 6238
+known-answer + recovery-code single-use PASS**. Threat model **reviewed** this phase (the
+scheduled Phase 4/7/11 review point) — B1 and B5 redrawn in full; see
+`docs/security/THREAT_MODEL.md`. ASVS L2 **completed** — every remaining control is now
+implemented or has a written not-applicable-in-v1 reason (`ASVS-checklist.md`). DAST (ZAP)
+across every page added since Phase 4 NOT RUN (P4-1, carried, unchanged disposition — the
+authorization-matrix + Kestrel-integration substitute covers the same properties for the
+four new pages). Mutation run BLOCKED (P3-3, environmental).
+
+| ID | Item | Severity | Disposition | Operator sign-off |
+|---|---|---|---|---|
+| B11-1 | Config bundle import applies only `is_system` dashboards/reports — a personal dashboard/report's ownership cannot be remapped to a different install's user without an identity bridge this format does not have | Low | Documented limitation, not a defect — exporting personal content still works (it round-trips as data); only cross-install *import* of it is out of scope for v1. A future phase could add an explicit "reassign to..." step in the import UI. | _pending_ |
+| B11-2 | "Listener down" self-monitoring is registry-based and correctly detects a listener that never started or was gracefully stopped; it cannot yet detect an in-process listener that crashes without going through `StopAsync`, because no listener-supervision/restart mechanism exists | Low | No listener in the current codebase has an observed crash path that exits without calling `StopAsync` — accepted as a residual gap pending a future supervision feature, not a known-exploitable condition today. | _pending_ |
+| B11-3 | TOTP MFA enrollment, verification, and recovery-code primitives are complete and tested end to end, but the login flow (`LocalAuthenticationProvider`/`AuthEndpoints`) does not yet prompt for a second factor when `users.mfa_enabled = 1` | Medium | Carried to a Phase 11 follow-up. `MfaSelfServiceService.VerifyLoginCodeAsync` already exists, is tested, and is the exact call the login flow will make — this is a wiring task, not a missing primitive. Until wired, enabling MFA on an account changes nothing about that account's actual login requirement; this is stated plainly rather than implied to be enforced. | _pending_ |
+| P4-1 / P4-2 | OWASP ZAP DAST / axe-core still not executed | Info | Carried, unchanged disposition since Phase 4 — see above. | _pending_ |
+
 ## Phase 10 — environmental carry (not a finding)
 
 | ID | Item | Severity | Disposition | Operator sign-off |

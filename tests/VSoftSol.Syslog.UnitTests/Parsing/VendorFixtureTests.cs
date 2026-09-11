@@ -105,8 +105,11 @@ public sealed class VendorFixtureTests
             total += count;
         }
 
-        FixtureFiles().Should().HaveCount(8, "the core eight vendors");
-        total.Should().BeGreaterThanOrEqualTo(200);
+        // Phase 3's core eight (8 packs, >=25 fixtures each) plus Phase 11's extended seven
+        // (9 packs — pfSense/OPNsense and both Aruba AOS variants each count separately,
+        // >=10 fixtures each per PHASE_11_HARDENING.md) = 17 packs total.
+        FixtureFiles().Should().HaveCount(17, "the core eight plus the extended seven (nine packs)");
+        total.Should().BeGreaterThanOrEqualTo(290);
     }
 
     private static IEnumerable<string> FixtureFiles()

@@ -21,6 +21,9 @@ public sealed class DatabaseSeeder
     /// <summary>Username of the seeded administrator account.</summary>
     public const string SeededAdminUsername = "admin";
 
+    /// <summary>Name of the reserved stream self-monitoring health events land in.</summary>
+    public const string ReservedHealthStreamName = "collector.health";
+
     private static readonly IReadOnlyList<DefaultStreamRules.Entry> DefaultStreams = DefaultStreamRules.All;
 
     private readonly SqliteConnectionFactory _factory;
@@ -89,6 +92,20 @@ public sealed class DatabaseSeeder
                     ("$catchAll", stream.IsCatchAll ? 1 : 0),
                     ("$match", (object?)matchJson ?? DBNull.Value));
             }
+
+            // Phase 11 — the reserved internal stream the collector emits its own health
+            // events into (PHASE_11 item 7). match_json = NULL + is_catch_all = 0 compiles
+            // to CompiledCondition.MatchNothing (ConditionCompiler.Compile(null)) — inert
+            // for live traffic; SelfMonitoringService assigns this stream id explicitly on
+            // every health event it appends, bypassing the router entirely.
+            await ExecuteAsync(connection, transaction, """
+                INSERT INTO streams (name, description, is_system, is_catch_all, enabled, sort_order, match_json, created_utc)
+                VALUES ($name, $desc, 1, 0, 1, 999, NULL, $created)
+                ON CONFLICT(name) DO NOTHING;
+                """, cancellationToken,
+                ("$name", ReservedHealthStreamName),
+                ("$desc", "The collector's own health events (disk, queue depth, drops, listeners, archive verification). Not populated from network traffic."),
+                ("$created", nowUtc));
 
             // Phase 9 — the four shipped dashboards. Keyed by system_key so re-seeding is
             // idempotent; a definition change ships by bumping the widgets/layout here and

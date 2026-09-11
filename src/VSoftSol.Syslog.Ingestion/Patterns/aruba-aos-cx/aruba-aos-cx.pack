@@ -1,0 +1,25 @@
+# Aruba AOS-CX parser pack (VENDOR_SUPPORT.md extended seven). A different NOS lineage
+# from AOS-Switch (ArubaOS-CX, not ProVision) with its own "%%module-severity-EVENT:" tag:
+#   %%01INTERFACE-5-LINK_UP: Interface 1/1/1 changed to up
+
+[pack]
+vendor = aruba-aos-cx
+priority = 45
+
+[match]
+message ~ ^%%\d*[A-Z_]+-[0-9]-[A-Z_]+:
+
+[grok]
+^%%\d*(?<cx_module>[A-Z_]+)-(?<cx_severity>[0-9])-(?<cx_event>[A-Z_]+):\s*(?<cx_detail>.*)$
+
+[regex]
+Interface (?<interface>[a-zA-Z0-9/]+) .*(?:changed to|is) (?<link_state>[Uu]p|[Dd]own)
+
+[regex]
+[Vv]lan (?<vlan_id>\d+) .*(?<vlan_state>created|deleted)
+
+[regex]
+[Uu]ser (?<user>\S+) logged (?<login_result>in|out) from (?<src_ip>%{IPV4})
+
+[regex]
+BGP [Nn]eighbor %{IPV4:neighbor_ip} .*state changed .*to (?<bgp_state>\w+)

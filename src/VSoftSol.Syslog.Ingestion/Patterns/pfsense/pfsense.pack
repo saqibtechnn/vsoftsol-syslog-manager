@@ -1,0 +1,18 @@
+# pfSense parser pack (VENDOR_SUPPORT.md extended seven).
+# The firewall's "filterlog" facility emits one CSV line per packet-filter decision:
+#   rule,sub-rule,anchor,tracker,interface,reason,action,direction,ip-version,tos,ecn,
+#   ttl,id,offset,flags,protocol-id,protocol,length,src,dst[,src_port,dst_port,...]
+# (the trailing fields vary by protocol; this pack captures the fixed IPv4 prefix, which is
+# the part every rule/alert/dashboard actually needs).
+
+[pack]
+vendor = pfsense
+priority = 40
+
+[match]
+appname ~ ^filterlog$
+
+[csv]
+when = 8=4
+minfields = 20
+columns = rule_number,sub_rule,anchor,tracker_id,pf_interface,pf_reason,pf_action,pf_direction,ip_version,,,ttl,,,,protocol_number,protocol,length,src_ip,dst_ip,src_port,dst_port

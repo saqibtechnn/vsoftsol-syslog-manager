@@ -1,0 +1,16 @@
+# SonicWall SonicOS parser pack (VENDOR_SUPPORT.md extended seven).
+# Space-separated key=value, id=firewall is the stable signature, e.g.
+#   id=firewall sn=0006B1112233 time="2026-03-01 10:00:00" pri=6 m=97
+#   msg="Connection Opened" src=10.0.0.5:44321:X0 dst=8.8.8.8:53:X1 proto=udp/dns
+
+[pack]
+vendor = sonicwall-sonicos
+priority = 45
+
+[match]
+message ~ (^|\s)id=firewall(\s|$)
+
+[kv]
+
+[transform]
+rename msg description

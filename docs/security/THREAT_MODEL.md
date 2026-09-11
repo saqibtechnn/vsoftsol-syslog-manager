@@ -49,27 +49,38 @@ forward, ODBC, and local script execution as rule actions (Phase 7). Not interne
 ## B1 — Network → listener
 
 **Assets:** ingestion availability; integrity of the stored record; the raw bytes.
-**Entry points:** UDP 514 (+configurable), TCP 514 (+configurable), TLS listener (Phase 11).
+**Entry points:** UDP 514 (+configurable), TCP 514 (+configurable), TLS 6514 (Phase 11),
+SNMP trap 162/UDP (Phase 11), Windows Event Log intake HTTP endpoint (Phase 11).
 
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
-| S | Forge messages from a spoofed source IP; flood the device-discovery queue | Store `source_ip` as observed and flag it as unverified; discovery is a review queue, never auto-trust; per-source rate limiting; optional allow-list of source subnets; TLS listener gives authenticated transport | 2, 6, 11 | **implemented (discovery); partial (transport)** — Phase 6: discovery is a pending-approval queue, never auto-trusted; **bounded at `discovery_settings.max_pending_devices`** (default 500) with a drop counter and a 5-minute discovery pause once the queue fills, so a spoofed-IP flood cannot grow the table or starve ingest (`DeviceDiscoveryTests`); one source IP ⇒ exactly one record (`device_ips.ip` UNIQUE); unknown-source policy is operator-configurable (auto-register / as-unknown / reject). Per-source rate limiter (Phase 2). Source-subnet allow-list and TLS transport still Phase 11. |
+| S | Forge messages from a spoofed source IP; flood the device-discovery queue | Store `source_ip` as observed and flag it as unverified; discovery is a review queue, never auto-trust; per-source rate limiting; optional allow-list of source subnets; TLS listener gives authenticated transport | 2, 6, 11 | **implemented (discovery + transport)** — Phase 6: discovery is a pending-approval queue, never auto-trusted, bounded at `discovery_settings.max_pending_devices`; per-source rate limiter (Phase 2). Phase 11: `TlsSyslogListener` offers mutual TLS — `RequireClientCertificate` + an explicit trusted-thumbprint allow-list rejects an unknown or removed (the v1 revocation mechanism) client certificate before any byte reaches the parser (`TlsSyslogListenerTests.StartAsync_MutualTls_AnUntrustedClientCertificate_IsRejected`). Source-subnet allow-list remains a documented gap for plain UDP/TCP/SNMP, which stay unauthenticated by design (Constraint 9). |
+| S | **SNMP trap with a forged/guessed community string** — an attacker without the real community string injects fabricated health/security events | The community string is a DPAPI-protected secret, never logged; a trap is decoded far enough to read the community, compared against the configured value, and dropped (silently, matching real SNMP agent behaviour, but counted) *before* the frame ever reaches `FrameIntake`; the default `public` value is refused outright — the listener will not accept traps at all until a real value is set | 11 | **implemented** — `SnmpTrapListenerTests.StartAsync_ATrapWithTheWrongCommunity_IsSilentlyDropped_NotIngested`, `StartAsync_NoNonDefaultCommunityConfigured_RefusesEveryTrap` |
+| S | **Windows Event Log intake used to attribute a forged event to another host** — a caller with network reach but no key posts as if from a monitored server | Every request requires an API key (SHA-256-hashed at rest, shown once); a key may additionally be scoped to one source IP, checked server-side against the actual TCP peer address (never a client-supplied header) — a request from anywhere else with the same key is rejected | 11 | **implemented** — `WinEventLogListenerTests.PostWithoutAnApiKey_IsRejectedWithUnauthorized_NotIngested`, `PostWithAWrongApiKey_IsRejected`, `PostFromAnUnexpectedSource_WhenTheKeyIsSourceScoped_IsRejected_NotForged` |
+| D | **Windows Event Log endpoint flooded by a caller who does hold a valid key** | A fixed-window per-source-IP rate limit (`WinEventLogOptions.MaxRequestsPerSourcePerMinute`), independent of the ingest path's own per-source limiter — the endpoint is authenticated and low-volume by nature, so it does not need token-bucket sophistication | 11 | **implemented** — `WinEventLogListenerTests.PostMoreThanTheConfiguredRateLimit_IsThrottledWithTooManyRequests` |
+| T | **SNMP malformed/oversized varbind or OID crashes or hangs the receiver** | `SnmpBerReader` is a hand-bounded ASN.1 reader: every length is checked against the remaining buffer before use, OID arc count and varbind count are capped, indefinite-length BER is rejected — a malformed datagram returns `false`, never throws | 11 | **implemented** — `SnmpBerReaderTests` (truncated datagram, unsupported version, oversized OID, malformed varbind, too-many-varbinds, protocol-confused PDU tag — all rejected without throwing) |
 | T | CRLF / embedded-newline injection to fabricate or split log entries, forge a hostname | Parse framing per RFC; never split on raw newlines post-frame; store `raw_message` verbatim and render with encoding; record a `framing_anomaly` field | 3 | **implemented** — one frame → exactly one stored event (asserted); embedded CR/LF/NUL never re-parsed as a second record; `framing_anomaly` field set; `raw_message` verbatim; the wire `source_ip` always wins over a claimed hostname (asserted). `LogForgingSecurityTests`. Render-side encoding is Phases 5/9/10 |
 | R | Attacker denies having sent a message | `received_utc` + `source_ip` + `listener_id` + raw bytes retained; no dedup that discards origin | 2, 3 | **partial** — `received_utc` + `source_ip` + protocol + raw bytes retained on every frame (Phase 2); `listener_id` link Phase 4; no dedup in v1 |
 | I | — (listener receives, does not disclose) | n/a | | |
-| D | UDP flood fills disk / exhausts the queue / OOMs the process | Bounded `Channel`; disk spill queue with a hard size cap and fail-closed drop-to-disk-full policy that still never loses an *accepted* message; per-source rate limiter; configurable max message size; back-pressure metrics surfaced in the UI | 2 | **implemented** — bounded channel + spill queue with `SpillMaxBytes` cap (drop-with-counter + alert, never fills the disk); per-source rate limiter; `MaxMessageBytes` guard; counters in `IngestionStatistics`. UI surfacing of the metrics is Phase 9. ADR 0010 |
+| D | UDP flood fills disk / exhausts the queue / OOMs the process | Bounded `Channel`; disk spill queue with a hard size cap and fail-closed drop-to-disk-full policy that still never loses an *accepted* message; per-source rate limiter; configurable max message size; back-pressure metrics surfaced in the UI | 2 | **implemented** — bounded channel + spill queue with `SpillMaxBytes` cap (drop-with-counter + alert, never fills the disk); per-source rate limiter; `MaxMessageBytes` guard; counters in `IngestionStatistics`, surfaced on the Phase 11 self-monitoring page and the Phase 9 Collector Health dashboard. ADR 0010 |
 | D | ReDoS via user-authored extractor/stream/rule regex stalling the ingest path | Compile user regex with a timeout; reject catastrophic patterns at save time with a test button; run extraction off the accept path | 3, 6 | **implemented (stream rules); partial (extractors)** — Phase 6: every stream-rule `Matches` regex compiles with `RegexOptions.NonBacktracking` — **linear-time by construction, ReDoS impossible** — plus a 250 ms timeout as defence in depth; backreferences / lookarounds / atomic groups are **rejected at save time** with a clear message (the tester and the ingest router share the compiler); a per-rule evaluation timeout fails only that comparison closed and is reported, never stalling ingest or the other streams (`ConditionCompilerReDoSTests`, `StreamRoutingIntegrationTests`). Vendor-pack + user extractors still use the `Parsing:RegexTimeout` model (Phase 3/5). |
 | E | Parser memory-safety / RCE from crafted input | Managed code, no unsafe parsing; fuzz corpus (CWE Top 25) in CI from Phase 3; least-privilege service account (ADR 0006) bounds impact | 3 | **implemented** — hand-written managed parser, no `unsafe`; ≥ 32k FsCheck / random cases + 1 MB / nested-SD / ANSI / NUL / truncated-PRI fuzz: zero exceptions, no hang, `raw_message` byte-identical every time; field / value / SD caps bound allocation. `ParserPropertyTests`, `ParserFuzzTests`, `MemoryBoundsSecurityTests` |
 
-**Residual risk (accepted).** Plain UDP syslog source IPs are unverifiable and trivially
-spoofable; this cannot be eliminated at the transport. Mitigations offered: the per-source
-rate limiter (which bounds any single spoofed or real source), an optional source-subnet
-allow-list (Phase 6), and a mutually-authenticated TLS listener (Phase 11) for customers
-who need authenticated transport. A hard process kill can also lose frames that were
+**Residual risk (accepted).** Plain UDP/TCP syslog and SNMP source IPs are unverifiable
+and trivially spoofable; this cannot be eliminated at the transport (Constraint 9 — the
+product is universal-by-protocol at Tier 1, and SNMP has no transport-layer authentication
+in v1/v2c by design). Mitigations offered: the per-source rate limiter (bounds any single
+spoofed or real source), an optional source-subnet allow-list (Phase 6), the SNMP community
+string (weak by protocol design, but at least not the default), and a mutually-authenticated
+TLS listener for customers who need authenticated transport. Windows Event Log intake is the
+one listener with real authentication (API key + optional source-IP scoping) because it is
+the one protocol capable of carrying it. A hard process kill can also lose frames that were
 accepted but not yet durable (in the in-memory channel, or the ≤ `SpillFlushInterval` tail
 of the spill segment) — inherent to a non-per-message-`fsync` design and to unacknowledged
-UDP. Both are **accepted residual risks**, stated in the Phase 12 hardening guide, and
-recorded for operator sign-off in `SECURITY_REVIEW.md`.
+UDP. Listener-crash supervision (detecting an in-process listener that silently dies without
+going through `StopAsync`) is not built in v1 — see `known-issues.md` B11-2. All of the
+above are **accepted residual risks**, stated in the Phase 12 hardening guide, and recorded
+for operator sign-off in `SECURITY_REVIEW.md`.
 
 ---
 
@@ -179,17 +190,31 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 | I | **Cross-scope report leak, including through the restore path** — a report (on-demand or scheduled) includes events, aggregates, or an "archived data omitted" disclosure the viewer/owner cannot see; a restored (temporarily reinstated) event stays visible to someone outside its stream's scope | Reports resolve through the same Phase 5/9 scoped paths (`ScopedEventReader`, `SqliteAggregationReader`) — no bespoke query code; a scheduled run resolves under the **owning user's** `UserScope`, not an unrestricted system scope; the "archived periods omitted" disclosure itself is filtered to the viewer's visible streams before being shown; a restored event's `event_streams` rows are re-populated from the archive, so the existing scope chokepoint covers it identically to a live row | 10 | **implemented** — `RetentionSecurityTests.Report_ArchivedPeriodsOmitted_IsScopedToVisibleStreams…`, `RetentionSecurityTests.RestoredEvents_StayScoped…` |
 | T | XSS / formula injection in a PDF or CSV report — the sixth and seventh output surfaces after the grid, context view, live tail, exports, and dashboard widgets | PDF: every value reaches the page through QuestPDF's `Text()` API, which draws literal glyphs — there is no markup interpretation path for hostile content to escape through. CSV: `CsvFormulaGuard` (the Phase 5 defence) applied to every data cell | 10 | **implemented** — `ReportRenderingTests.ReportPdfRenderer_Render_WithHostileLogContent_DoesNotThrow…`, `ReportCsvWriter_WriteAsync_NeutralisesFormulaInjection…` |
 
+**Phase 11 review — folded in.** Per the review schedule below, this is the scheduled
+full re-draw point. The Phase 8 (alert-triggered actions, folded into B4), Phase 9
+(dashboard cross-scope/XSS/IDOR/DoS rows, above), and Phase 10 (archive/report rows,
+directly above) addenda are hereby accepted as the permanent record for their boundaries —
+every row above is "implemented" with committed test evidence, none is deferred, so they
+stay in place rather than being physically re-transcribed into new tables for this review.
+B1 and B5 (this document) are the two boundaries Phase 11 actually changes; both are
+redrawn below/above.
+
 ---
 
 ## B5 — Operator → installer & config-bundle import
 
-**Assets:** host integrity; configuration; secrets.
+**Assets:** host integrity; configuration; secrets; the receiving install's rules, streams,
+devices, users, dashboards, reports, and vendor parser packs.
 
 | STRIDE | Threat | Mitigation | Owner | Status |
 |---|---|---|---|---|
+| D / E | **XXE, zip-slip, deserialization via a malicious config bundle** | The bundle format is pure JSON — one header plus one JSON array per section, signature detached — with **no XML and no zip container anywhere in the format**. Neither attack class can occur; not because input is sanitised, but because the mechanism each attack needs (DTD/external-entity processing, a zip central-directory path) does not exist to exploit — the same "provably absent by construction" design as the Phase 10 archive format. `System.Text.Json` (used for the whole document) has no entity-expansion concept, so billion-laughs is equally moot. Import never instantiates an arbitrary .NET type from bundle content — every write goes through a hand-written importer method with a fixed, hard-coded column list; a bundle's own JSON keys are read as data only, never as a type name, member name, or SQL identifier | 11 | **implemented** — `ConfigBundleTests` (round trip; a "bundle" cannot carry a zip or XML payload by construction — there is nothing in the parser that would interpret one even if the JSON `content` field of an extractor entry contained an XXE/zip-slip payload as inert text) |
+| T | **Malformed or forged signature; a bundle signed by an untrusted key** | ECDSA P-256 signature over the exact document bytes, verified before any content is touched; the signer's public-key fingerprint must be in `bundle_trusted_signers` (trust-on-first-use, Administrator-accepted) or the import is refused outright — no partial application | 11 | **implemented** — `ConfigBundleTests.ApplyAsync_ATamperedDocument_FailsSignatureVerification`, `ApplyAsync_AnUntrustedSigner_IsRefused_BeforeAnyContentIsProcessed`, `TryVerify_AMalformedSignature_IsRefused` |
+| D | **Oversized bundle** | A hard byte-size cap (`BundleValidator.MaxDocumentBytes`, 100 MB) checked before any JSON parsing is attempted | 11 | **implemented** — `ConfigBundleTests.TryVerify_AnOversizedDocument_IsRefused` |
+| E | **Path traversal via a vendor-pack file name/vendor folder in the `extractors` section** | File names are sanitised with the same `ArchiveNaming.SanitizeSegment`/`IsSafeUnderRoot` the Phase 10 archive format uses, then the resolved path is re-verified to stay under the patterns root immediately before every write | 11 | **implemented** — `ConfigBundleTests.ImportExtractors_APathTraversalFileName_NeverEscapesThePatternsRoot` |
+| I | **Password hashes or other secrets leak through an export** | `users.password_hash` is the one hand-maintained column exclusion in the (otherwise generic, `SELECT *`-driven) exporter; no secret-store value (SMTP password, SNMP community, API keys, MFA secrets) is ever placed in a section — only non-secret metadata is exported for anything backed by a secret | 11 | **implemented** — `ConfigBundleExporter`'s `TableSections` exclusion list; no test currently asserts the *absence* of a secret column across every future table by construction — recorded as a standing review item for any new exportable table (`known-issues.md`) |
 | T | Tampered installer | Signed MSI; documented hash | 12 | planned |
 | I | Secrets in installer logs or the MSI | No credentials in the MSI or install logs; asserted by test | 12 | planned |
-| D / E | Malicious config bundle: XXE, zip-slip, deserialization, oversized/malformed | Safe XML settings (no DTD/external entities); path-checked extraction; size limits; schema validation; no arbitrary type deserialization | 11 | planned |
 | E | Installer creates world-writable paths or an over-privileged account | Installer security review; ACL audit on a clean VM (Phase 12); dedicated low-privilege account (ADR 0006) | 12 | planned |
 
 ---
@@ -215,5 +240,5 @@ recorded for operator sign-off in `SECURITY_REVIEW.md`.
 | Phase 8 | (not a scheduled review) B4 addendum for alert-triggered actions + 4 alert-specific rows recorded for the Phase 11 review — **done** (2026-09-10) |
 | Phase 9 | (not a scheduled review) B2 addendum for dashboards — cross-scope aggregate leak, stored XSS on the widget surface, dashboard IDOR, wall-dashboard DoS; 4 rows recorded for the Phase 11 review — **done** (2026-09-11) |
 | Phase 10 | (not a scheduled review) archive tampering, path traversal / zip-slip in archive naming, decompression bomb, cross-scope report leak (incl. the restore path), PDF/CSV injection; 5 rows recorded for the Phase 11 review — **done** (2026-09-11) |
-| Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import; fold in the Phase 8 alert rows, the Phase 9 dashboard rows, and the Phase 10 retention/report rows |
+| Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import; fold in the Phase 8 alert rows, the Phase 9 dashboard rows, and the Phase 10 retention/report rows — **done** (2026-09-11) |
 | Phase 12 | Full pre-release pen test (SECURITY_STANDARDS.md §7) |

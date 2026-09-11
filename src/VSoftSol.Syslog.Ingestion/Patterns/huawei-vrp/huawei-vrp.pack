@@ -1,0 +1,38 @@
+# Huawei VRP parser pack (VENDOR_SUPPORT.md extended seven). VRP's info-center format is
+# structurally close to Cisco's %FACILITY-SEVERITY-MNEMONIC but with slashes, a trailing
+# (l)/(s) tag, and a bracketed sequence number:
+#   %%01IFNET/4/LINK_STATE(l)[1]:Interface GigabitEthernet0/0/1 has turned into DOWN state.
+
+[pack]
+vendor = huawei-vrp
+priority = 45
+
+[match]
+message ~ ^%%\d+[A-Z]+/[0-9]/[A-Z_]+
+
+[grok]
+^%%\d+(?<vrp_module>[A-Z]+)/(?<vrp_severity>[0-9])/(?<vrp_mnemonic>[A-Z_]+)\([a-z]\)\[\d+\]:\s*(?<vrp_detail>.*)$
+
+[regex]
+Interface (?<interface>\S+) has turned into (?<link_state>UP|DOWN) state
+
+[regex]
+User logged in\..*\(UserName=(?<user>[^,]+), IP=(?<src_ip>%{IPV4})\)
+
+[regex]
+User (?<user>\S+) login failed.*IP=(?<src_ip>%{IPV4})
+
+[regex]
+OSPF \d+ Neighbor (?<neighbor_ip>%{IPV4}) .*[Cc]hange[ds]? .*to (?<ospf_state>\w+)
+
+[lookup]
+source = vrp_severity
+target = vrp_severity_name
+0 = emergency
+1 = alert
+2 = critical
+3 = error
+4 = warning
+5 = notification
+6 = informational
+7 = debugging

@@ -1,0 +1,187 @@
+@page "/settings/bundles"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using System.Text
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
+@using VSoftSol.Syslog.Core.Bundles
+@using VSoftSol.Syslog.Data.Bundles
+@using VSoftSol.Syslog.Web.Hardening
+@inject ConfigBundleAdminService Bundles
+@inject ToastService Toast
+
+<PageTitle>Config bundles — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Config bundles</h1>
+        <a class="ds-button ds-button--ghost" href="/settings">Settings</a>
+    </header>
+
+    <section class="ds-card">
+        <h2>Export</h2>
+        <p class="ds-muted">A signed JSON file — rules, streams, devices, groups, users (no password hashes),
+            dashboards, reports, and extractors (vendor parser packs). This is how a vendor pack ships between
+            releases, and how you back up or move configuration to another install.</p>
+        <div class="ds-checklist">
+            @foreach (string section in ConfigBundleAdminService.AllSections)
+            {
+                <label><input type="checkbox" checked="@_exportSections.Contains(section)"
+                              @onchange="e => ToggleSection(section, (bool)e.Value!)" /> @Label(section)</label>
+            }
+        </div>
+        <FormField Label="Title" FieldId="ds-export-title">
+            <input id="ds-export-title" class="ds-input" @bind="_exportTitle" />
+        </FormField>
+        <a class="ds-button ds-button--primary" href="@ExportUrl">Download</a>
+    </section>
+
+    <section class="ds-card">
+        <h2>Import</h2>
+        <p class="ds-muted">Preview-and-merge: the bundle is verified and its signer checked before anything is
+            written, and you choose which sections to apply.</p>
+        <InputFile OnChange="OnFileSelectedAsync" accept=".json" />
+
+        @if (_verified is { } v)
+        {
+            <div class="ds-card ds-card--muted">
+                <p><strong>@v.Header.Title</strong> — @v.Header.Kind, from @v.Header.ProductName @v.Header.ProductVersion,
+                    signed by <code>@v.SignerFingerprint</code></p>
+                @if (!v.SignerTrusted)
+                {
+                    <p class="ds-form__errors">This signer is not trusted yet. Only accept it if you recognise where
+                        this bundle came from.</p>
+                    <FormField Label="Trust this signer as" FieldId="ds-signer-label">
+                        <input id="ds-signer-label" class="ds-input" @bind="_signerLabel" placeholder="e.g. 'Our HQ install'" />
+                    </FormField>
+                    <button type="button" class="ds-button ds-button--primary" @onclick="TrustAndReloadAsync" disabled="@string.IsNullOrWhiteSpace(_signerLabel)">Trust this signer</button>
+                }
+                else
+                {
+                    <div class="ds-checklist">
+                        @foreach ((string section, string _) in v.Envelope.SectionsJson)
+                        {
+                            <label><input type="checkbox" checked="@_importSections.Contains(section)"
+                                          @onchange="e => ToggleImportSection(section, (bool)e.Value!)" /> @Label(section)</label>
+                        }
+                    </div>
+                    <button type="button" class="ds-button ds-button--primary" @onclick="ApplyAsync">Import selected sections</button>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="ds-card">
+        <h2>Import history</h2>
+        @if (_imports.Count == 0)
+        {
+            <EmptyState Title="No imports yet" Icon="📦" Explanation="Every applied bundle is recorded here with its signer." />
+        }
+        else
+        {
+            <ul>
+                @foreach (BundleImportRecord i in _imports)
+                {
+                    <li>@i.ImportedUtc.ToLocalTime().ToString("g") — <strong>@i.Title</strong> (@i.Kind) by @i.ImportedBy, sections: @i.Sections</li>
+                }
+            </ul>
+        }
+    </section>
+</div>
+
+@code {
+    private readonly HashSet<string> _exportSections = new(ConfigBundleAdminService.AllSections);
+    private readonly HashSet<string> _importSections = [];
+    private string _exportTitle = "Export";
+    private ConfigBundleImporter.VerifiedBundle? _verified;
+    private SignedBundle? _pendingBundle;
+    private string _signerLabel = string.Empty;
+    private List<BundleImportRecord> _imports = [];
+
+    private string ExportUrl => $"/bundles/export?sections={Uri.EscapeDataString(string.Join(',', _exportSections))}&title={Uri.EscapeDataString(_exportTitle)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _imports = [.. await Bundles.ListImportsAsync(CancellationToken.None)];
+    }
+
+    private void ToggleSection(string section, bool on)
+    {
+        if (on) _exportSections.Add(section); else _exportSections.Remove(section);
+    }
+
+    private void ToggleImportSection(string section, bool on)
+    {
+        if (on) _importSections.Add(section); else _importSections.Remove(section);
+    }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        using var stream = new MemoryStream();
+        await e.File.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024).CopyToAsync(stream);
+        try
+        {
+            var bundle = JsonSerializer.Deserialize<SignedBundle>(Encoding.UTF8.GetString(stream.ToArray()));
+            if (bundle is null)
+            {
+                Toast.Show(ToastLevel.Error, "That file is not a valid config bundle.");
+                return;
+            }
+
+            _pendingBundle = bundle;
+            _verified = await Bundles.VerifyAsync(bundle, CancellationToken.None);
+            if (_verified is null)
+            {
+                Toast.Show(ToastLevel.Error, "This bundle failed verification — it may be corrupted or tampered with.");
+                return;
+            }
+
+            _importSections.Clear();
+            foreach (string s in _verified.Envelope.SectionsJson.Keys)
+            {
+                _importSections.Add(s);
+            }
+        }
+        catch (JsonException)
+        {
+            Toast.Show(ToastLevel.Error, "That file is not valid JSON.");
+        }
+    }
+
+    private async Task TrustAndReloadAsync()
+    {
+        if (_verified is null || _pendingBundle is null)
+        {
+            return;
+        }
+
+        await Bundles.TrustSignerAsync(_verified.SignerFingerprint, _pendingBundle.PublicKeyBase64, _signerLabel, CancellationToken.None);
+        _verified = await Bundles.VerifyAsync(_pendingBundle, CancellationToken.None);
+        _signerLabel = string.Empty;
+        Toast.Show(ToastLevel.Success, "Signer trusted.");
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_pendingBundle is null)
+        {
+            return;
+        }
+
+        BundleImportResult result = await Bundles.ApplyAsync(_pendingBundle, _importSections, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error,
+            result.Ok ? $"Imported: {string.Join(", ", result.RowsAppliedBySection.Select(kv => $"{kv.Key}={kv.Value}"))}" : string.Join("; ", result.Errors));
+        if (result.Ok)
+        {
+            _verified = null;
+            _pendingBundle = null;
+            _imports = [.. await Bundles.ListImportsAsync(CancellationToken.None)];
+        }
+    }
+
+    private static string Label(string section) => section switch
+    {
+        BundleSections.DeviceGroups => "Device groups",
+        _ => char.ToUpperInvariant(section[0]) + section[1..],
+    };
+}

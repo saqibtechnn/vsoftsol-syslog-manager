@@ -395,7 +395,18 @@ public sealed class Rfc3164Parser : ISyslogParser
             }
         }
 
-        return end >= 0 || name[^1] == ':';
+        // A colon-terminated tag (no "[pid]") is only a real BSD tag when the colon is the
+        // last character of this whitespace-delimited token — i.e. the original text had a
+        // space right after it ("TAG: message"). A colon with content immediately
+        // following, no space ("TAG:payload", e.g. a CEF-formatted message's leading
+        // "CEF:0|Vendor|..." header), is not a program-name tag; it is left in the message
+        // for a vendor pack to interpret instead (PHASE_11: checkpoint-gaia's CEF export).
+        if (end >= 0 && token[end] == ':')
+        {
+            return end == token.Length - 1;
+        }
+
+        return end >= 0;
     }
 
     private static (string Tag, string? ProcId) SplitTag(ReadOnlySpan<char> token, out int consumed)

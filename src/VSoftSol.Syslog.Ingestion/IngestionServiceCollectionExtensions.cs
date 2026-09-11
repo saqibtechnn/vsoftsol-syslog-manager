@@ -24,9 +24,19 @@ public static class IngestionServiceCollectionExtensions
         services.AddOptions<ParsingOptions>()
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddOptions<TlsOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<SnmpOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<WinEventLogOptions>()
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IngestionStatistics>();
+        services.TryAddSingleton<ListenerHealthRegistry>();
         services.TryAddSingleton<IngestionChannel>();
         services.TryAddSingleton<PerSourceRateLimiter>();
         services.TryAddSingleton<DiskSpillQueue>();
@@ -44,6 +54,12 @@ public static class IngestionServiceCollectionExtensions
 
         services.AddSingleton<ISyslogListener, UdpSyslogListener>();
         services.AddSingleton<ISyslogListener, TcpSyslogListener>();
+
+        // TLS/SNMP/Windows Event Log listeners need a certificate/community/API-key
+        // resolver only the Service composition root can build (they reach the Data-layer
+        // secret and key stores) — registered by AddCollectorRuntime, not here, so this
+        // method stays usable on its own (e.g. a narrower test harness building just
+        // Udp/Tcp) without requiring those delegates to exist.
 
         services.AddHostedService<IngestionHostedService>();
 

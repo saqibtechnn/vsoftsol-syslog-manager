@@ -1,0 +1,18 @@
+# Sophos XG/XGS (SFOS) parser pack (VENDOR_SUPPORT.md extended seven).
+# Native SFOS syslog is quoted key=value, e.g.
+#   device_name="SFVUTM" log_type="Firewall" log_subtype="Allowed" priority="Information"
+#   src_ip="10.0.0.5" src_port="44321" dst_ip="8.8.8.8" dst_port="53" protocol="UDP" ...
+
+[pack]
+vendor = sophos-xg
+priority = 45
+
+[match]
+message ~ device_name="?SF
+message ~ log_type="?(Firewall|IPS|Antivirus|Event|Authentication|Content Filtering)
+
+[kv]
+
+[transform]
+rename fw_rule_id rule_id
+rename user_name user

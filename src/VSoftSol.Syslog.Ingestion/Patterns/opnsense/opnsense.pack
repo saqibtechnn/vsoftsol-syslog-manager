@@ -1,0 +1,22 @@
+# OPNsense parser pack (VENDOR_SUPPORT.md extended seven).
+# OPNsense's packet-filter log is byte-for-byte the same pf "filterlog" CSV format pfSense
+# uses (both are pf-based) — not a reliable vendor signature on its own. OPNsense's own
+# distinguishing feature is its tightly integrated Suricata IDS/IPS, which forwards EVE JSON
+# alert records over syslog; that is what this pack parses.
+#   suricata[pid]: {"timestamp":"...","event_type":"alert","src_ip":"...","src_port":51000,
+#                    "dest_ip":"...","dest_port":80,"proto":"TCP",
+#                    "alert":{"signature":"...","category":"...","severity":2}}
+
+[pack]
+vendor = opnsense
+priority = 42
+
+[match]
+appname ~ ^suricata$
+message ~ "event_type"\s*:\s*"alert"
+
+[json]
+
+[transform]
+rename dest_ip dst_ip
+rename dest_port dst_port

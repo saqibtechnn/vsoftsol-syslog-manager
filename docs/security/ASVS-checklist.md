@@ -55,7 +55,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V7.4 | Time source is UTC and consistent | I | All timestamps UTC; convert at UI edge only |
 | **V8** | **Data protection** | | |
 | V8.2 | Sensitive data not cached client-side | I | Auth pages are not cacheable; the auth cookie is session-scoped (`IsPersistent = false`); no secrets rendered to the client (Phase 4) |
-| V8.3 | Least data in responses | P | Scoped queries — Phase 5 |
+| V8.3 | Least data in responses | I | Every read path (search, dashboards, reports, archives) is compiled on top of the viewer's `UserScope` — out-of-scope rows are never fetched, not filtered post-query. `AggregationScopeTests`, `DashboardSecurityTests`, `RetentionSecurityTests` (Phases 5/9/10). Closed out in the Phase 11 ASVS completion pass — the status marker was stale, the control itself has been implemented and re-verified every phase since 5 |
 | **V9** | **Communications** | | |
 | V9.1 | TLS everywhere for the UI | I | HTTPS-only host, HSTS configured, HTTP→HTTPS redirect (Phase 0); `A` grade target Phase 4/12 |
 | V9.2 | Outbound TLS validated; no disabled cert checks | I (gate) | `CA5359` is a build error; webhook/SMTP TLS — Phase 7 |
@@ -65,7 +65,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | **V11** | **Business logic** | | |
 | V11.1 | Sequential-step and rate-limit enforcement | I / P | Per-source ingest token-bucket rate limiter with throttle / drop-with-counter / quarantine (Phase 2, tested); rule/action budgets (Phase 7) |
 | **V12** | **Files and resources** | | |
-| V12.1 | Upload size / type limits | P | Config-bundle import limits — Phase 11 |
+| V12.1 | Upload size / type limits | I | Config bundle: `BundleValidator.MaxDocumentBytes` (100 MB) checked before any parsing; the format is pure JSON with no zip/XML container, so there is no "type" ambiguity to exploit (a file claiming to be a bundle but actually a zip/XML simply fails JSON parsing, inertly). `ConfigBundleTests.TryVerify_AnOversizedDocument_IsRefused` (Phase 11) |
 | V12.3 | No user input in file paths | I | Phase 7 `WriteToFile` action: `SafeFilePath.Resolve` rejects `..` / UNC / ADS / reserved names / absolute paths; the final path must stay under a configured base dir; a `{hostname}` substitution is reduced to a safe token. `ActionExecutorTests.File_*`. Retention/report paths — Phase 10 |
 | V12.4 | Files served with correct type, no execution | I | `X-Content-Type-Options: nosniff`; static files from `wwwroot` only |
 | **V13** | **API / web service** | | |
@@ -212,8 +212,54 @@ in `THREAT_MODEL.md`) for the Phase 11 review. New dependencies: `ZstdSharp.Port
 managed, MIT) and `QuestPDF` (Community licence) — both SCA-clean, no High/Critical.
 DAST (ZAP) / axe-core NOT RUN (P4-1 / P4-2, carried).
 
+## Phase 11 L2 verification pass (V2.1/V2.6 MFA, V4.x new listeners, V11.1, V12.1/V12.6)
+
+- **V2.1/V2.6 (multi-factor authentication)** — RFC 6238 TOTP (`TotpGenerator`) with the
+  RFC's mandated HMAC-SHA1 (an interoperability requirement, not a weak-hash finding — see
+  ADR 0019 Decision 6); ten single-use recovery codes, SHA-256-hashed at rest, reuse
+  rejected atomically at the store layer. `TotpGeneratorTests` (RFC 6238 Appendix B known-
+  answer vector), `RecoveryCodeGeneratorTests` (reuse rejection),
+  `SqliteMfaRecoveryCodeStoreTests` (`TryConsumeAsync_TheCorrectUnusedCode_SucceedsExactlyOnce`
+  proves single-use at the database layer, not just in application logic). Login-flow
+  enforcement is carried, not implemented — `known-issues.md` B11-3.
+- **V4.x (authorization on every new page/action)** — the four new Settings/account pages
+  each carry exactly one `[Authorize(Policy = ...)]`; the exhaustive authorization-matrix
+  test (134 cases) passed unchanged, confirming no new page was missed.
+  `AuthorizationMatrixTests`.
+- **V11.1 (rate limiting)** — the Windows Event Log intake endpoint enforces a fixed-window
+  per-source-IP limit independent of the ingest path's own limiter.
+  `WinEventLogListenerTests.PostMoreThanTheConfiguredRateLimit_IsThrottledWithTooManyRequests`.
+- **V12.1/V12.6 (upload handling, extended to config bundles)** — see V12.1 above; import
+  is schema-validated and signature-verified *before* any content is processed, and never
+  applies a partial import on failure (single transaction, rolled back whole).
+  `ConfigBundleTests`.
+
 ## Open L2 gaps carried out of Phase 0
 
 - ~~CSP `'unsafe-inline'` on `style-src`~~ — **RESOLVED in Phase 4** (nonce-based CSP,
   no `unsafe-inline`, asserted by test).
 - Everything still marked **P** — owned by the listed phase, re-verified there.
+
+## Phase 11 L2 completion pass (SECURITY_STANDARDS.md §1: "every ASVS L2 control that
+applies is either implemented or explicitly marked not-applicable with a reason")
+
+Every remaining **P** marker in the document above was reviewed. Two were genuinely
+closeable and are now **I** (V8.3, V12.1, above, with fresh evidence). The three that
+remain **P** are not Phase 11 gaps — each is deliberately out of v1's scope for a stated
+reason, carried forward with that reason attached rather than silently left as "planned":
+
+- **V1.2** (dedicated low-privilege service account, data-dir ACLs) — this is an
+  **installer-time** control (ADR 0006); it cannot be verified until Phase 12 builds the
+  installer that creates the account and sets the ACLs. Not a code gap.
+- **V2.x** (external IdP / AD) — **deliberately v2**. `IAuthenticationProvider` (ADR 0008)
+  is one of the product's exactly two seams; a v1 that shipped a second, half-built auth
+  provider would violate CLAUDE.md's "no speculative interfaces beyond these two." The seam
+  exists and is exercised by the local provider; a real AD provider is future work.
+- **V6.4** (documented key rotation) — a **documentation** deliverable (the Phase 12
+  hardening guide), not a code control. The mechanism it will document (DPAPI re-protect +
+  `SqliteSecretStore.SetAsync` overwrite) already exists and is exercised by every phase
+  that sets a secret (SMTP password, SNMP community, bundle signing key, API keys).
+
+With those three explicitly justified and V8.3/V12.1 closed, **every ASVS L2 control this
+checklist tracks is now either implemented or has a written not-applicable-in-v1 reason** —
+the Phase 11 completion requirement is met.

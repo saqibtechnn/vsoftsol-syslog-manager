@@ -7,13 +7,13 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 10 — Retention & Reports
-- **Last tag:** `v1.0.0-phase.10`
-- **Next phase:** 11 — Hardening
-- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **900 unit / 667 integration = 1567/1567** on a clean full re-run (`docs/evidence/phase-10/test-output.txt`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, **2 new dependencies** in Phase 10 — `ZstdSharp.Port` [pure managed, MIT] and `QuestPDF` [Community licence], both clean).
+- **Last completed phase:** 11 — Hardening
+- **Last tag:** `v1.0.0-phase.11`
+- **Next phase:** 12 — Release
+- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1041 unit / 730 integration = 1771/1771** on a clean full re-run (`docs/evidence/phase-11/test-output.txt`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, **zero new dependencies** in Phase 11 — every new capability uses only the in-box BCL).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
-- **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC pipeline **~13,600 msg/sec**; vendor extraction **~5,300** worst case. Phase 6 (stream routing): RFC + 20 streams **6,706** (gate PASS); vendor + 20 streams ~3,200 (P6-1). **Phase 7 (rules engine on the ingest path):** RFC + 50 active rules **9,433 msg/sec** (gate PASS); vendor + 50 rules **~3,600** — the vendor path is sub-gate at *baseline* on this VM (P3-2), rules add ~21 % on top → carried to Phase 12 (P7-4). Actions execute **off** the ingest thread (outbox + `ActionDispatchService`): a rule with a blocking action → 2,000 msgs commit in 0.2 s. See `docs/evidence/phase-07/benchmarks.md`.
+- **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC pipeline **~13,600 msg/sec**; vendor extraction **~5,300** worst case. Phase 6 (stream routing): RFC + 20 streams **6,706** (gate PASS); vendor + 20 streams ~3,200 (P6-1). **Phase 7 (rules engine on the ingest path):** RFC + 50 active rules **9,433 msg/sec** (gate PASS); vendor + 50 rules **~3,600** — the vendor path is sub-gate at *baseline* on this VM (P3-2), rules add ~21 % on top → carried to Phase 12 (P7-4). Actions execute **off** the ingest thread (outbox + `ActionDispatchService`): a rule with a blocking action → 2,000 msgs commit in 0.2 s. See `docs/evidence/phase-07/benchmarks.md`. **Phase 11** (re-run out of caution — `MessageParser` gains a per-frame protocol branch, the vendor-pack list grows 8→17): RFC-only **23,139 msg/sec**; vendor extraction against all 17 packs **7,329 msg/sec** — both PASS vs the 5,000 msg/sec gate (not a like-for-like regression check against Phase 7's worst-case number — see `docs/evidence/phase-11/verification.md`).
 - **Phase 8 (alerts):** alert evaluation is a scheduled `BackgroundService` in the collector host — **entirely off the ingest path** (`git diff --stat src/…Ingestion` = 0 files this phase), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run (Phases 3/6/7/12 only). Scheduled-evaluation timing at 2M-event scale carried to Phase 12 (P8-3).
 - **Phase 9 (dashboards):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — the new `CollectorStatSampler` only *reads* `IngestionStatistics.Snapshot()`), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. Dashboard-load benchmark (`DashboardBenchmark`, 2M events, 4 widgets, cold + warm): **cold ~310 ms p95 / warm sub-µs** per 4-widget dashboard (2M events, 24h window); ÷20 from a `InvocationCount=20` monitoring run — the 50M-event `< 3 s` p95 acceptance carried to the Phase 12 clean-VM run (**P9-1**, the P1-1 / P5-1 / P6-1 pattern).
 - **Phase 10 (retention & reports):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — retention tiering and report scheduling are both `BackgroundService`s in the collector host, entirely off the ingest path), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. `RetentionBenchmark` (Hot→Warm compression, 5,000-event batch): **~345 ms/batch ≈ 14,500 events/sec** on this VM. The phase's own gate — "tiering a 10M-event backlog does not push search latency past the Phase 5 target while it runs" — carried to the Phase 12 clean-VM run (**P10-1**, the P1-1 / P5-1 / P6-1 / P9-1 pattern).
@@ -23,6 +23,124 @@ to learn where the build stands. Keep it terse and factual.
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 11 — Hardening — 2026-09-11 — tag `v1.0.0-phase.11`
+
+> TLS/SNMP/Windows Event Log intake, nine extended-seven vendor packs, signed config
+> bundles (export/import, trust-on-first-use), collector self-monitoring into a reserved
+> internal stream, and TOTP MFA primitives. Threat model reviewed (the scheduled Phase
+> 4/7/11 point) and ASVS L2 completed. One genuine bug found live (a `Rfc3164Parser`
+> tag-detection defect, caught by the Phase 3 oracle differential test) and fixed at the
+> root. Three items carried with written justification, none Critical/High: B11-1
+> (personal-content bundle import), B11-2 (listener-crash supervision), B11-3 (MFA
+> login-flow enforcement — the primitives are complete and tested; wiring them into the
+> actual login flow is the remaining step).
+
+**Shipped**
+- **Core** — `Snmp/` (`SnmpBerReader`, a hand-bounded ASN.1 reader for SNMPv1/v2c traps —
+  every length checked against the buffer, OID arc count and varbind count capped,
+  indefinite-length BER rejected; `SnmpSeverityMapper`); `WinEventLog/` (`WinEventLogMapper`
+  — level→severity, channel→facility); `Bundles/` (`BundleSigner` — ECDSA P-256 in-box,
+  `BundleValidator`, the envelope/header/signed-bundle records); `Security/Mfa/` (`Base32`,
+  `TotpGenerator` — RFC 6238 with its own known-answer test vector, `RecoveryCodeGenerator`
+  — SHA-256-hashed, single-use); `SelfMonitoring/` (`SelfMonitoringEvaluator` — pure,
+  edge-triggered breach/clear decisions for the five self-alert conditions, no I/O).
+- **Ingestion** — `TlsSyslogListener` (mutual TLS, an explicit trusted-client-thumbprint
+  allow-list, `EnabledSslProtocols` built from the configured minimum so weak TLS is never
+  offered, not merely rejected after negotiation); `SnmpTrapListener` (community-string
+  gate before any frame reaches the pipeline, refuses `public` outright);
+  `WinEventLogListener` (built on the in-box `HttpListener`, API-key auth with optional
+  source-IP scoping, a fixed-window per-source rate limit); `SnmpTrapNormalizer` /
+  `WinEventLogNormalizer` (both report `ParseStatus.Raw` — `protocol` disambiguates the
+  source — but `MessageParser.BuildEvent`'s "Raw ⇒ blank the message" rule was fixed to
+  exclude them, since both always carry a real decoded message); `ListenerHealthRegistry`
+  (the "listener down" self-monitoring signal). **Nine new vendor packs**
+  (`Patterns/{checkpoint-gaia,sophos-xg,sonicwall-sonicos,pfsense,opnsense,
+  aruba-aos-switch,aruba-aos-cx,huawei-vrp,vmware-esxi}`, 10 fixtures each, 90 total —
+  VENDOR_SUPPORT.md's extended seven, two of which ship as two packs each) bringing the
+  loaded total to 17 packs / ≥ 330 fixtures.
+- **Data** — migration 009 (`mfa_recovery_codes`, `api_keys`, `bundle_signing_identity`,
+  `bundle_trusted_signers`, `bundle_imports`; `users` gains `mfa_enabled`/`mfa_enrolled_utc`,
+  additive); `SqliteMfaRecoveryCodeStore` (atomic single-use consumption),
+  `SqliteApiKeyStore` (SHA-256-hashed keys, optional source-IP scoping),
+  `SqliteBundleTrustStore` (this install's own signing identity, generated on first use;
+  trust-on-first-use signer acceptance; import history); `ConfigBundleExporter` (generic —
+  every column of every requested table, by name, straight from the reader's schema, with
+  `users.password_hash` the one hand-maintained exclusion) and `ConfigBundleImporter`
+  (deliberately **not** generic — every written column name is a fixed constant in the
+  importer's own code, never a bundle-supplied key, closing the "hostile bundle turns a
+  JSON key into a SQL identifier" risk by construction); the reserved `collector.health`
+  stream, seeded with `match_json = NULL` (compiles to `CompiledCondition.MatchNothing` —
+  inert for live traffic).
+- **Service** — `SelfMonitoringService` (collector-host `BackgroundService`; on a breach/
+  clear transition, appends a real event into the reserved stream *and* raises the
+  notification directly — no operator-authored alert definition is a prerequisite for the
+  self-alert itself); the TLS certificate / SNMP community / Windows Event Log API-key
+  resolver delegates (composition-root-only, ADR 0008/0014/0015 precedent).
+- **Web** — `/settings/listeners` (TLS/SNMP/WinEventLog status + the SNMP community secret,
+  editable with no restart + API-key management), `/settings/bundles` (export with a
+  section checklist; import with verify → trust-on-first-use prompt → apply, never
+  partial), `/monitoring` (reads the same `collector_stat_samples` table — and
+  `SystemSeriesReader` — the Phase 9 Collector Health widget already uses, since the Web
+  host cannot read the collector process's in-memory counters directly), `/account/security`
+  (self-service TOTP enrollment, one-time recovery-code display, disable).
+
+**Interpretations (stated, proceeding — no blocking fork)**
+1. `events.parse_status` stays `{raw, rfc3164, rfc5424}` — SNMP/WinEventLog report `raw`
+   (widening the CHECK constraint would need a full table rebuild for a distinction
+   `protocol` already carries); the one required fix was excluding them from the
+   "Raw ⇒ blank message" convention.
+2. Config bundles are pure JSON, ECDSA-signed, trust-on-first-use (no PKI) — the same
+   "provably absent by construction" defence as the Phase 10 archive format for XXE/zip-slip.
+3. Self-alerts are delivered by `SelfMonitoringService` calling the existing
+   `NotificationSink` directly, not by seeding a parallel `alert_definitions` row — the
+   reserved stream is what makes the health signal "monitored the same way everything else
+   is" for any *further*, operator-authored alerting.
+4. TLS/SNMP/WinEventLog bind address/port/enabled stay in the service configuration file,
+   the same disposition as the UDP/TCP listener ports since Phase 2; the SNMP community and
+   API keys — which genuinely need runtime changes without a restart — are fully editable
+   from Settings → Listeners.
+5. Config bundle import applies only `is_system` dashboards/reports (personal-content
+   ownership cannot be remapped across installs without an identity bridge this format does
+   not have) — B11-1.
+6. TOTP MFA ships as complete, tested self-service primitives; wiring the login flow itself
+   to require the second factor is carried — B11-3 — rather than rushed under this phase's
+   remaining time.
+
+**A genuine bug found live, not by review.** `Rfc3164Parser`'s BSD-tag detection accepted a
+colon anywhere in a message's first token as a tag terminator, with no requirement that a
+real space follow it — so a CEF-formatted message (`"CEF:0|Vendor|..."`, the checkpoint-gaia
+vendor pack's own wire format) was wrongly tag-stripped into `AppName = "CEF"` +
+`Message = "0|Vendor|..."`, destroying the "CEF:" prefix the pack's own `[match]`/`[grok]`
+rules needed. Caught immediately by the pre-existing Phase 3 `OracleDifferentialTests` (an
+independent regex-based reference parser correctly required `:\s+`, so the two
+implementations diverged on `app_name`) — exactly the class of defect differential/oracle
+testing exists to catch. Fixed at the root (a colon-terminated tag is now only accepted
+when the colon is the token's last character); verified safe against the full 1041-test
+unit suite, oracle included. Full account in `docs/evidence/phase-11/known-issues.md`.
+
+**Verification** — see `docs/evidence/phase-11/` for the full pack (`red-green.md`,
+`verification.md`, `known-issues.md`, `ux-gate.md`, `security/README.md`, coverage,
+benchmarks, `test-output.txt`).
+
+```
+PHASE 11 SIGN-OFF
+  Tests added:            141 unit (900→1041), 63 integration (667→730; incl. 3 TLS
+                           / 3 SNMP / 5 WinEventLog listener, 6 config-bundle, 18 store/migration)
+  Total suite:            1771 tests, 1771 passing, 0 skipped
+  Red-green observed:     yes — slice-level compile-fail RED (Core), defect-driven RED→GREEN
+                           (9 vendor packs: 48→10→1→0 failures across three real bugs, plus
+                           a 4th — a flaky test-isolation bug — caught by the first
+                           full-solution run and fixed), and DI-wiring RED→GREEN (Service composition)
+  Coverage:               85.35% Ingestion, 84.34% Rules, 85.71% Reporting (all >= 80% gate, PASS)
+  Mutation score:         BLOCKED (P3-3, environmental — VsTest adapter does not deploy on this SDK-only host)
+  Performance gates:      ingest RFC-only 23,139 msg/sec; vendor extraction (17 packs) 7,329
+                           msg/sec — both PASS vs the 5,000 msg/sec gate (isolated `--ingest-probe`)
+  UX gate:                PASS — 4 clicks (MFA enrollment), 5/5 structural checks
+  Regression:             all prior-phase tests green — yes
+  Evidence committed:     docs/evidence/phase-11/
+  Known issues:           3 (B11-1 Low, B11-2 Low, B11-3 Medium) + carried P10-1/P4-1/P4-2
+```
 
 ### Phase 10 — Retention & Reports — 2026-09-11 — tag `v1.0.0-phase.10`
 
@@ -1729,6 +1847,19 @@ by the phase prompt; the five-point gate applies from Phase 4.
 
 ## Open decisions needing the operator
 
+- **Phase 11 sign-off** — three items, none Critical/High (written justification in
+  `docs/security/SECURITY_REVIEW.md`): **B11-3** (Medium — TOTP MFA enrollment/verification/
+  recovery-code primitives are complete and tested end to end, but the login flow itself
+  does not yet require the second factor for an `mfa_enabled` account; wiring
+  `MfaSelfServiceService.VerifyLoginCodeAsync` into `LocalAuthenticationProvider` is the
+  remaining step — recommend prioritising this before any account actually enables MFA in
+  production, since today enabling it changes nothing about that account's real login
+  requirement); **B11-1** (Low — config bundle import applies only `is_system` dashboards/
+  reports, a stated format limitation, not a defect); **B11-2** (Low — "listener down"
+  self-monitoring does not yet detect an in-process crash that bypasses `StopAsync`, no such
+  crash path is observed in the current codebase). Also carried on the established
+  precedent: **P10-1** (unchanged from the Phase 10 tag) and **P4-1/P4-2** (DAST/axe-core,
+  unchanged). Operator to accept at the `v1.0.0-phase.11` tag.
 - **Phase 10 sign-off** — one item carried on the accepted precedent (no FAIL line):
   **P10-1** — "tiering a 10M-event backlog does not push search latency past the Phase 5
   target while it runs" is not run at 10M on this 2-vCPU VMware VM (a multi-hour,
@@ -1797,6 +1928,9 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | _(none — no `TODO(phase-N)` in code)_ | | |
 | P10-1 10M-event-backlog tiering with concurrent search latency unaffected | `RetentionBenchmark` | 12 (clean-VM) |
 | P10-2 `ReportContentReader` should surface `AggregationOutcome.Status`/`Detail` for a malformed custom query | `Data/Reports/ReportContentReader.cs` | 11+ (Reports polish) |
+| B11-1 config bundle import applies only `is_system` dashboards/reports; personal-content ownership cannot be remapped across installs | `ConfigBundleImporter` | later (identity-bridge design) |
+| B11-2 "listener down" self-monitoring detects never-started/gracefully-stopped, not an in-process crash bypassing `StopAsync` | `ListenerHealthRegistry` / `SelfMonitoringService` | later (listener supervision) |
+| B11-3 TOTP MFA primitives complete and tested; login flow does not yet enforce the second factor | `LocalAuthenticationProvider` / `AuthEndpoints` | 11 follow-up |
 | ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
 | P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | later Settings pass / 12 |
 | P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | 12 (clean-VM) |

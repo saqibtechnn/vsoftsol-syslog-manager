@@ -14,7 +14,8 @@ public sealed class SqliteUserStore
 {
     private const string SelectColumns =
         "u.user_id, u.username, u.display_name, u.role_id, u.password_hash, u.must_change_password, " +
-        "u.is_enabled, u.failed_login_count, u.locked_until_utc, u.last_login_utc, u.password_changed_utc, u.created_utc";
+        "u.is_enabled, u.failed_login_count, u.locked_until_utc, u.last_login_utc, u.password_changed_utc, u.created_utc, " +
+        "u.mfa_enabled, u.mfa_enrolled_utc";
 
     private readonly SqliteConnectionFactory _factory;
 
@@ -245,6 +246,20 @@ public sealed class SqliteUserStore
         }
     }
 
+    /// <summary>Turns MFA on (after the enrollment TOTP code has been verified) or off for
+    /// a user. The TOTP secret itself is set/cleared separately, through the secret store.</summary>
+    public async Task SetMfaEnabledAsync(long userId, bool enabled, DateTimeOffset? enrolledUtc, CancellationToken cancellationToken)
+    {
+        await using IAsyncDisposable writeLock = await _factory.AcquireWriteLockAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteConnection connection = await _factory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "UPDATE users SET mfa_enabled = $enabled, mfa_enrolled_utc = $enrolled WHERE user_id = $id;";
+        command.Parameters.AddWithValue("$enabled", enabled ? 1 : 0);
+        command.Parameters.AddWithValue("$enrolled", enrolledUtc is { } e ? Iso(e) : (object)DBNull.Value);
+        command.Parameters.AddWithValue("$id", userId);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<int> CountEnabledAdministratorsAsync(CancellationToken cancellationToken)
     {
         await using SqliteConnection connection = await _factory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -316,6 +331,8 @@ public sealed class SqliteUserStore
         LastLoginUtc = reader.IsDBNull(9) ? null : ParseIso(reader.GetString(9)),
         PasswordChangedUtc = reader.IsDBNull(10) ? null : ParseIso(reader.GetString(10)),
         CreatedUtc = ParseIso(reader.GetString(11)),
+        MfaEnabled = reader.GetInt32(12) != 0,
+        MfaEnrolledUtc = reader.IsDBNull(13) ? null : ParseIso(reader.GetString(13)),
     };
 
     private static int RoleId(Role role) => (int)role + 1;

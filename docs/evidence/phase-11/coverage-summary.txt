@@ -1,0 +1,16 @@
+Phase 11 coverage — union line coverage across the unit and integration cobertura reports
+(a line counts as covered if hit > 0 in either report), same methodology as Phases 8/9/10.
+
+Computed from docs/evidence/phase-11/coverage-unittests.cobertura.xml and
+coverage-integration.cobertura.xml (both from clean coverage-instrumented runs — 1041/1041
+unit, 730/730 integration, no discrepancy against the plain runs this phase).
+
+VSoftSol.Syslog.Ingestion : 2231 / 2614 lines = 85.35%  (gate: >= 80%  PASS)
+VSoftSol.Syslog.Rules     : 1223 / 1450 lines = 84.34%  (gate: >= 80%  PASS — unchanged from
+                                                          Phase 10, no Rules-layer changes)
+VSoftSol.Syslog.Reporting : 288 / 336 lines   = 85.71%  (gate: >= 80%  PASS — unchanged from
+                                                          Phase 10, no Reporting-layer changes)
+
+Ingestion's line count grew from Phase 10's baseline with this phase's new TLS/SNMP/
+Windows Event Log listeners, their normalizers, and the nine new vendor pattern packs;
+coverage stayed comfortably above the gate despite the large influx of new code.

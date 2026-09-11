@@ -18,7 +18,11 @@ public sealed class IngestionHostedService : IHostedService, IDisposable
     private readonly IngestionChannel _channel;
     private readonly DiskSpillQueue _spill;
     private readonly IngestionStatistics _stats;
+    private readonly ListenerHealthRegistry _health;
     private readonly IngestionOptions _options;
+    private readonly TlsOptions _tlsOptions;
+    private readonly SnmpOptions _snmpOptions;
+    private readonly WinEventLogOptions _winEventLogOptions;
     private readonly ILogger<IngestionHostedService> _logger;
 
     private readonly CancellationTokenSource _pipelineCts = new();
@@ -30,7 +34,11 @@ public sealed class IngestionHostedService : IHostedService, IDisposable
         IngestionChannel channel,
         DiskSpillQueue spill,
         IngestionStatistics stats,
+        ListenerHealthRegistry health,
         IOptions<IngestionOptions> options,
+        IOptions<TlsOptions> tlsOptions,
+        IOptions<SnmpOptions> snmpOptions,
+        IOptions<WinEventLogOptions> winEventLogOptions,
         ILogger<IngestionHostedService> logger)
     {
         _listeners = listeners.ToList();
@@ -38,7 +46,11 @@ public sealed class IngestionHostedService : IHostedService, IDisposable
         _channel = channel;
         _spill = spill;
         _stats = stats;
+        _health = health;
         _options = options.Value;
+        _tlsOptions = tlsOptions.Value;
+        _snmpOptions = snmpOptions.Value;
+        _winEventLogOptions = winEventLogOptions.Value;
         _logger = logger;
     }
 
@@ -61,6 +73,7 @@ public sealed class IngestionHostedService : IHostedService, IDisposable
             }
 
             await listener.StartAsync(cancellationToken).ConfigureAwait(false);
+            _health.MarkRunning(listener.Name);
             started++;
         }
 
@@ -71,6 +84,9 @@ public sealed class IngestionHostedService : IHostedService, IDisposable
     {
         Protocol.Udp => _options.UdpEnabled,
         Protocol.Tcp => _options.TcpEnabled,
+        Protocol.Tls => _tlsOptions.Enabled,
+        Protocol.Snmp => _snmpOptions.Enabled,
+        Protocol.WinEventLog => _winEventLogOptions.Enabled,
         _ => false,
     };
 
@@ -87,6 +103,10 @@ public sealed class IngestionHostedService : IHostedService, IDisposable
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Listener {Name} did not stop cleanly.", listener.Name);
+            }
+            finally
+            {
+                _health.MarkStopped(listener.Name);
             }
         }
 

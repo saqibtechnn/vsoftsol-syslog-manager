@@ -30,6 +30,12 @@ public sealed record UserAccount
 
     public DateTimeOffset CreatedUtc { get; init; }
 
+    /// <summary>TOTP MFA (PHASE_11 item 8). The secret itself lives in the DPAPI-protected
+    /// <c>secrets</c> table, keyed "mfa.totp.&lt;user_id&gt;" — never here.</summary>
+    public bool MfaEnabled { get; init; }
+
+    public DateTimeOffset? MfaEnrolledUtc { get; init; }
+
     /// <summary>Streams this user may see; empty means all (see <c>UserScope</c>).</summary>
     public IReadOnlyList<long> VisibleStreamIds { get; init; } = [];
 

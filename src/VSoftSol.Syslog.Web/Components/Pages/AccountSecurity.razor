@@ -1,0 +1,123 @@
+@page "/account/security"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Users
+@using VSoftSol.Syslog.Web.Hardening
+@inject MfaSelfServiceService Mfa
+@inject ToastService Toast
+
+<PageTitle>Multi-factor authentication — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page ds-page--narrow">
+    <header class="ds-page__header">
+        <h1>Multi-factor authentication</h1>
+        <a class="ds-button ds-button--ghost" href="/account">Your account</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="4" />
+    }
+    else if (_recoveryCodes is { } codes)
+    {
+        <section class="ds-card">
+            <h2>Save your recovery codes</h2>
+            <p>Each code can be used once, in place of your authenticator app, if you lose access to it. They will
+                not be shown again.</p>
+            <ul class="ds-codelist">
+                @foreach (string recoveryCode in codes)
+                {
+                    <li><code>@recoveryCode</code></li>
+                }
+            </ul>
+            <div class="ds-form__actions">
+                <button type="button" class="ds-button ds-button--primary" @onclick="() => _recoveryCodes = null">I've saved these</button>
+            </div>
+        </section>
+    }
+    else if (_user!.MfaEnabled)
+    {
+        <section class="ds-card">
+            <h2>MFA is <span class="ds-chip ds-chip--ok">enabled</span></h2>
+            <p class="ds-muted">Enabled since @_user.MfaEnrolledUtc?.ToLocalTime().ToString("g")</p>
+            <button type="button" class="ds-button ds-button--danger" @onclick="DisableAsync">Turn off MFA</button>
+        </section>
+    }
+    else if (_enrollment is { } enrollment)
+    {
+        <section class="ds-card">
+            <h2>Set up your authenticator app</h2>
+            <p>In your authenticator app (Google Authenticator, Microsoft Authenticator, Authy, 1Password, ...), add
+                an account and enter this key manually:</p>
+            <p><code class="ds-input">@enrollment.Base32Secret</code></p>
+            <p class="ds-muted">Account: @enrollment.AccountLabel &middot; Issuer: @enrollment.Issuer</p>
+
+            <form class="ds-form" @onsubmit="VerifyAsync" @onsubmit:preventDefault>
+                <FormField Label="Enter the 6-digit code from your app" FieldId="ds-mfa-code">
+                    <input id="ds-mfa-code" class="ds-input" inputmode="numeric" maxlength="6" @bind="_code" autocomplete="one-time-code" />
+                </FormField>
+                @if (_error is not null)
+                {
+                    <ul class="ds-form__errors"><li>@_error</li></ul>
+                }
+                <div class="ds-form__actions">
+                    <button type="submit" class="ds-button ds-button--primary">Verify and enable</button>
+                    <button type="button" class="ds-button ds-button--ghost" @onclick="() => _enrollment = null">Cancel</button>
+                </div>
+            </form>
+        </section>
+    }
+    else
+    {
+        <section class="ds-card">
+            <h2>MFA is <span class="ds-chip">off</span></h2>
+            <p>Add a second factor so signing in also needs a code from an authenticator app on your phone.</p>
+            <button type="button" class="ds-button ds-button--primary" @onclick="StartAsync">Set up MFA</button>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private UserAccount? _user;
+    private MfaSelfServiceService.EnrollmentStart? _enrollment;
+    private IReadOnlyList<string>? _recoveryCodes;
+    private string _code = string.Empty;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _user = await Mfa.GetCurrentUserAsync(CancellationToken.None);
+        _loading = false;
+    }
+
+    private async Task StartAsync()
+    {
+        _enrollment = await Mfa.StartEnrollmentAsync(CancellationToken.None);
+        _error = null;
+    }
+
+    private async Task VerifyAsync()
+    {
+        (bool ok, string message, IReadOnlyList<string>? codes) = await Mfa.VerifyAndEnableAsync(_code, CancellationToken.None);
+        if (!ok)
+        {
+            _error = message;
+            return;
+        }
+
+        _enrollment = null;
+        _code = string.Empty;
+        _error = null;
+        _recoveryCodes = codes;
+        _user = await Mfa.GetCurrentUserAsync(CancellationToken.None);
+        Toast.Show(ToastLevel.Success, message);
+    }
+
+    private async Task DisableAsync()
+    {
+        (bool ok, string message) = await Mfa.DisableAsync(CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+        _user = await Mfa.GetCurrentUserAsync(CancellationToken.None);
+    }
+}

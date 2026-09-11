@@ -10,7 +10,7 @@ namespace VSoftSol.Syslog.IntegrationTests.Data;
 public sealed class SeedDataTests
 {
     [Fact]
-    public async Task SeedAsync_CreatesTheFourRoles_TheAdmin_AndSevenDefaultStreams()
+    public async Task SeedAsync_CreatesTheFourRoles_TheAdmin_AndEightDefaultStreams()
     {
         await using SqliteTestDatabase db = await SqliteTestDatabase.CreateSeededAsync();
         await using SqliteConnection connection = await db.Factory.OpenAsync(CancellationToken.None);
@@ -18,10 +18,12 @@ public sealed class SeedDataTests
         (await Names(connection, "SELECT name FROM roles ORDER BY role_id"))
             .Should().Equal(Enum.GetNames<Role>());
 
+        // Phase 11 adds the reserved "collector.health" self-monitoring stream
+        // (sort_order = 999, so it always sorts last) alongside the Phase 6 default seven.
         (await Names(connection, "SELECT name FROM streams ORDER BY sort_order"))
             .Should().Equal(
                 "All Messages", "Security Events", "Interface Up/Down", "Authentication Failures",
-                "Configuration Changes", "Hardware/Environment", "Parse Failures");
+                "Configuration Changes", "Hardware/Environment", "Parse Failures", "collector.health");
 
         await using SqliteCommand admin = connection.CreateCommand();
         admin.CommandText = """
@@ -48,7 +50,7 @@ public sealed class SeedDataTests
 
         await using SqliteConnection connection = await db.Factory.OpenAsync(CancellationToken.None);
         (await Scalar(connection, "SELECT COUNT(*) FROM roles")).Should().Be(Enum.GetValues<Role>().Length);
-        (await Scalar(connection, "SELECT COUNT(*) FROM streams")).Should().Be(7);
+        (await Scalar(connection, "SELECT COUNT(*) FROM streams")).Should().Be(8); // Phase 6's seven + Phase 11's reserved collector.health
         (await Scalar(connection, "SELECT COUNT(*) FROM users")).Should().Be(1);
     }
 

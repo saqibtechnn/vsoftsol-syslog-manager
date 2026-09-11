@@ -1,0 +1,157 @@
+@page "/settings/listeners"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Security
+@using VSoftSol.Syslog.Web.Hardening
+@inject ListenerSettingsService Listeners
+@inject ApiKeyAdminService ApiKeys
+@inject ToastService Toast
+
+<PageTitle>Listeners — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Listeners</h1>
+        <a class="ds-button ds-button--ghost" href="/settings">Settings</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="8" />
+    }
+    else
+    {
+        <section class="ds-card">
+            <h2>TLS syslog <span class="ds-chip @(Listeners.Tls.Enabled ? "ds-chip--ok" : "ds-chip")">@(Listeners.Tls.Enabled ? "Enabled" : "Disabled")</span></h2>
+            <p class="ds-muted">Bind @Listeners.Tls.BindAddress:@Listeners.Tls.Port · minimum @Listeners.Tls.MinimumProtocol
+                · mutual TLS @(Listeners.Tls.RequireClientCertificate ? $"required ({Listeners.Tls.TrustedClientCertificateThumbprints.Count} trusted client cert(s))" : "off")</p>
+            <p class="ds-muted">Enabled state, port, and certificate source are set in the service configuration file
+                (<code>Tls:*</code>) and take effect on the next restart — the same as the UDP/TCP listener ports.</p>
+        </section>
+
+        <section class="ds-card">
+            <h2>SNMP trap receiver <span class="ds-chip @(Listeners.Snmp.Enabled ? "ds-chip--ok" : "ds-chip")">@(Listeners.Snmp.Enabled ? "Enabled" : "Disabled")</span></h2>
+            <p class="ds-muted">Bind @Listeners.Snmp.BindAddress:@Listeners.Snmp.Port</p>
+            @if (string.IsNullOrWhiteSpace(Listeners.Snmp.CommunitySecretName))
+            {
+                <p class="ds-form__errors">Set <code>Snmp:CommunitySecretName</code> in the service configuration first — a
+                    one-time technical step — before a community string can be set here.</p>
+            }
+            else
+            {
+                <form class="ds-form" @onsubmit="SaveCommunityAsync" @onsubmit:preventDefault>
+                    <FormField Label="Community string" FieldId="ds-community" Help="Never 'public' — that default is refused. Takes effect immediately, no restart.">
+                        <input id="ds-community" class="ds-input" type="password" @bind="_community" placeholder="@(_communitySet ? "•••••••• (set)" : "not set — every trap is refused")" />
+                    </FormField>
+                    <div class="ds-form__actions">
+                        <button type="submit" class="ds-button ds-button--primary">Save</button>
+                    </div>
+                </form>
+            }
+        </section>
+
+        <section class="ds-card">
+            <h2>Windows Event Log intake <span class="ds-chip @(Listeners.WinEventLog.Enabled ? "ds-chip--ok" : "ds-chip")">@(Listeners.WinEventLog.Enabled ? "Enabled" : "Disabled")</span></h2>
+            <p class="ds-muted">Bind @Listeners.WinEventLog.BindAddress:@Listeners.WinEventLog.Port ·
+                up to @Listeners.WinEventLog.MaxRequestsPerSourcePerMinute requests/minute per source</p>
+
+            @if (_apiKeys.Count == 0)
+            {
+                <EmptyState Title="No API keys yet" Icon="🔑"
+                            Explanation="A forwarder posting Windows events here authenticates with an API key in the X-Api-Key header — create one to get started." />
+            }
+            else
+            {
+                <DataTable TItem="ApiKeyRecord" Items="_apiKeys" Columns="_apiKeyColumns" RowKey="k => k.Id" EmptyTitle="" EmptyExplanation="" />
+            }
+            <div class="ds-form__actions">
+                <button type="button" class="ds-button ds-button--primary" @onclick="() => _showCreateKey = true">New API key</button>
+            </div>
+        </section>
+    }
+</div>
+
+<Modal Visible="_showCreateKey" Title="New Windows Event Log API key" VisibleChanged="v => _showCreateKey = v">
+    <ChildContent>
+        <FormField Label="Label" FieldId="ds-key-label" Help="What forwarder is this for?">
+            <input id="ds-key-label" class="ds-input" @bind="_newKeyLabel" placeholder="DC01 event forwarder" />
+        </FormField>
+        <FormField Label="Restrict to source IP" FieldId="ds-key-ip" Help="Optional — leave empty to accept this key from any source.">
+            <input id="ds-key-ip" class="ds-input" @bind="_newKeyIp" placeholder="10.0.0.5" />
+        </FormField>
+    </ChildContent>
+    <Footer>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="() => _showCreateKey = false">Cancel</button>
+        <button type="button" class="ds-button ds-button--primary" @onclick="CreateKeyAsync" disabled="@string.IsNullOrWhiteSpace(_newKeyLabel)">Create</button>
+    </Footer>
+</Modal>
+
+<Modal Visible="_createdKey is not null" Title="API key created" VisibleChanged="v => { if (!v) _createdKey = null; }">
+    <ChildContent>
+        <p>Copy this key now — it will not be shown again.</p>
+        <p><code class="ds-input">@_createdKey</code></p>
+    </ChildContent>
+    <Footer>
+        <button type="button" class="ds-button ds-button--primary" @onclick="() => _createdKey = null">Done</button>
+    </Footer>
+</Modal>
+
+@code {
+    private bool _loading = true;
+    private string _community = string.Empty;
+    private bool _communitySet;
+    private List<ApiKeyRecord> _apiKeys = [];
+    private IReadOnlyList<TableColumn<ApiKeyRecord>> _apiKeyColumns = [];
+    private bool _showCreateKey;
+    private string _newKeyLabel = string.Empty;
+    private string _newKeyIp = string.Empty;
+    private string? _createdKey;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apiKeyColumns =
+        [
+            new() { Header = "Label", SortValue = k => k.Label, Cell = k => @<text>@k.Label</text> },
+            new() { Header = "Source", Cell = k => @<text>@(k.AllowedSourceIp ?? "any")</text> },
+            new() { Header = "Created", SortValue = k => k.CreatedUtc, Cell = k => @<text>@k.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd")</text> },
+            new() { Header = "Status", Cell = k => @<span class="ds-chip @(k.IsActive ? "ds-chip--ok" : "ds-chip--danger")">@(k.IsActive ? "Active" : "Revoked")</span> },
+            new() { Header = "", Cell = k => k.IsActive
+                ? @<button type="button" class="ds-button ds-button--ghost" @onclick="() => RevokeAsync(k.Id)">Revoke</button>
+                : @<text></text> },
+        ];
+
+        string? current = await Listeners.GetSnmpCommunityAsync(CancellationToken.None);
+        _communitySet = !string.IsNullOrWhiteSpace(current);
+        _apiKeys = [.. await ApiKeys.ListAsync(CancellationToken.None)];
+        _loading = false;
+    }
+
+    private async Task SaveCommunityAsync()
+    {
+        (bool ok, string message) = await Listeners.SetSnmpCommunityAsync(_community, CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+        if (ok)
+        {
+            _communitySet = true;
+            _community = string.Empty;
+        }
+    }
+
+    private async Task CreateKeyAsync()
+    {
+        (string label, string key) = await ApiKeys.CreateAsync(_newKeyLabel, _newKeyIp, CancellationToken.None);
+        _createdKey = key;
+        _showCreateKey = false;
+        _newKeyLabel = string.Empty;
+        _newKeyIp = string.Empty;
+        _apiKeys = [.. await ApiKeys.ListAsync(CancellationToken.None)];
+        Toast.Show(ToastLevel.Success, $"API key '{label}' created.");
+    }
+
+    private async Task RevokeAsync(long id)
+    {
+        await ApiKeys.RevokeAsync(id, CancellationToken.None);
+        _apiKeys = [.. await ApiKeys.ListAsync(CancellationToken.None)];
+        Toast.Show(ToastLevel.Success, "API key revoked.");
+    }
+}
