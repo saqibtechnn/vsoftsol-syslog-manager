@@ -17,6 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Phase 10 — pure in-memory compression only (no System.Data/System.Net; see
+         CoreArchitectureTests). -->
+    <PackageReference Include="ZstdSharp.Port" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Build-order only: forces the branding generator to build before Core so
          BrandingInfo.g.cs can be produced. ReferenceOutputAssembly=false means NO IL
          dependency is created (the architecture fitness test stays green); this is not

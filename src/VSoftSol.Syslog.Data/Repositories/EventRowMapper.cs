@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using VSoftSol.Syslog.Core.Enums;
 using VSoftSol.Syslog.Core.Events;
+using VSoftSol.Syslog.Data.Retention;
 
 namespace VSoftSol.Syslog.Data.Repositories;
 
@@ -11,11 +12,12 @@ namespace VSoftSol.Syslog.Data.Repositories;
 /// </summary>
 internal static class EventRowMapper
 {
-    /// <summary>The event column list, in the order <see cref="Read"/> expects. Alias-free.</summary>
+    /// <summary>The event column list, in the order <see cref="Read"/> expects. Alias-free.
+    /// <c>tier</c> is trailing (PHASE_10) so every existing positional index stays valid.</summary>
     public const string Columns =
         "event_id, received_utc, event_utc, source_ip, hostname, app_name, proc_id, msg_id, " +
         "facility, severity, protocol, listener_id, message, raw_message, parse_status, " +
-        "occurrence_count, structured_data_json, device_id, vendor";
+        "occurrence_count, structured_data_json, device_id, vendor, tier";
 
     /// <summary>The same list, each column prefixed with <paramref name="alias"/>.</summary>
     public static string Prefixed(string alias) =>
@@ -35,13 +37,13 @@ internal static class EventRowMapper
         var severity = (Severity)reader.GetInt32(9);
         Protocol protocol = StorageFormat.ParseProtocol(reader.GetString(10));
         long listenerId = reader.IsDBNull(11) ? 0 : reader.GetInt64(11);
-        string message = reader.GetString(12);
-        byte[] raw = (byte[])reader[13];
         ParseStatus parseStatus = StorageFormat.ParseParseStatus(reader.GetString(14));
         int occurrence = reader.GetInt32(15);
         string? structured = reader.IsDBNull(16) ? null : reader.GetString(16);
         long? deviceId = reader.IsDBNull(17) ? null : reader.GetInt64(17);
         string? vendor = reader.IsDBNull(18) ? null : reader.GetString(18);
+        bool warm = string.Equals(reader.GetString(19), "warm", StringComparison.Ordinal);
+        (string message, byte[] raw) = WarmTierCodec.Decode(warm, reader, messageIndex: 12, rawIndex: 13);
 
         return new SyslogEvent
         {

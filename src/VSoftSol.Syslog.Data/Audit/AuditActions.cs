@@ -66,4 +66,19 @@ public static class AuditActions
     public const string DashboardUpdate = "dashboard.update";
     public const string DashboardDelete = "dashboard.delete";
     public const string DashboardCopy = "dashboard.copy";
+
+    public const string RetentionPolicyChange = "retention.policy.change";
+    public const string ArchiveCreated = "archive.created";
+    public const string ArchiveVerified = "archive.verified";
+    public const string ArchiveTamperDetected = "archive.tamper_detected";
+    public const string ArchiveDeleted = "archive.deleted";
+    public const string ArchiveRestoreRequested = "archive.restore.requested";
+    public const string ArchiveRestoreExpired = "archive.restore.expired";
+
+    public const string ReportCreate = "report.create";
+    public const string ReportUpdate = "report.update";
+    public const string ReportDelete = "report.delete";
+    public const string ReportRun = "report.run";
+    public const string ReportDelivered = "report.delivered";
+    public const string ReportDeliveryFailed = "report.delivery.failed";
 }

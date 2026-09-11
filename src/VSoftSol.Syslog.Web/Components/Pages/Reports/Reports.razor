@@ -1,0 +1,143 @@
+@page "/reports"
+@attribute [Authorize(Policy = AuthPolicies.ViewReports)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Reports
+@using VSoftSol.Syslog.Web.Reports
+@inject ReportAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>Reports — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Reports</h1>
+        <a class="ds-button ds-button--primary" href="/reports/new/edit">New custom report</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else
+    {
+        <section class="ds-editorsection">
+            <h2>Canned templates</h2>
+            <p class="ds-muted">Pick a template and run it now, or copy it to schedule delivery.</p>
+            <div class="ds-cardgrid">
+                @foreach (ReportDefinition template in _canned)
+                {
+                    @TemplateCard(template)
+                }
+            </div>
+        </section>
+
+        <section class="ds-editorsection">
+            <h2>Compliance templates</h2>
+            <p class="ds-muted">Each states the control it evidences.</p>
+            <div class="ds-cardgrid">
+                @foreach (ReportDefinition template in _compliance)
+                {
+                    @TemplateCard(template)
+                }
+            </div>
+        </section>
+
+        <section class="ds-editorsection">
+            <h2>Your reports</h2>
+            @if (_own.Count == 0)
+            {
+                <EmptyState Title="No custom or scheduled reports yet" Icon="▦"
+                            Explanation="Copy a template above to schedule it, or build a custom report from any saved search.">
+                    <PrimaryAction><a class="ds-button ds-button--primary" href="/reports/new/edit">New custom report</a></PrimaryAction>
+                </EmptyState>
+            }
+            else
+            {
+                <DataTable TItem="ReportDefinition" Items="_own" Columns="_columns" EmptyTitle="No reports" EmptyExplanation="" />
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private IReadOnlyList<ReportDefinition> _canned = [];
+    private IReadOnlyList<ReportDefinition> _compliance = [];
+    private List<ReportDefinition> _own = [];
+    private IReadOnlyList<TableColumn<ReportDefinition>> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _columns =
+        [
+            new() { Header = "Name", SortValue = r => r.Name, Cell = r => @<a href="@($"/reports/{r.Id}/edit")">@r.Name</a> },
+            new() { Header = "Schedule", SortValue = r => r.Schedule.ToString(), Cell = r => @<text>@Humanize(r.Schedule)</text> },
+            new() { Header = "Last run", SortValue = r => r.LastRunUtc,
+                    Cell = r => @<text>@(r.LastRunUtc is { } t ? t.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")</text> },
+            new() { Header = "Run now", Cell = r => @<button type="button" class="ds-button ds-button--ghost" @onclick="() => RunNowAsync(r)">Run now</button> },
+            new() { Header = "Delete", Cell = r => @<button type="button" class="ds-button ds-button--ghost ds-button--danger" @onclick="() => DeleteAsync(r)">Delete</button> },
+        ];
+
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        IReadOnlyList<ReportDefinition> all = await Admin.ListAsync(CancellationToken.None);
+        _canned = [.. all.Where(r => r.IsSystem && CannedReportCatalog.Find(r.TemplateKey)?.Category == ReportTemplateCategory.Canned)];
+        _compliance = [.. all.Where(r => r.IsSystem && CannedReportCatalog.Find(r.TemplateKey)?.Category == ReportTemplateCategory.Compliance)];
+        _own = [.. all.Where(r => !r.IsSystem)];
+    }
+
+    private RenderFragment TemplateCard(ReportDefinition template) => __builder =>
+    {
+        <div class="ds-card">
+            @{ ReportTemplate? catalogue = CannedReportCatalog.Find(template.TemplateKey); }
+            <h3>@template.Name</h3>
+            <p>@catalogue?.Description</p>
+            @if (catalogue?.ControlReference is { } control)
+            {
+                <p class="ds-chip">@control</p>
+            }
+            <div class="ds-card__actions">
+                <button type="button" class="ds-button ds-button--ghost" @onclick="() => RunNowAsync(template)">Run now</button>
+                <button type="button" class="ds-button ds-button--primary" @onclick="() => CopyAsync(template)">Copy to schedule</button>
+            </div>
+        </div>
+    };
+
+    private async Task CopyAsync(ReportDefinition template)
+    {
+        ReportActionResult result = await Admin.CopyAsync(template.Id, CancellationToken.None);
+        if (result.Ok)
+        {
+            Nav.NavigateTo($"/reports/{result.ReportId}/edit");
+        }
+        else
+        {
+            Toast.Show(ToastLevel.Error, result.Message);
+        }
+    }
+
+    private async Task DeleteAsync(ReportDefinition report)
+    {
+        ReportActionResult result = await Admin.DeleteAsync(report.Id, CancellationToken.None);
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+        if (result.Ok)
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private void RunNowAsync(ReportDefinition report) => Nav.NavigateTo($"/reports/{report.Id}/run?format=pdf", forceLoad: true);
+
+    private static string Humanize(ReportSchedule schedule) => schedule switch
+    {
+        ReportSchedule.Daily => "Daily",
+        ReportSchedule.Weekly => "Weekly",
+        ReportSchedule.Monthly => "Monthly",
+        _ => "On demand",
+    };
+}

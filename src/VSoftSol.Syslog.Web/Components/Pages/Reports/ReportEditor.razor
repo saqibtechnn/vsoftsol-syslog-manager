@@ -1,0 +1,169 @@
+@page "/reports/new/edit"
+@page "/reports/{ReportId:long}/edit"
+@attribute [Authorize(Policy = AuthPolicies.ViewReports)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Reports
+@using VSoftSol.Syslog.Web.Reports
+@inject ReportAdminService Admin
+@inject ToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>@(ReportId is null ? "New report" : "Edit report") — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>@(ReportId is null ? "New custom report" : "Edit report")</h1>
+        <a class="ds-button ds-button--ghost" href="/reports">Reports</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else
+    {
+        <form class="ds-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <FormField Label="Name" FieldId="ds-name">
+                <input id="ds-name" class="ds-input" @bind="_name" maxlength="120" />
+            </FormField>
+
+            <FormField Label="Query" FieldId="ds-query" Help="The same search syntax as the Search screen. Leave empty to match every event.">
+                <input id="ds-query" class="ds-input" @bind="_queryText" placeholder="e.g. severity:error" />
+            </FormField>
+
+            <FormField Label="Time range" FieldId="ds-range" Help="How many days back the report covers, counted from the moment it runs.">
+                <input id="ds-range" class="ds-input" type="number" min="1" max="3653" @bind="_timeRangeDays" /> <span>days</span>
+            </FormField>
+
+            <details class="ds-editorsection" open="@(_schedule != ReportSchedule.None)">
+                <summary>Schedule &amp; delivery</summary>
+
+                <FormField Label="Schedule" FieldId="ds-schedule">
+                    <select id="ds-schedule" class="ds-input" @bind="_schedule">
+                        <option value="@ReportSchedule.None">On demand only — no schedule</option>
+                        <option value="@ReportSchedule.Daily">Daily</option>
+                        <option value="@ReportSchedule.Weekly">Weekly (Monday)</option>
+                        <option value="@ReportSchedule.Monthly">Monthly (1st)</option>
+                    </select>
+                </FormField>
+
+                @if (_schedule != ReportSchedule.None)
+                {
+                    <FormField Label="Deliver by" FieldId="ds-delivery">
+                        <select id="ds-delivery" class="ds-input" @bind="_deliveryType">
+                            <option value="@ReportDeliveryType.Email">Email</option>
+                            <option value="@ReportDeliveryType.Folder">Folder</option>
+                        </select>
+                    </FormField>
+
+                    @if (_deliveryType == ReportDeliveryType.Email)
+                    {
+                        <FormField Label="Recipients" FieldId="ds-recipients" Help="Comma-separated email addresses.">
+                            <input id="ds-recipients" class="ds-input" @bind="_recipientsCsv" placeholder="auditor@example.com" />
+                        </FormField>
+                        <p class="ds-muted">SMTP delivery must be configured once under <a href="/settings/report-smtp">Settings → Report delivery</a>.</p>
+                    }
+                    else
+                    {
+                        <FormField Label="Folder path" FieldId="ds-folder" Help="A local directory or UNC path the collector account can write to.">
+                            <input id="ds-folder" class="ds-input" @bind="_folderPath" placeholder="\\fileserver\reports" />
+                        </FormField>
+                    }
+                }
+            </details>
+
+            @if (_errors.Count > 0)
+            {
+                <ul class="ds-form__errors">
+                    @foreach (string error in _errors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            }
+
+            <div class="ds-form__actions">
+                <button type="submit" class="ds-button ds-button--primary">Save</button>
+                @if (ReportId is not null)
+                {
+                    <a class="ds-button ds-button--ghost" href="@($"/reports/{ReportId}/run?format=pdf")" target="_blank">Run now (PDF)</a>
+                }
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    [Parameter] public long? ReportId { get; set; }
+
+    private bool _loading = true;
+    private string _name = string.Empty;
+    private string _templateKey = ReportDefinition.CustomTemplateKey;
+    private string _queryText = string.Empty;
+    private int _timeRangeDays = 90;
+    private ReportSchedule _schedule = ReportSchedule.None;
+    private ReportDeliveryType _deliveryType = ReportDeliveryType.Email;
+    private string _recipientsCsv = string.Empty;
+    private string? _folderPath;
+    private IReadOnlyList<string> _errors = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ReportId is { } id)
+        {
+            ReportDefinition? report = await Admin.GetAsync(id, CancellationToken.None);
+            if (report is null)
+            {
+                Toast.Show(ToastLevel.Error, "That report no longer exists.");
+                Nav.NavigateTo("/reports");
+                return;
+            }
+
+            _name = report.Name;
+            _templateKey = report.TemplateKey;
+            _queryText = report.QueryText ?? string.Empty;
+            _timeRangeDays = report.TimeRangeDays;
+            _schedule = report.Schedule;
+            _deliveryType = report.Delivery.Type == ReportDeliveryType.None ? ReportDeliveryType.Email : report.Delivery.Type;
+            _recipientsCsv = string.Join(", ", report.Delivery.Recipients);
+            _folderPath = report.Delivery.FolderPath;
+        }
+
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        ReportDeliveryConfig delivery = _schedule == ReportSchedule.None
+            ? ReportDeliveryConfig.None
+            : _deliveryType == ReportDeliveryType.Email
+                ? new ReportDeliveryConfig
+                {
+                    Type = ReportDeliveryType.Email,
+                    Recipients = [.. _recipientsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
+                }
+                : new ReportDeliveryConfig { Type = ReportDeliveryType.Folder, FolderPath = _folderPath };
+
+        var report = new ReportDefinition
+        {
+            Id = ReportId ?? 0,
+            Name = _name,
+            TemplateKey = _templateKey,
+            QueryText = _queryText,
+            TimeRangeDays = _timeRangeDays,
+            Schedule = _schedule,
+            Delivery = delivery,
+        };
+
+        ReportActionResult result = await Admin.SaveAsync(report, CancellationToken.None);
+        if (!result.Ok)
+        {
+            _errors = result.Errors.Count > 0 ? result.Errors : [result.Message];
+            Toast.Show(ToastLevel.Error, result.Message);
+            return;
+        }
+
+        Toast.Show(ToastLevel.Success, result.Message);
+        Nav.NavigateTo("/reports");
+    }
+}

@@ -170,6 +170,48 @@ Threat model **not** reviewed this phase (scheduled: Phases 4, 7, 11); 4 dashboa
 recorded in `docs/evidence/phase-09/security/README.md` (a B2 addendum in `THREAT_MODEL.md`)
 for the Phase 11 review. No new dependency; DAST (ZAP) / axe-core NOT RUN (P4-1 / P4-2).
 
+## Phase 10 L2 verification pass (V1.9/V1.14 file handling, V4.2, V4.3, V5.3, V12.6)
+
+Retention adds a second file-system-resident asset (archives, alongside the SQLite file
+itself) and reports add a third output surface (PDF/CSV) after search and dashboards.
+
+- **V1.9/V1.14 (secure file handling)** — every archive read and write re-verifies path
+  containment under the configured root immediately before touching the file system
+  (`ArchiveNaming.IsSafeUnderRoot`); writes are atomic (temp file + rename, never a
+  half-written archive at its real name); decompression is a bounded streaming copy, never
+  trusting a frame's self-reported size (`BoundedCopy`) — the decompression-bomb defence.
+  `ArchiveNamingTests`, `RetentionSecurityTests` (traversal + a real 50 MB bomb fixture).
+- **V4.2 (no IDOR)** — `SqliteReportStore.GetAsync` returns a row only if the caller owns
+  it or it is a system template; `UpdateAsync`/`DeleteAsync` require
+  `owner_user_id = $uid AND is_system = 0`, no existence oracle. Archive/restore endpoints
+  operate on ids only reachable through the Archives list (Administrator + Auditor via
+  `ViewAudit`), never a raw user-supplied file path. `ReportStoreTests` (IDOR + system-row
+  guard), `RetentionSecurityTests`.
+- **V4.3 (server-side scope on every query, including restore)** — reports resolve through
+  the same Phase 5/9 scoped readers as search and dashboards (no bespoke query code); a
+  **scheduled** report run resolves under the **owning user's** `UserScope`, not an
+  unrestricted system scope; a restored (temporarily reinstated) event's `event_streams`
+  membership is rebuilt from the archive, so the existing scope chokepoint covers it exactly
+  as a live row. `RetentionSecurityTests.RestoredEvents_StayScoped…`,
+  `Report_ArchivedPeriodsOmitted_IsScopedToVisibleStreams…`.
+- **V5.3 (output encoding, extended to PDF)** — CSV cells go through `CsvFormulaGuard` (the
+  Phase 5 defence, reused); PDF values reach the page only through QuestPDF's `Text()` API,
+  which draws literal glyphs — there is no markup-interpretation path for hostile log
+  content to escape through. `ReportRenderingTests` (hostile content, 4 CSV-formula
+  variants, all neutralised; PDF render never throws).
+- **V12.6 (file upload / import handling, applied to archive restore)** — a restore
+  verifies the SHA-256 **before** any decompression or parsing; a hash mismatch is refused
+  outright (archive marked `tamper_detected`), never partially trusted; a malformed NDJSON
+  row after a *verified* hash fails closed (refuses the whole restore, inserts nothing
+  partial). `RestoreTests.RestoreArchiveAsync_WithATamperedFile_RefusesBeforeInsertingAnything`,
+  `RetentionSecurityTests.RestoreArchiveAsync_ChecksTheHash_BeforeCallingArchiveFileParse`.
+
+Threat model **not** reviewed this phase (scheduled: Phases 4, 7, 11); 5 retention/report
+entries recorded in `docs/evidence/phase-10/security/README.md` (a B2/B3-adjacent addendum
+in `THREAT_MODEL.md`) for the Phase 11 review. New dependencies: `ZstdSharp.Port` (pure
+managed, MIT) and `QuestPDF` (Community licence) — both SCA-clean, no High/Critical.
+DAST (ZAP) / axe-core NOT RUN (P4-1 / P4-2, carried).
+
 ## Open L2 gaps carried out of Phase 0
 
 - ~~CSP `'unsafe-inline'` on `style-src`~~ — **RESOLVED in Phase 4** (nonce-based CSP,

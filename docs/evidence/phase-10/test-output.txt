@@ -1,0 +1,17 @@
+=== dotnet test tests/VSoftSol.Syslog.UnitTests -c Release ===
+Test run for E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.UnitTests\bin\Release\net8.0\VSoftSol.Syslog.UnitTests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 17.11.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   900, Skipped:     0, Total:   900, Duration: 1 m 12 s - VSoftSol.Syslog.UnitTests.dll (net8.0)
+
+=== dotnet test tests/VSoftSol.Syslog.IntegrationTests -c Release (full clean re-run) ===
+Test run for E:\Claoud Projects\vSoftsol Syslog Manager\tests\VSoftSol.Syslog.IntegrationTests\bin\Release\net8.0\VSoftSol.Syslog.IntegrationTests.dll (.NETCoreApp,Version=v8.0)
+VSTest version 17.11.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:   667, Skipped:     0, Total:   667, Duration: 6 m 57 s - VSoftSol.Syslog.IntegrationTests.dll (net8.0)

@@ -1,0 +1,131 @@
+@page "/settings/retention"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Core.Retention
+@using VSoftSol.Syslog.Web.Retention
+@inject RetentionAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Retention — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Retention</h1>
+        <a class="ds-button ds-button--ghost" href="/settings">Settings</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else
+    {
+        <form class="ds-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <FormField Label="Hot" FieldId="ds-hot" Help="Uncompressed and fully indexed — the fastest tier.">
+                <input id="ds-hot" class="ds-input" type="number" min="0" @bind="_hot" @bind:after="EstimateAsync" /> <span>days</span>
+            </FormField>
+            <FormField Label="Warm" FieldId="ds-warm" Help="Compressed in place, still searchable (slower).">
+                <input id="ds-warm" class="ds-input" type="number" min="0" @bind="_warm" @bind:after="EstimateAsync" /> <span>days</span>
+            </FormField>
+            <FormField Label="Cold (archive)" FieldId="ds-cold" Help="Exported to a compressed, hashed archive file and removed from the database.">
+                <input id="ds-cold" class="ds-input" type="number" min="0" @bind="_cold" @bind:after="EstimateAsync" /> <span>days</span>
+            </FormField>
+
+            @if (_estimate is { } e)
+            {
+                <div class="ds-card ds-card--muted">
+                    <h3>Projected disk usage at this setting</h3>
+                    <p>Database (Hot + Warm): <strong>@FormatBytes(e.DatabaseBytes)</strong></p>
+                    <p>Archive (Cold): <strong>@FormatBytes(e.ArchiveBytes)</strong></p>
+                    <p>Total: <strong>@FormatBytes(e.TotalBytes)</strong></p>
+                    <p class="ds-muted">Based on this database's measured ingest rate and average message size — not a guess.</p>
+                </div>
+            }
+
+            <details class="ds-editorsection">
+                <summary>Advanced</summary>
+                <FormField Label="Archive location" FieldId="ds-root" Help="A local directory or UNC path. Leave empty to use a folder under the data directory.">
+                    <input id="ds-root" class="ds-input" @bind="_archiveRoot" placeholder="\\fileserver\archives" />
+                </FormField>
+                <FormField Label="Compression level" FieldId="ds-level" Help="1 = fastest, 19 = smallest. 3 is a good default.">
+                    <input id="ds-level" class="ds-input" type="number" min="1" max="19" @bind="_level" />
+                </FormField>
+            </details>
+
+            @if (_errors.Count > 0)
+            {
+                <ul class="ds-form__errors">
+                    @foreach (string error in _errors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            }
+
+            <div class="ds-form__actions">
+                <button type="submit" class="ds-button ds-button--primary">Save</button>
+                <a class="ds-button ds-button--ghost" href="/archives">View archives</a>
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private int _hot = 30;
+    private int _warm = 90;
+    private int _cold = 365;
+    private string? _archiveRoot;
+    private int _level = 3;
+    private RetentionEstimate? _estimate;
+    private IReadOnlyList<string> _errors = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        RetentionSettings settings = await Admin.GetSettingsAsync(CancellationToken.None);
+        _hot = settings.DefaultHotDays;
+        _warm = settings.DefaultWarmDays;
+        _cold = settings.DefaultColdDays;
+        _archiveRoot = settings.ArchiveRoot;
+        _level = settings.CompressionLevel;
+        _loading = false;
+
+        await EstimateAsync();
+    }
+
+    private async Task EstimateAsync()
+    {
+        _estimate = await Admin.EstimateAsync(_hot, _warm, _cold, CancellationToken.None);
+    }
+
+    private async Task SaveAsync()
+    {
+        var settings = new RetentionSettings
+        {
+            DefaultHotDays = _hot,
+            DefaultWarmDays = _warm,
+            DefaultColdDays = _cold,
+            ArchiveRoot = _archiveRoot ?? string.Empty,
+            CompressionLevel = _level,
+            BatchSize = 500,
+        };
+
+        RetentionActionResult result = await Admin.SaveSettingsAsync(settings, CancellationToken.None);
+        _errors = result.Errors;
+        Toast.Show(result.Ok ? ToastLevel.Success : ToastLevel.Error, result.Message);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = bytes;
+        int unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return $"{value:0.#} {units[unit]}";
+    }
+}

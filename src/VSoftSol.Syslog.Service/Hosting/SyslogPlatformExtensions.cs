@@ -133,6 +133,11 @@ public static class SyslogPlatformExtensions
             sp.GetRequiredService<TimeProvider>(),
             () => sp.GetRequiredService<IOptions<DashboardOptions>>().Value.CacheTtl));
 
+        // Phase 10 — ReportEmailSender is registered here (not AddCollectorRuntime) because
+        // the Web host's "test SMTP" button (UX_STANDARDS.md §4) needs it even when run
+        // standalone, without the collector runtime.
+        services.TryAddSingleton<ReportEmailSender>();
+
         return services;
     }
 
@@ -248,6 +253,16 @@ public static class SyslogPlatformExtensions
         // has no live counters to sample.
         services.AddOptions<CollectorStatOptions>().Bind(configuration.GetSection(CollectorStatOptions.SectionName));
         services.AddHostedService<CollectorStatSampler>();
+
+        // Phase 10 — retention tiering (Hot/Warm/Cold/Delete + archive verification) and the
+        // scheduled report engine. Both collector-host only, same disposition as the alert
+        // scheduler: the Web host reads/writes retention policy and reports, but only the
+        // collector host runs the background schedulers.
+        services.AddOptions<RetentionOptions>().Bind(configuration.GetSection(RetentionOptions.SectionName));
+        services.AddHostedService<RetentionTieringService>();
+
+        services.AddOptions<ReportSchedulerOptions>().Bind(configuration.GetSection(ReportSchedulerOptions.SectionName));
+        services.AddHostedService<ReportSchedulerService>();
 
         return services;
     }

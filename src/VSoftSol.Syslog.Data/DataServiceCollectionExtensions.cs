@@ -85,6 +85,19 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<Dashboards.SqliteAggregationReader>();
         services.TryAddSingleton<Dashboards.SystemSeriesReader>();
 
+        // Phase 10 — retention tiering, archives, restores, and reports. CompressorFactory
+        // probes Zstd once and is reused everywhere (stateless).
+        services.TryAddSingleton<Core.Retention.Compression.CompressorFactory>();
+        services.TryAddSingleton<Retention.SqliteRetentionPolicyStore>();
+        services.TryAddSingleton<Retention.SqliteArchiveStore>();
+        services.TryAddSingleton<Retention.SqliteRestoreStore>();
+        services.TryAddSingleton<Retention.SqliteRetentionEngine>();
+        services.TryAddSingleton<Retention.SqliteArchiveVerifier>();
+        services.TryAddSingleton<Retention.RetentionEstimateReader>();
+        services.TryAddSingleton<Reports.SqliteReportStore>();
+        services.TryAddSingleton<Reports.SqliteReportSmtpSettingsStore>();
+        services.TryAddSingleton<Reports.ReportContentReader>();
+
         services.AddHostedService<SearchIndexMaintainer>();
 
         return services;

@@ -1,0 +1,18 @@
+
+The following sources were used:
+   https://api.nuget.org/v3/index.json
+
+The given project `VSoftSol.Syslog.Core` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Data` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Ingestion` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Rules` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Reporting` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Service` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Web` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.UnitTests` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.IntegrationTests` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.BrandingGen` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.Benchmarks` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.CrashProbe` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.IngestionProbe` has no vulnerable packages given the current sources.
+The given project `VSoftSol.Syslog.ActionProbe` has no vulnerable packages given the current sources.

@@ -43,6 +43,14 @@
          (System.Net.Mail, HttpClient, System.Diagnostics.Process, sockets). -->
     <PackageVersion Include="System.Data.Odbc" Version="8.0.1" />
 
+    <!-- Retention archives (Phase 10). ZstdSharp.Port is a pure-managed C# port of zstd
+         (MIT, no native binary/P/Invoke — no platform risk); CompressorFactory still falls
+         back to the in-box GZipStream if it were ever unavailable. QuestPDF renders report
+         PDFs (Community licence — free under the small-business revenue threshold; set via
+         QuestPDF.Settings.License at startup, PHASE_10 build item 7). -->
+    <PackageVersion Include="ZstdSharp.Port" Version="0.8.1" />
+    <PackageVersion Include="QuestPDF" Version="2024.10.3" />
+
     <!-- Test stack -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageVersion Include="xunit" Version="2.9.2" />

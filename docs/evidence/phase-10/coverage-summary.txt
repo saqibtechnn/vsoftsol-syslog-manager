@@ -1,0 +1,48 @@
+Phase 10 — coverage (union of the unit and integration suites; a line counts as covered
+if hits > 0 in either). Computed over:
+  coverage-unittests.cobertura.xml     (900 tests)
+  coverage-integration.cobertura.xml   (679 tests)
+
+Gate: line coverage >= 80% on Ingestion, Rules, Reporting (TESTING_STANDARDS.md §3).
+
+  VSoftSol.Syslog.Ingestion   90.56%   (1900/2098)   PASS   (unchanged — Phase 10 adds no
+                                                             Ingestion code)
+  VSoftSol.Syslog.Rules       84.34%   (1223/1450)   PASS   (unchanged — no Rules file
+                                                             changed this phase)
+  VSoftSol.Syslog.Reporting   85.71%   (288/336)      PASS   (was 93.81% at Phase 9 — the
+                                                             new PDF/CSV renderers add ~220
+                                                             lines; still comfortably above
+                                                             the 80% floor)
+
+All three gated assemblies pass. Ingestion and Rules are byte-identical to Phase 9 —
+coverage cannot regress when the code does not change and the test suite only grows.
+
+Non-gated:
+  VSoftSol.Syslog.Core         89.80%   (1681/1872)   Retention/Reports domain types,
+                                                       compression, validators, catalogue,
+                                                       estimator, ArchiveNaming — well
+                                                       covered by 92 pure unit tests.
+  VSoftSol.Syslog.Data         89.16%   (5864/6577)   Retention engine, archive/restore
+                                                       stores, report store/reader,
+                                                       migration 008 — 81 integration tests
+                                                       incl. the full lifecycle, tamper
+                                                       matrix, and cross-scope security tests.
+  VSoftSol.Syslog.Service      59.97%   (728/1214)    no gate (composition root);
+                                                       RetentionTieringService /
+                                                       ReportSchedulerService tick logic is
+                                                       proven at the engine/store layer they
+                                                       call (the AlertEvaluationService
+                                                       precedent — no dedicated scheduler-
+                                                       tick unit test)
+  VSoftSol.Syslog.Web          54.58%   (2558/4687)   no gate; the razor interactive
+                                                       branches (@onclick handlers, the
+                                                       report editor's conditional
+                                                       schedule/delivery fields) are
+                                                       unreachable without a browser (P4-2).
+                                                       RetentionAdminService, ReportAdminService,
+                                                       ReportRenderService, ReportSmtpAdminService
+                                                       are exercised indirectly through the
+                                                       Data-layer stores/readers they wrap.
+  VSoftSol.Syslog.BrandingGen  86.55%   (193/223)      build tool (unchanged)
+
+Gate: PASS on all three gated assemblies. No assembly above 80% regressed below it.

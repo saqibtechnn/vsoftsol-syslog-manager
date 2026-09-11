@@ -17,10 +17,11 @@ namespace VSoftSol.Syslog.Data.Repositories;
 /// </summary>
 public sealed class SqliteLogRepository : ILogRepository
 {
+    // tier is trailing (PHASE_10) so every existing positional index in EventReader.Read stays valid.
     private const string EventColumns =
         "event_id, received_utc, event_utc, source_ip, hostname, app_name, proc_id, msg_id, " +
         "facility, severity, protocol, listener_id, message, raw_message, parse_status, " +
-        "occurrence_count, structured_data_json, device_id, vendor";
+        "occurrence_count, structured_data_json, device_id, vendor, tier";
 
     private const string InsertEventSql = """
         INSERT INTO events
@@ -852,13 +853,13 @@ public sealed class SqliteLogRepository : ILogRepository
             var severity = (Severity)reader.GetInt32(9);
             Protocol protocol = StorageFormat.ParseProtocol(reader.GetString(10));
             long listenerId = reader.IsDBNull(11) ? 0 : reader.GetInt64(11);
-            string message = reader.GetString(12);
-            byte[] raw = (byte[])reader[13];
             ParseStatus parseStatus = StorageFormat.ParseParseStatus(reader.GetString(14));
             int occurrence = reader.GetInt32(15);
             string? structured = reader.IsDBNull(16) ? null : reader.GetString(16);
             long? deviceId = reader.IsDBNull(17) ? null : reader.GetInt64(17);
             string? vendor = reader.IsDBNull(18) ? null : reader.GetString(18);
+            bool warm = string.Equals(reader.GetString(19), "warm", StringComparison.Ordinal);
+            (string message, byte[] raw) = VSoftSol.Syslog.Data.Retention.WarmTierCodec.Decode(warm, reader, messageIndex: 12, rawIndex: 13);
 
             return new SyslogEvent
             {

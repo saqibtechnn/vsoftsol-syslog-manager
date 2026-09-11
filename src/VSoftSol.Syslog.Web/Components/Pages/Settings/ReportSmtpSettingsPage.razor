@@ -1,0 +1,98 @@
+@page "/settings/report-smtp"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Reports
+@using VSoftSol.Syslog.Web.Reports
+@inject ReportSmtpAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Report delivery — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Report delivery</h1>
+        <a class="ds-button ds-button--ghost" href="/settings">Settings</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else
+    {
+        <form class="ds-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <FormField Label="SMTP host" FieldId="ds-host">
+                <input id="ds-host" class="ds-input" @bind="_host" placeholder="smtp.example.com" />
+            </FormField>
+            <FormField Label="Port" FieldId="ds-port">
+                <input id="ds-port" class="ds-input" type="number" min="1" max="65535" @bind="_port" />
+            </FormField>
+            <FormField Label="From address" FieldId="ds-from">
+                <input id="ds-from" class="ds-input" @bind="_from" placeholder="reports@example.com" />
+            </FormField>
+            <FormField Label="Username" FieldId="ds-user" Help="Leave empty for an unauthenticated relay.">
+                <input id="ds-user" class="ds-input" @bind="_username" />
+            </FormField>
+            <FormField Label="Use TLS" FieldId="ds-tls">
+                <input id="ds-tls" type="checkbox" @bind="_useTls" />
+            </FormField>
+
+            <div class="ds-form__actions">
+                <button type="submit" class="ds-button ds-button--primary">Save</button>
+            </div>
+        </form>
+
+        <section class="ds-editorsection">
+            <h2>Test</h2>
+            <p class="ds-muted">Sends one real message to the address below. No side effects beyond that message.</p>
+            <div class="ds-form">
+                <FormField Label="Send test to" FieldId="ds-test">
+                    <input id="ds-test" class="ds-input" @bind="_testRecipient" placeholder="you@example.com" />
+                </FormField>
+                <div class="ds-form__actions">
+                    <button type="button" class="ds-button ds-button--ghost" @onclick="TestAsync">Send test message</button>
+                </div>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _host;
+    private int _port = 587;
+    private string? _from;
+    private string? _username;
+    private bool _useTls = true;
+    private string _testRecipient = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReportSmtpSettings settings = await Admin.GetAsync(CancellationToken.None);
+        _host = settings.Host;
+        _port = settings.Port;
+        _from = settings.FromAddress;
+        _username = settings.Username;
+        _useTls = settings.UseTls;
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        var settings = new ReportSmtpSettings { Host = _host, Port = _port, FromAddress = _from, Username = _username, UseTls = _useTls };
+        (bool ok, string message) = await Admin.SaveAsync(settings, CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+    }
+
+    private async Task TestAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_testRecipient))
+        {
+            Toast.Show(ToastLevel.Error, "Enter an address to send the test message to.");
+            return;
+        }
+
+        (bool ok, string message) = await Admin.SendTestAsync(_testRecipient, CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+    }
+}

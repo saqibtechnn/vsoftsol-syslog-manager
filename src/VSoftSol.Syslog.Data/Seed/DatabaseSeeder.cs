@@ -3,7 +3,9 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using VSoftSol.Syslog.Core.Dashboards;
 using VSoftSol.Syslog.Core.Enums;
+using VSoftSol.Syslog.Core.Reports;
 using VSoftSol.Syslog.Data.Dashboards;
+using VSoftSol.Syslog.Data.Reports;
 using VSoftSol.Syslog.Data.Sqlite;
 using VSoftSol.Syslog.Data.Streams;
 
@@ -118,10 +120,34 @@ public sealed class DatabaseSeeder
                     ("$now", nowUtc));
             }
 
+            // Phase 10 — the 11 canned/compliance report templates, seeded as is_system rows so
+            // they are pick-and-run from day one. No ON CONFLICT here: ux_reports_system_template
+            // is a *partial* unique index (WHERE is_system = 1) and SQLite refuses a partial
+            // index as an upsert conflict target unless the WHERE is repeated verbatim in the
+            // ON CONFLICT clause (the exact trap Phase 9 hit with dashboards.system_key) — an
+            // explicit INSERT-if-missing + UPDATE pair sidesteps it entirely.
+            foreach (ReportDefinition report in DefaultReports.All)
+            {
+                await ExecuteAsync(connection, transaction, """
+                    INSERT INTO reports
+                        (name, template_key, time_range_days, schedule, delivery_json, owner_user_id, is_system, enabled, created_utc, updated_utc, updated_by)
+                    SELECT $name, $key, $range, 'none', '{}', NULL, 1, 1, $now, $now, 'system'
+                    WHERE NOT EXISTS (SELECT 1 FROM reports WHERE template_key = $key AND is_system = 1);
+
+                    UPDATE reports SET name = $name, time_range_days = $range, updated_utc = $now
+                    WHERE template_key = $key AND is_system = 1;
+                    """, cancellationToken,
+                    ("$name", report.Name),
+                    ("$key", report.TemplateKey),
+                    ("$range", report.TimeRangeDays),
+                    ("$now", nowUtc));
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation(
-                "Database seed verified: {RoleCount} roles, seeded admin, {StreamCount} default streams, {DashboardCount} default dashboards.",
-                Enum.GetValues<Role>().Length, DefaultStreams.Count, DefaultDashboards.All.Count);
+                "Database seed verified: {RoleCount} roles, seeded admin, {StreamCount} default streams, " +
+                "{DashboardCount} default dashboards, {ReportCount} default reports.",
+                Enum.GetValues<Role>().Length, DefaultStreams.Count, DefaultDashboards.All.Count, DefaultReports.All.Count);
         }
         catch
         {

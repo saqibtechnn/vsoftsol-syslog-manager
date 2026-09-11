@@ -12,4 +12,11 @@
     <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- PHASE_10 build item 7 — PDF report rendering. Community licence (free under the
+         small-business revenue threshold); QuestPDF.Settings.License is set once in
+         ReportPdfRenderer's static constructor. -->
+    <PackageReference Include="QuestPDF" />
+  </ItemGroup>
+
 </Project>

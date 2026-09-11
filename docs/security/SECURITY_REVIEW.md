@@ -51,6 +51,42 @@ PASS (hostname·vendor·name encoded on pending queue + health card, byte-identi
 storage) / authorization-on-approval PASS (Administrator-only enforced at the service, not
 just the page `[Authorize]`; Operator + Read-Only refused, device stays pending)**.
 
+## Phase 10 — environmental carry (not a finding)
+
+| ID | Item | Severity | Disposition | Operator sign-off |
+|---|---|---|---|---|
+| P10-1 | "Tiering a 10M-event backlog does not push search latency past the Phase 5 target while it runs" — the full 10M-backlog-plus-concurrent-search measurement, on the 2-vCPU VMware build VM, is a multi-hour noise-dominated run | Info | Same disposition as P1-1 / P5-1 / P6-1 / P9-1. `RetentionBenchmark` measures real per-batch Hot→Warm throughput at 200k events on this VM; every tiering query is bounded (batch size) and index-backed off `received_utc`/`event_id`, so it cannot itself starve a concurrent search's indexes. Literal 10M seed + concurrent-search-latency measurement → Phase 12 clean-VM acceptance run. | _pending_ |
+| P4-1 | OWASP ZAP DAST still not executed | Info | Carried. `/settings/retention`, `/settings/report-smtp`, `/archives`, `/reports*` get compensating xUnit assertions against real Kestrel over HTTPS. | _pending_ |
+| P4-2 | axe-core + live keyboard/AT traversal + 1366×768 screenshot still not executed | Info | Carried. Structural a11y for the new pages verified in source + `ds.css` (labelled inputs, `FormField`, keyboard-reachable buttons). | _pending_ |
+
+Phase 10 security gate: **SAST PASS / SCA PASS (two new dependencies: `ZstdSharp.Port`
+[pure managed, MIT, no native binary] and `QuestPDF` [Community licence] — both clean, no
+High/Critical) / secrets PASS / branding literal guard PASS / archive tamper detection PASS
+(bit-flip, truncation, and cross-period-swap all 3/3 detected; a restore re-verifies the
+hash before any parsing and refuses a mismatch outright) / path traversal PASS (a
+`../../…` stream name never escapes the configured archive root, at both write and read) /
+decompression bomb PASS (a real 50 MB-plaintext fixture compressing to under 1 MB is
+refused against a 1 MB cap, streamed, never trusting the frame's self-reported size) /
+cross-scope report isolation PASS (reports resolve through the same Phase 5/9 scoped
+readers; a scheduled run resolves under the owning user's scope; a restored event stays
+scoped exactly as a live row — proved for both the data and the "archived periods omitted"
+disclosure) / PDF/CSV injection PASS (hostile content, incl. `<script>`, four CSV-formula
+prefixes, and control bytes, renders as literal text / is formula-guarded; storage stays
+byte-identical) / IDOR PASS (`SqliteReportStore` owner/system gate, no existence oracle;
+system report templates non-editable/non-deletable) / aggregation-oracle reuse PASS (no new
+aggregation SQL path — reports compile on the same Phase 9 `AggregationCompiler`) / full
+lifecycle PASS (Hot → Warm → Cold → archive → hash-verify → restore → byte-identical → auto-expire,
+one continuous integration test) / interruption-safety PASS (a simulated crash between the
+archive write and the event delete resumes cleanly, no duplicate archive row, no data
+loss)**. A genuine deadlock was found live during this phase's own integration run (a
+non-reentrant write-lock acquired-then-reacquired across two `await using` scopes in
+`RestoreArchiveAsync` / `ExpireRestoresBatchAsync`) and fixed — documented in
+`docs/evidence/phase-10/known-issues.md` since TESTING_STANDARDS.md §6 requires every bug
+found to be logged with root cause. DAST (ZAP) NOT RUN (P4-1). Mutation run BLOCKED (P3-3,
+applies to the retention logic same as every phase). Threat model **not** reviewed
+(scheduled: Phases 4, 7, 11) — a B2/B3-adjacent addendum + 5 retention/report rows recorded
+for the Phase 11 review.
+
 ## Phase 9 — environmental carry (not a finding)
 
 | ID | Item | Severity | Disposition | Operator sign-off |

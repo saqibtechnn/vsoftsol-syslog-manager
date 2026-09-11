@@ -479,3 +479,6 @@
 .ds-picker__step--done { color: var(--ds-text); }
 .ds-picker__errors { color: var(--ds-danger); font-size: 0.85rem; }
 .ds-picker__preview { border: 1px dashed var(--ds-border); border-radius: var(--ds-radius); padding: 0.5rem; }
+
+/* Phase 10 — retention, archives, reports. */
+.ds-card__actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
