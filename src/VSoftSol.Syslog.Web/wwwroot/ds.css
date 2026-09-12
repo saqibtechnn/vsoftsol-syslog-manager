@@ -482,3 +482,33 @@
 
 /* Phase 10 — retention, archives, reports. */
 .ds-card__actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+
+/* Phase 12 — first-run wizard and waiting-for-messages page. */
+.ds-wizard { min-height: 100vh; display: flex; flex-direction: column; align-items: center; background: var(--ds-bg); padding: 2.5rem 1rem; }
+.ds-wizard__brand { margin-bottom: 1.5rem; }
+.ds-wizard__card { background: var(--ds-surface); border-top: 4px solid var(--ds-primary); border-radius: var(--ds-radius); padding: 2.25rem 2.5rem; width: 100%; max-width: 42rem; box-shadow: 0 2px 12px rgba(0,0,0,0.12); }
+.ds-wizard__steps { list-style: none; display: flex; gap: 0.5rem; padding: 0; margin: 0 0 1.75rem; }
+.ds-wizard__step { flex: 1; height: 4px; border-radius: 2px; background: var(--ds-border); }
+.ds-wizard__step--done, .ds-wizard__step--active { background: var(--ds-primary); }
+.ds-wizard__title { margin: 0 0 0.35rem; }
+.ds-wizard__subtitle { color: var(--ds-muted); margin: 0 0 1.5rem; }
+.ds-wizard__actions { display: flex; justify-content: space-between; align-items: center; margin-top: 2rem; }
+.ds-wizard__estimate { border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 0.75rem 1rem; margin-top: 0.75rem; font-size: 0.9rem; color: var(--ds-muted); }
+.ds-wizard__presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; }
+.ds-wizard__preset { border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 1rem; text-align: left; background: var(--ds-surface); cursor: pointer; }
+.ds-wizard__preset--selected { border-color: var(--ds-primary); box-shadow: 0 0 0 1px var(--ds-primary); }
+
+.ds-waiting { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; }
+.ds-waiting__pulse { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--ds-accent); margin-right: 0.5rem; animation: ds-pulse 1.4s ease-in-out infinite; }
+@keyframes ds-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+.ds-waiting__search { width: 100%; margin-bottom: 1rem; }
+.ds-waiting__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.5rem; margin-bottom: 1.5rem; }
+.ds-waiting__chip { border: 1px solid var(--ds-border); border-radius: 999px; padding: 0.4rem 0.9rem; background: var(--ds-surface); cursor: pointer; font-size: 0.85rem; text-align: center; }
+.ds-waiting__chip--active { border-color: var(--ds-primary); color: var(--ds-primary); font-weight: 600; }
+.ds-waiting__command { background: #1b1b1f; color: #e8e8ec; border-radius: var(--ds-radius); padding: 1rem; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85rem; position: relative; }
+.ds-waiting__prose { border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 1rem; white-space: pre-wrap; }
+
+.ds-gettingstarted { margin-bottom: 1.25rem; border-left: 4px solid var(--ds-accent); }
+.ds-gettingstarted__list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 1.25rem; }
+.ds-gettingstarted__list li { color: var(--ds-muted); }
+.ds-gettingstarted__item--done { text-decoration: line-through; }

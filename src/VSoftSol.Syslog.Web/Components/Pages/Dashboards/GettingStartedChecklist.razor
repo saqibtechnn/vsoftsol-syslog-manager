@@ -1,0 +1,45 @@
+@* PHASE_12 build item 2b: tracks first device added / first rule created / first alert
+   configured, and dismisses itself (renders nothing) the moment all three are done — no
+   manual dismiss button, no persisted "hide forever" flag, because there is nothing left to
+   show once the three real, checkable facts are all true. *@
+@using VSoftSol.Syslog.Web.Devices
+@using VSoftSol.Syslog.Web.Rules
+@using VSoftSol.Syslog.Web.Alerts
+@inject DeviceAdminService Devices
+@inject RuleAdminService Rules
+@inject AlertAdminService Alerts
+
+@if (_loaded && !(_hasDevice && _hasRule && _hasAlert))
+{
+    <section class="ds-card ds-gettingstarted">
+        <h2>Getting started</h2>
+        <ul class="ds-gettingstarted__list">
+            <li class="@(_hasDevice ? "ds-gettingstarted__item--done" : null)">
+                <span aria-hidden="true">@(_hasDevice ? "☑" : "☐")</span> A device has sent its first message
+            </li>
+            <li class="@(_hasRule ? "ds-gettingstarted__item--done" : null)">
+                <span aria-hidden="true">@(_hasRule ? "☑" : "☐")</span>
+                <a href="/rules">Create your first rule</a>
+            </li>
+            <li class="@(_hasAlert ? "ds-gettingstarted__item--done" : null)">
+                <span aria-hidden="true">@(_hasAlert ? "☑" : "☐")</span>
+                <a href="/alerts">Configure your first alert</a>
+            </li>
+        </ul>
+    </section>
+}
+
+@code {
+    private bool _loaded;
+    private bool _hasDevice;
+    private bool _hasRule;
+    private bool _hasAlert;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hasDevice = (await Devices.ListAsync(CancellationToken.None)).Count > 0;
+        _hasRule = (await Rules.ListAsync(CancellationToken.None)).Any(r => !r.IsSystem);
+        _hasAlert = (await Alerts.ListDefinitionsAsync(CancellationToken.None)).Any(a => !a.IsSystem);
+        _loaded = true;
+    }
+}

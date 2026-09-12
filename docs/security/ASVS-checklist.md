@@ -10,7 +10,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 |---|---|---|---|
 | **V1** | **Architecture, design, threat modelling** | | |
 | V1.1 | SDLC documents security | I | CLAUDE.md, SECURITY_STANDARDS.md, TESTING_STANDARDS.md, this checklist |
-| V1.2 | Authenticated components / least privilege | P | Dedicated low-privilege service account, data-dir ACLs — ADR 0006, enforced Phase 12 |
+| V1.2 | Authenticated components / least privilege | I | Dedicated low-privilege virtual service account (`NT SERVICE\VSoftSol Syslog Manager`, never LocalSystem), data-directory ACL restricted to that account plus Administrators — ADR 0006, built and structurally verified in Phase 12's installer (decompiled-MSI inspection); a live audit on an installed service is carried, `known-issues.md` |
 | V1.4 | Trusted enforcement points; fail closed | I | `ScopedEventReader` is the single scope chokepoint (arch test forbids Web→`ILogRepository`); authz `FallbackPolicy` denies by default; scope resolves to "nothing" on any gap (Phase 4) |
 | V1.5 | Input/output trust boundaries defined | I | THREAT_MODEL.md B1–B5 |
 | V1.6 | Threat model exists and is maintained | I | THREAT_MODEL.md, reviewed Phases 4/7/11 |
@@ -45,7 +45,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V5.2.x | ReDoS / regex safety | I | Every pack- and user-authorable pattern carries a mandatory match timeout; a timeout is caught and ingestion continues (Phase 3) |
 | **V6** | **Stored cryptography** | | |
 | V6.2 | Secrets encrypted at rest | I | `SqliteSecretStore` + `DpapiSecretProtector` (CurrentUser + app entropy); `SecretStoreTests` proves the stored blob is not the plaintext and the leak scan finds no plaintext in any table or audit diff (Phase 4). Phase 7: rule actions store only a secret **name**; the value is resolved at execute time and `ActionSecretLeakageTests` forces every failure path and greps `ActionResult.Detail` (audited) — zero hits |
-| V6.4 | Key management / rotation documented | P | Phase 12 hardening guide |
+| V6.4 | Key management / rotation documented | I | `docs/HARDENING_GUIDE.md` and `docs/ADMIN_GUIDE.md` document HTTPS certificate replacement; the DPAPI re-protect + `SqliteSecretStore.SetAsync` overwrite mechanism this documents already existed and is exercised by every phase that sets a secret |
 | V6.x | No weak algorithms | I (gate) | `CA5350/5351/5358/5359` are build errors — `.editorconfig` |
 | **V7** | **Error handling and logging** | | |
 | V7.1 | No sensitive data in logs; log security events | I | Repository logs no message payloads (Phase 1); `SqliteAuditLog` records login success/failure/lockout, logout, password change/reset, user create/update, config change, secret change (`AuditActions`); `AuditDiff` redacts secret-named properties (Phase 4) |
@@ -60,7 +60,7 @@ Legend: **I** implemented · **P** planned · **N/A** not applicable
 | V9.1 | TLS everywhere for the UI | I | HTTPS-only host, HSTS configured, HTTP→HTTPS redirect (Phase 0); `A` grade target Phase 4/12 |
 | V9.2 | Outbound TLS validated; no disabled cert checks | I (gate) | `CA5359` is a build error; webhook/SMTP TLS — Phase 7 |
 | **V10** | **Malicious code** | | |
-| V10.2 | No backdoor / debug endpoint / default credential | I / P | The seeded `admin` ships with NO password (`password_hash` NULL) and `must_change_password` = 1 — the wizard sets it, and `AuthenticateAsync_SeededAdminBeforeWizardSetsPassword_Fails` asserts it cannot log in until then (Phase 4). Full no-debug-endpoint sweep — Phase 12 |
+| V10.2 | No backdoor / debug endpoint / default credential | I | The seeded `admin` ships with NO password (`password_hash` NULL) — the first-run wizard sets it, and `AuthenticateAsync_SeededAdminBeforeWizardSetsPassword_Fails` asserts it cannot log in until then (Phase 4). Phase 12 adds `NoBackdoorTests` — a literal-string scan of the published binaries for hardcoded bypass/debug credentials — plus `AuthorizationMatrixTests`' structural proof that no route is reachable without an explicit, reviewed authorization decision |
 | V10.3 | Dependency integrity; SCA; SBOM | I | Central pinned versions, no floating ranges; `dotnet list --vulnerable` clean; CycloneDX SBOM in CI; Gitleaks full history |
 | **V11** | **Business logic** | | |
 | V11.1 | Sequential-step and rate-limit enforcement | I / P | Per-source ingest token-bucket rate limiter with throttle / drop-with-counter / quarantine (Phase 2, tested); rule/action budgets (Phase 7) |
@@ -243,23 +243,27 @@ DAST (ZAP) / axe-core NOT RUN (P4-1 / P4-2, carried).
 ## Phase 11 L2 completion pass (SECURITY_STANDARDS.md §1: "every ASVS L2 control that
 applies is either implemented or explicitly marked not-applicable with a reason")
 
-Every remaining **P** marker in the document above was reviewed. Two were genuinely
-closeable and are now **I** (V8.3, V12.1, above, with fresh evidence). The three that
-remain **P** are not Phase 11 gaps — each is deliberately out of v1's scope for a stated
-reason, carried forward with that reason attached rather than silently left as "planned":
+Every remaining **P** marker from Phase 11 was reviewed. Two were genuinely closeable then
+and are **I** (V8.3, V12.1, with fresh evidence). Phase 12 closes two more, now that the
+installer and documentation they depended on exist:
 
-- **V1.2** (dedicated low-privilege service account, data-dir ACLs) — this is an
-  **installer-time** control (ADR 0006); it cannot be verified until Phase 12 builds the
-  installer that creates the account and sets the ACLs. Not a code gap.
+- **V1.2** (dedicated low-privilege service account, data-dir ACLs) — was an
+  **installer-time** control (ADR 0006) that could not be verified until an installer
+  existed. Phase 12 built it: **I**, structurally verified by decompiling the built MSI.
+- **V6.4** (documented key rotation) — was a **documentation** deliverable. Phase 12 wrote
+  it (`HARDENING_GUIDE.md`, `ADMIN_GUIDE.md`): **I**. The mechanism it documents (DPAPI
+  re-protect + `SqliteSecretStore.SetAsync` overwrite) already existed and is exercised by
+  every phase that sets a secret (SMTP password, SNMP community, bundle signing key, API
+  keys).
+
+One control remains **P**, deliberately, unrelated to this phase:
+
 - **V2.x** (external IdP / AD) — **deliberately v2**. `IAuthenticationProvider` (ADR 0008)
   is one of the product's exactly two seams; a v1 that shipped a second, half-built auth
   provider would violate CLAUDE.md's "no speculative interfaces beyond these two." The seam
   exists and is exercised by the local provider; a real AD provider is future work.
-- **V6.4** (documented key rotation) — a **documentation** deliverable (the Phase 12
-  hardening guide), not a code control. The mechanism it will document (DPAPI re-protect +
-  `SqliteSecretStore.SetAsync` overwrite) already exists and is exercised by every phase
-  that sets a secret (SMTP password, SNMP community, bundle signing key, API keys).
 
-With those three explicitly justified and V8.3/V12.1 closed, **every ASVS L2 control this
-checklist tracks is now either implemented or has a written not-applicable-in-v1 reason** —
+With V2.x explicitly justified and every other control now closed, **every ASVS L2 control
+this checklist tracks is now either implemented or has a written not-applicable-in-v1
+reason** —
 the Phase 11 completion requirement is met.

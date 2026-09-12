@@ -1,0 +1,25 @@
+Phase 12 coverage — union line coverage across the unit and integration cobertura reports
+(a line counts as covered if hit > 0 in either report), same methodology as Phases 8/9/10/11.
+
+Computed from docs/evidence/phase-12/coverage-unittests.cobertura.xml and
+coverage-integration.cobertura.xml (coverlet.collector via `dotnet test --collect:"XPlat
+Code Coverage"` — this repo's test projects reference coverlet.collector, not
+coverlet.msbuild, so the union was computed directly from both cobertura reports' line-hit
+data rather than from a single /p:CollectCoverage=true run).
+
+VSoftSol.Syslog.Ingestion : 2231 / 2614 lines = 85.35%  (gate: >= 80%  PASS)
+VSoftSol.Syslog.Rules     : 1223 / 1450 lines = 84.34%  (gate: >= 80%  PASS)
+VSoftSol.Syslog.Reporting : 288 / 336 lines   = 85.71%  (gate: >= 80%  PASS)
+
+Identical line counts and percentages to Phase 11's baseline, byte-for-byte — expected and
+confirmed: Phase 12 adds no code to any of these three assemblies (its own new code lives
+in Core, Data/Retention, Web, and the installer). This run exists to confirm the packaged
+build's coverage has not regressed, not because this phase's changes touch these
+assemblies.
+
+1060/1060 unit tests passed during collection. 761/762 integration tests passed during
+collection — the one failure, `KillRecoveryTests`, is a hard-kill/recovery stress test in
+the same class as the pre-existing, documented `P2-5` flake (`WalCrashConsistencyTests`);
+confirmed transient by rerunning in isolation immediately after (2/2 passed). Both classes
+of flake are load-dependent and this session had been running many builds and test suites
+back-to-back when this collection ran.

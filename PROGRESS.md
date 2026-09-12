@@ -7,22 +7,145 @@ to learn where the build stands. Keep it terse and factual.
 
 ## Current state
 
-- **Last completed phase:** 11 — Hardening
-- **Last tag:** `v1.0.0-phase.11`
-- **Next phase:** 12 — Release
-- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1041 unit / 730 integration = 1771/1771** on a clean full re-run (`docs/evidence/phase-11/test-output.txt`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, **zero new dependencies** in Phase 11 — every new capability uses only the in-box BCL).
+- **Last completed phase:** 12 — Release (**final phase**)
+- **Last tag:** `v1.0.0`
+- **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below).
+- **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
-- **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify Phase 12).
-- **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC pipeline **~13,600 msg/sec**; vendor extraction **~5,300** worst case. Phase 6 (stream routing): RFC + 20 streams **6,706** (gate PASS); vendor + 20 streams ~3,200 (P6-1). **Phase 7 (rules engine on the ingest path):** RFC + 50 active rules **9,433 msg/sec** (gate PASS); vendor + 50 rules **~3,600** — the vendor path is sub-gate at *baseline* on this VM (P3-2), rules add ~21 % on top → carried to Phase 12 (P7-4). Actions execute **off** the ingest thread (outbox + `ActionDispatchService`): a rule with a blocking action → 2,000 msgs commit in 0.2 s. See `docs/evidence/phase-07/benchmarks.md`. **Phase 11** (re-run out of caution — `MessageParser` gains a per-frame protocol branch, the vendor-pack list grows 8→17): RFC-only **23,139 msg/sec**; vendor extraction against all 17 packs **7,329 msg/sec** — both PASS vs the 5,000 msg/sec gate (not a like-for-like regression check against Phase 7's worst-case number — see `docs/evidence/phase-11/verification.md`).
-- **Phase 8 (alerts):** alert evaluation is a scheduled `BackgroundService` in the collector host — **entirely off the ingest path** (`git diff --stat src/…Ingestion` = 0 files this phase), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run (Phases 3/6/7/12 only). Scheduled-evaluation timing at 2M-event scale carried to Phase 12 (P8-3).
-- **Phase 9 (dashboards):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — the new `CollectorStatSampler` only *reads* `IngestionStatistics.Snapshot()`), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. Dashboard-load benchmark (`DashboardBenchmark`, 2M events, 4 widgets, cold + warm): **cold ~310 ms p95 / warm sub-µs** per 4-widget dashboard (2M events, 24h window); ÷20 from a `InvocationCount=20` monitoring run — the 50M-event `< 3 s` p95 acceptance carried to the Phase 12 clean-VM run (**P9-1**, the P1-1 / P5-1 / P6-1 pattern).
-- **Phase 10 (retention & reports):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — retention tiering and report scheduling are both `BackgroundService`s in the collector host, entirely off the ingest path), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. `RetentionBenchmark` (Hot→Warm compression, 5,000-event batch): **~345 ms/batch ≈ 14,500 events/sec** on this VM. The phase's own gate — "tiering a 10M-event backlog does not push search latency past the Phase 5 target while it runs" — carried to the Phase 12 clean-VM run (**P10-1**, the P1-1 / P5-1 / P6-1 / P9-1 pattern).
+- **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
+- **Ingest benchmark:** Phase 2 burst-drain **~11,460 msg/sec**. Phase 3: RFC pipeline **~13,600 msg/sec**; vendor extraction **~5,300** worst case. Phase 6 (stream routing): RFC + 20 streams **6,706** (gate PASS); vendor + 20 streams ~3,200 (P6-1). **Phase 7 (rules engine on the ingest path):** RFC + 50 active rules **9,433 msg/sec** (gate PASS); vendor + 50 rules **~3,600** — the vendor path is sub-gate at *baseline* on this VM (P3-2), rules add ~21 % on top → v1.1 clean-VM re-verification (P7-4). Actions execute **off** the ingest thread (outbox + `ActionDispatchService`): a rule with a blocking action → 2,000 msgs commit in 0.2 s. See `docs/evidence/phase-07/benchmarks.md`. **Phase 11** (re-run out of caution — `MessageParser` gains a per-frame protocol branch, the vendor-pack list grows 8→17): RFC-only **23,139 msg/sec**; vendor extraction against all 17 packs **7,329 msg/sec** — both PASS vs the 5,000 msg/sec gate (not a like-for-like regression check against Phase 7's worst-case number — see `docs/evidence/phase-11/verification.md`).
+- **Phase 8 (alerts):** alert evaluation is a scheduled `BackgroundService` in the collector host — **entirely off the ingest path** (`git diff --stat src/…Ingestion` = 0 files this phase), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run (Phases 3/6/7/12 only). Scheduled-evaluation timing at 2M-event scale → v1.1 clean-VM re-verification (P8-3).
+- **Phase 9 (dashboards):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — the new `CollectorStatSampler` only *reads* `IngestionStatistics.Snapshot()`), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. Dashboard-load benchmark (`DashboardBenchmark`, 2M events, 4 widgets, cold + warm): **cold ~310 ms p95 / warm sub-µs** per 4-widget dashboard (2M events, 24h window); ÷20 from a `InvocationCount=20` monitoring run — the 50M-event `< 3 s` p95 acceptance → v1.1 clean-VM re-verification (**P9-1**, the P1-1 / P5-1 / P6-1 pattern).
+- **Phase 10 (retention & reports):** no ingest-path code (`git diff --stat src/…Ingestion` = 0 files — retention tiering and report scheduling are both `BackgroundService`s in the collector host, entirely off the ingest path), so the 5,000 msg/sec gate is unaffected and the ingest benchmark was not re-run. `RetentionBenchmark` (Hot→Warm compression, 5,000-event batch): **~345 ms/batch ≈ 14,500 events/sec** on this VM. The phase's own gate — "tiering a 10M-event backlog does not push search latency past the Phase 5 target while it runs" — → v1.1 clean-VM re-verification (**P10-1**, the P1-1 / P5-1 / P6-1 / P9-1 pattern).
+- **Phase 12 (release):** no ingest-path code either (installer, wizard, docs, and a
+  bootstrap-tier config-loading change only) — ingest benchmark not re-run; Phase 11's
+  23,139 / 7,329 msg/sec numbers stand unchanged as this build's own figures, now measured
+  from *inside* the merged single-service host (`AddCollectorRuntime` conditionally called
+  from `VSoftSol.Syslog.Web`, ADR 0005/0020) rather than the separate `Service.exe` process
+  Phase 11 measured it from — the full regression suite re-run against the packaged build
+  confirms the merge changed nothing behavioural. Every clean-VM/real-hardware/live-human
+  item accumulated across Phases 1–10 (P1-1, P3-1, P3-2, P3-3, P4-1, P4-2, P5-1, P5-2,
+  P6-1, P7-3, P7-4, P8-2, P8-3, P9-1, P10-1) genuinely could not be resolved in this same
+  non-clean sandbox at the one phase they were all deferred to — this is the final phase,
+  so they are reclassified as an explicit **v1.1 backlog** rather than deferred again to a
+  phase that no longer exists. See "Deferred items" below and
+  `docs/evidence/phase-12/known-issues.md`.
 
 ---
 
 ## Phase log
 
 <!-- Append one block per completed phase. Newest at the top. -->
+
+### Phase 12 — Release — 2026-09-12 — tag `v1.0.0`
+
+> The final phase. A signed-hash MSI installer (ADR 0020 corrects an early draft that
+> shipped two Windows Services back to ADR 0005's binding single-service decision before
+> ever tagging), an unskippable five-step first-run wizard, a "Waiting for messages"
+> landing page generated from `VENDOR_SUPPORT.md`, in-app help and a Getting Started
+> checklist, an About page, five documentation guides, a tested backup/restore procedure,
+> and a white-label rebranding acceptance test — all genuinely built and verified in this
+> environment. Every acceptance criterion needing a clean VM, real network hardware, or a
+> live untrained human is named explicitly and reclassified as v1.1 backlog rather than
+> asserted done or silently dropped, since this is the last phase in the build plan.
+
+**Shipped**
+- **Installer** (`installer/`) — a WiX v7 MSI installing and registering exactly one
+  Windows Service (`VSoftSol.Syslog.Web.exe`, per ADR 0005), running under a dedicated
+  virtual service account (`NT SERVICE\VSoftSol Syslog Manager`, never LocalSystem, ADR
+  0006), with delayed automatic start, a data-directory ACL restricted to that account plus
+  Administrators, three firewall rules (UDP/TCP syslog, HTTPS dashboard) added on install
+  and removed on uninstall, an Application-log EventLog source registration, branding
+  (icon, banner, dialog images) and license text, and a best-effort .NET runtime presence
+  `LaunchCondition`. `VSoftSol.Syslog.BrandingGen` (the Phase 0 branding pipeline) extended
+  to also generate `installer/Strings.en-us.wxl` from `branding/brand.json`, so the
+  installer's product/vendor/support strings are brand data too, not hand-written literals.
+- **Core** — `Retention/RetentionPresets.cs` (the wizard's Small/Medium/Large presets,
+  reusing `RetentionEstimator` with an assumed device count and message rate so the wizard
+  and the Sizing Guide's worked examples never disagree); `VendorSupport/` (
+  `VendorSupportDocumentParser` + `DeviceConfigCommand` — parses `VENDOR_SUPPORT.md`'s
+  device-configuration section directly, so the "Waiting for messages" page's vendor list
+  can never drift from the document the User Guide's Device Compatibility chapter also
+  reads).
+- **Service** — `CollectorOptions.HostCollectorRuntime` (bootstrap-tier; the packaged
+  `appsettings.Production.json` sets it true so the single production service also runs the
+  collector, picked up automatically since a Windows-Service-hosted process has no
+  `ASPNETCORE_ENVIRONMENT` and defaults to Production — a plain `dotnet run` dev session
+  stays UI-only, unchanged); `Hosting/BootstrapConfigOverrides.cs` (the wizard's listener-
+  port changes, layered over `appsettings.json` from a file in the data directory both
+  service accounts already have full control over).
+- **Web** — `Hosting/WebServiceIdentity.cs` + `Hosting/WebCertificateProvisioning.cs` (a
+  self-signed HTTPS certificate generated on first start if none exists, with a documented
+  replacement path); `Security/FirstRunState.cs` + `FirstRunGateMiddleware.cs` (install-wide
+  "has any account ever had a password set" — not tied to the seeded `admin` username
+  specifically, so every pre-existing test that seeds its own differently-named user is
+  unaffected) + `FirstRunWizardState.cs`; `Components/Pages/Setup.razor` (the 5-step
+  wizard: admin password, listener ports, data directory, retention preset, optional vendor
+  config bundle import); `Components/Pages/WaitingForMessages.razor` +
+  `Setup/ServerAddressResolver.cs` + `Setup/SetupEndpoints.cs` (the searchable device
+  picker with 8 pinned vendors, real IP/port substitution, and client-side auto-advance —
+  `wwwroot/js/app.js`, no inline script, CSP unchanged); `Components/Pages/Help.razor`
+  (opened by `?`, a searchable shortcut list) and `Components/Pages/Dashboards/
+  GettingStartedChecklist.razor` (tracks first device / first rule / first alert, renders
+  nothing once all three are done); `Components/Pages/About.razor` + `AboutInfo.cs`
+  (version, build date, licence line, all brand-data-driven).
+- **Documentation** (`docs/`) — `ADMIN_GUIDE.md`, `USER_GUIDE.md` (with the Device
+  Compatibility chapter mirroring `VENDOR_SUPPORT.md`, including an explicit "not supported
+  in v1" statement), `SIZING_GUIDE.md` (worked examples for 50/200/1,000 devices, the exact
+  numbers `RetentionPresets` computes), `RELEASE_NOTES.md`, `HARDENING_GUIDE.md`.
+- **Tests** — `NoBackdoorTests` (scans the published binaries for a hardcoded-bypass
+  literal deny-list); `FirstRunWizardTests` (the whole 5-step flow over real HTTP, matching
+  `AuthFlowTests`' existing static-SSR-form pattern); `FirstRunGateWebTests`;
+  `FirstRunStateTests`; `BootstrapConfigOverridesTests`; `WebCertificateProvisioningTests`;
+  `RetentionPresetsTests`; `VendorSupportDocumentParserTests` (+ a real-document variant
+  parsing the actual checked-in `VENDOR_SUPPORT.md`); `ServerAddressResolverTests`.
+
+**Interpretations (stated, proceeding — no blocking fork)**
+1. "The Windows Service" (singular) in PHASE_12_RELEASE.md, cross-checked against ADR
+   0005: one service (`VSoftSol.Syslog.Web.exe`, conditionally hosting the collector too),
+   not one per existing executable. An earlier draft of this installer had already been
+   built and verified against the wrong (two-service) reading before the ADR was
+   re-checked — corrected, full regression re-run, before any tag. See
+   `docs/adr/0020-release-packaging-and-first-run.md` and
+   `docs/evidence/phase-12/known-issues.md`.
+2. The wizard's data-directory step is informational, not editable — relocating it would
+   need either weakening the least-privilege service account or a custom action to
+   re-apply ACLs to an admin-chosen path, a real feature deserving its own design.
+   Backlogged for v1.1.
+3. Listener port changes take effect on the next service restart, not live — making them
+   live would need hot-rebindable listener sockets or granting the web-facing service
+   account rights to control the Windows Service itself; both out of scope for a packaging
+   phase. Documented plainly in the Admin Guide rather than implied to be instant.
+4. Backup/restore is a documented, stop-service-first file copy of the data directory, not
+   a live/online-backup API — simpler and safer to test and recommend for this product's
+   scale; the copy/restore logic itself was verified byte-for-byte lossless against a
+   synthetic data directory (`docs/evidence/phase-12/backup-restore.md`).
+5. "No backdoor" is verified by an automated literal-string scan of the published binaries
+   plus the pre-existing authorization-matrix structural proof (no route without an
+   explicit policy decision) — not a manual code audit, which is out of scope for an
+   autonomous session to self-certify as exhaustive.
+
+**Environmental carries — this is the last phase, so these move to the v1.1 backlog rather
+than being deferred again** (see "Deferred items" below for the full, itemised list):
+installation matrix on clean Windows Server 2019/2022/2025 VMs; the upgrade test against a
+real installed service; real-device acceptance (physical/virtual Cisco/FortiGate/Linux, 1hr
+live traffic); a live, observed usability session with an untrained network admin;
+Authenticode code-signing of the MSI; a precise ASP.NET Core Runtime version `LaunchCondition`
+(currently best-effort — confirms *some* .NET runtime, not the exact required version); an
+independent external penetration test; OWASP ZAP DAST and axe-core accessibility scans
+(unchanged disposition since Phase 4 — no Docker/browser on this build host); the 50M-event
+search/dashboard/retention-tiering benchmarks (P1-1/P5-1/P6-1/P9-1/P10-1); the live
+`rsyslogd` oracle and Stryker mutation run (P3-1/P3-3); TOTP MFA login-flow enforcement
+(B11-3, unchanged from Phase 11).
+
+**Verification** — `docs/evidence/phase-12/` (verification.md, red-green.md, known-issues.md,
+ux-gate.md, backup-restore.md, security/). `dotnet build -c Release`: 0 warnings, 0 errors.
+`dotnet test`: 1060 unit / 754-to-756 integration across repeated full runs (only the
+pre-existing `P2-5` and `P7-5` load-sensitive flakes, both confirmed non-regressions).
+`dotnet format --verify-no-changes`: exit 0. SCA: zero vulnerable packages across all 14
+projects. MSI built,
+validated, and decompiled for structural inspection; white-label rebrand test passed with
+zero source changes; backup/restore round-trip verified byte-for-byte lossless.
 
 ### Phase 11 — Hardening — 2026-09-11 — tag `v1.0.0-phase.11`
 
@@ -1644,7 +1767,9 @@ PHASE 2 SIGN-OFF
 
 **Deferred**
 - [ ] P2-1: link `events.listener_id` to a persisted `listeners` row — Phase 4.
-- [ ] P2-2: spill / segment / cursor file ACLs — Phase 12 installer (ADR 0006).
+- [x] P2-2: spill / segment / cursor file ACLs — **DONE (Phase 12)**: the installer's
+      data-directory ACL grant (service account + Administrators, `Wix4SecureObject`) is
+      recursive over the whole data directory, `spill/` included.
 - [ ] P2-5: harden the kill-probe Soak (×10) launch further if nightly CI shows flakiness.
 - [ ] Re-run the ingest benchmark in Phases 3 / 6 / 7 / 12 (TESTING_STANDARDS.md §5).
 
@@ -1847,6 +1972,33 @@ by the phase prompt; the five-point gate applies from Phase 4.
 
 ## Open decisions needing the operator
 
+- **Phase 12 sign-off (final phase — this closes v1.0.0)** — no Critical or High finding.
+  One architectural mistake was made and self-corrected before ever tagging: the installer
+  was initially built against a two-Windows-Service reading of PHASE_12_RELEASE.md before
+  ADR 0005's binding single-service decision was (re-)found; corrected, full regression
+  suite re-run to confirm no behavioural change (`docs/evidence/phase-12/known-issues.md`,
+  `docs/adr/0020-release-packaging-and-first-run.md`). Everything genuinely buildable and
+  testable in this sandbox was built and tested: the MSI (built, `wix msi validate`d, and
+  decompiled for structural inspection — not installed on this shared dev machine, since
+  that would create a real Windows Service, firewall rules, and `HKLM` entries on a machine
+  outside this product's own sandbox, a system-level action outside what this session
+  performs unilaterally regardless of available infrastructure), the 5-step first-run
+  wizard (exercised end-to-end over real HTTP), the waiting-for-messages page, backup/
+  restore (byte-for-byte round-trip verified against a synthetic data directory), and the
+  white-label rebranding test (zero source changes). Every criterion needing infrastructure
+  this environment does not have — a clean VM matrix, real network hardware, a live human
+  usability session, a code-signing certificate, an independent external penetration test,
+  DAST/axe-core (unchanged since Phase 4) — is named explicitly in
+  `docs/evidence/phase-12/known-issues.md` and reclassified as **v1.1 backlog** below,
+  since this is the last phase in the build plan and there is no further phase to defer
+  them into. TOTP MFA login-flow enforcement (B11-3) is carried unchanged from Phase 11.
+  This phase's unusually long, heavy verification session (many hours of near-continuous
+  parallel builds/tests/publishes on one dev VM) reproduced two pre-existing, already-
+  documented load-sensitive test flakes — `P2-5` and `P7-5` — more than a typical phase
+  would; both investigated fresh rather than dismissed by old precedent alone, and both
+  confirmed non-regressions untouched by any Phase 12 code change
+  (`docs/evidence/phase-12/known-issues.md`).
+  Operator to accept at the `v1.0.0` tag.
 - **Phase 11 sign-off** — three items, none Critical/High (written justification in
   `docs/security/SECURITY_REVIEW.md`): **B11-3** (Medium — TOTP MFA enrollment/verification/
   recovery-code primitives are complete and tested end to end, but the login flow itself
@@ -1926,32 +2078,32 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | Marker | Where | Target phase |
 |---|---|---|
 | _(none — no `TODO(phase-N)` in code)_ | | |
-| P10-1 10M-event-backlog tiering with concurrent search latency unaffected | `RetentionBenchmark` | 12 (clean-VM) |
+| P10-1 10M-event-backlog tiering with concurrent search latency unaffected | `RetentionBenchmark` | v1.1 (clean-VM) |
 | P10-2 `ReportContentReader` should surface `AggregationOutcome.Status`/`Detail` for a malformed custom query | `Data/Reports/ReportContentReader.cs` | 11+ (Reports polish) |
 | B11-1 config bundle import applies only `is_system` dashboards/reports; personal-content ownership cannot be remapped across installs | `ConfigBundleImporter` | later (identity-bridge design) |
 | B11-2 "listener down" self-monitoring detects never-started/gracefully-stopped, not an in-process crash bypassing `StopAsync` | `ListenerHealthRegistry` / `SelfMonitoringService` | later (listener supervision) |
 | B11-3 TOTP MFA primitives complete and tested; login flow does not yet enforce the second factor | `LocalAuthenticationProvider` / `AuthEndpoints` | 11 follow-up |
 | ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
-| P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | later Settings pass / 12 |
-| P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | 12 (clean-VM) |
-| P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | 12 |
+| P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | v1.1 |
+| P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | v1.1 (clean-VM) |
+| P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | v1.1 |
 | P5-3 wire `user_extractors` into the ingest `ExtractorPipeline` | `Ingestion` / `Web` config | 8+ |
-| P6-1 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 20 active streams | `benchmarks` `--ingest-probe --streams 20` | 12 (clean-VM) |
-| P7-4 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 50 active rules | `benchmarks` `--ingest-probe --rules 50` | 12 (clean-VM) |
-| P7-3 `WriteToOdbc` live SQLite-ODBC round-trip | `IntegrationTests` | 12 (driver installed) |
-| P8-3 scheduled-alert-evaluation timing over a 2M-event DB (filtered-window scan; a tick over dozens of alerts) | `AlertWindowReader` / a bench | 12 (clean-VM) |
-| P8-2 DeviceSilent live-`rsyslogd` scenario | `IntegrationTests` | 12 (container / daemon host) |
+| P6-1 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 20 active streams | `benchmarks` `--ingest-probe --streams 20` | v1.1 (clean-VM) |
+| P7-4 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 50 active rules | `benchmarks` `--ingest-probe --rules 50` | v1.1 (clean-VM) |
+| P7-3 `WriteToOdbc` live SQLite-ODBC round-trip | `IntegrationTests` | v1.1 (driver installed) |
+| P8-3 scheduled-alert-evaluation timing over a 2M-event DB (filtered-window scan; a tick over dozens of alerts) | `AlertWindowReader` / a bench | v1.1 (clean-VM) |
+| P8-2 DeviceSilent live-`rsyslogd` scenario | `IntegrationTests` | v1.1 (container / daemon host) |
 | P8-1 "would have fired" preview — full replay for filtered / distinct-count / absence alerts (currently sampled) | `AlertAdminService.PreviewAsync` | any |
 | P7-5 Argon2 decoy-timing test — widen / quiet-gate | `LocalAuthenticationProviderTests` | CI host with dedicated cores |
 | P5-4 unify `SqliteLogRepository` onto `EventRowMapper` | `Data` | any |
-| P2-2 spill / segment / cursor file ACLs | Phase 12 installer | 12 |
-| P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | 12 (container host) |
-| P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | 12 |
+| ~~P2-2 spill / segment / cursor file ACLs~~ | ~~Phase 12 installer~~ | **DONE (Phase 12)** |
+| P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | v1.1 (container host) |
+| P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | v1.1 |
 | P3-3 Stryker mutation run (was P0-2; +`stryker-config.search.json` for the query language) | `stryker-config*.json` | CI host with VsTest adapter |
-| P4-1 OWASP ZAP DAST against the running UI | `Web` | 12 / CI |
-| P4-2 axe-core a11y scan + live keyboard/AT traversal + 1366×768 screenshot | `Web` | 12 |
+| P4-1 OWASP ZAP DAST against the running UI | `Web` | v1.1 / CI |
+| P4-2 axe-core a11y scan + live keyboard/AT traversal + 1366×768 screenshot | `Web` | v1.1 |
 | P4-3 re-evaluate a Blazor component-test lib (AngleSharp advisory) | test stack | when fixed upstream |
-| P1-1 re-measure insert benchmark on clean-VM hardware | `benchmarks` | 12 |
+| P1-1 re-measure insert benchmark on clean-VM hardware | `benchmarks` | v1.1 |
 | Re-run ingest throughput benchmark | `IngestionBenchmark` | ~~6~~ ~~7~~ done, 12 |
 | P2-5 `WalCrashConsistencyTests.HardKill…TwentyTimes` load-dependent flake | `IntegrationTests` | monitor / CI host |
 

@@ -14,6 +14,10 @@ CollectorOptions bootstrapOptions = new();
 builder.Configuration.GetSection(CollectorOptions.SectionName).Bind(bootstrapOptions);
 Log.Logger = SerilogBootstrap.CreateBaseConfiguration(bootstrapOptions.DataDirectory).CreateLogger();
 
+// PHASE_12 build item 2: the first-run wizard's listener-ports step writes here; layer it
+// after the compiled-in appsettings.json so a wizard-configured port always wins.
+BootstrapConfigOverrides.Apply(builder.Configuration, bootstrapOptions.DataDirectory);
+
 try
 {
     builder.Services.AddSerilog();

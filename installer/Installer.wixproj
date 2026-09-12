@@ -1,0 +1,34 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+
+  <!-- MSI installer for VSoftSol Syslog Manager (Phase 12). Packages the framework-dependent
+       win-x64 publish output of VSoftSol.Syslog.Web — per ADR 0005 the single production
+       Windows Service, hosting the collector runtime alongside Kestrel/Blazor when
+       appsettings.Production.json enables it. VSoftSol.Syslog.Service.exe (the separate,
+       dev-only console-mode collector) is never packaged. See publish.ps1 / publish.sh for
+       the `dotnet publish` command this project's Files harvesting expects to already exist. -->
+
+  <PropertyGroup>
+    <OutputName>VSoftSolSyslogManagerSetup</OutputName>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <!-- Directory.Build.props sets DebugType=portable for the C# projects; the WiX build
+         task only accepts full|none. -->
+    <DebugType>none</DebugType>
+    <!-- ICE60 (unversioned file with no Language) fires on every plain resource file we
+         ship (JSON config, .pack vendor definitions, fonts, wwwroot assets) — none of these
+         are ever serviced side-by-side across languages, so the ICE has nothing real to
+         validate here; the standard, widely-used suppression for this exact case. -->
+    <SuppressIces>ICE60</SuppressIces>
+    <DefineConstants>
+      WebPublishDir=$(MSBuildThisFileDirectory)..\publish\Web;
+      ProductVersion=1.0.0
+    </DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" />
+    <PackageReference Include="WixToolset.Firewall.wixext" />
+    <PackageReference Include="WixToolset.UI.wixext" />
+  </ItemGroup>
+
+</Project>

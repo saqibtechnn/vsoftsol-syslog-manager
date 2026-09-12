@@ -195,6 +195,73 @@ public sealed class AuthSessionService
 
         return PasswordChangeResult.Success;
     }
+
+    /// <summary>
+    /// PHASE_12 build item 2, wizard step 1 — sets the seeded administrator's password for
+    /// the very first time and signs them in. Unlike <see cref="ChangePasswordAsync"/> there
+    /// is no existing session or current password to verify (that is the whole point of a
+    /// first-run flow); the only guard is that the account must not already have a password,
+    /// so this can never be replayed to silently reset a configured admin's credential.
+    /// </summary>
+    public async Task<FirstRunSetupResult> CompleteFirstRunSetupAsync(
+        HttpContext httpContext, string adminUsername, string newPassword, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
+        UserAccount? account = await _users.FindByUsernameAsync(adminUsername, cancellationToken).ConfigureAwait(false);
+        if (account is null)
+        {
+            return FirstRunSetupResult.AccountNotFound;
+        }
+
+        if (account.PasswordHash is not null)
+        {
+            return FirstRunSetupResult.AlreadyCompleted;
+        }
+
+        if ((newPassword ?? string.Empty).Length < _authOptions.MinimumPasswordLength)
+        {
+            return FirstRunSetupResult.PasswordTooShort;
+        }
+
+        DateTimeOffset now = _time.GetUtcNow();
+        await _users.SetPasswordAsync(account.UserId, _hasher.Hash(newPassword!), mustChangePassword: false, now, cancellationToken)
+            .ConfigureAwait(false);
+
+        string newSession = await _sessions.CreateAsync(
+            account.UserId, now, _webOptions.AbsoluteSessionLifetime,
+            httpContext.Connection.RemoteIpAddress?.ToString(), httpContext.Request.Headers.UserAgent.ToString(), cancellationToken)
+            .ConfigureAwait(false);
+
+        AuthenticatedUser? authenticated = await _auth.RefreshAsync(adminUsername, cancellationToken).ConfigureAwait(false);
+        if (authenticated is not null)
+        {
+            System.Security.Claims.ClaimsPrincipal principal = PrincipalFactory.Build(authenticated, newSession);
+            await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal).ConfigureAwait(false);
+
+            // SignInAsync only sets the response cookie — it does not update HttpContext.User
+            // for the REST of this same request, which the wizard's finish step needs (it
+            // saves the retention preset right after this call, and that goes through
+            // CurrentUserAccessor / HttpContext.User for the audit actor).
+            httpContext.User = principal;
+        }
+
+        await _audit.AppendAsync(
+            new AuditEntry(AuditActions.FirstRunSetupComplete, Actor: adminUsername, EntityType: "user",
+                EntityId: account.UserId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                SourceIp: httpContext.Connection.RemoteIpAddress?.ToString()),
+            cancellationToken).ConfigureAwait(false);
+
+        return FirstRunSetupResult.Success;
+    }
+}
+
+public enum FirstRunSetupResult
+{
+    Success,
+    AccountNotFound,
+    AlreadyCompleted,
+    PasswordTooShort,
 }
 
 public enum PasswordChangeResult

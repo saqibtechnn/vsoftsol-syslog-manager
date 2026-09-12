@@ -29,6 +29,13 @@ public static class RetentionEstimator
     /// new database) — Zstd level 3 on syslog text typically lands in this range.</summary>
     public const double DefaultCompressionRatio = 0.35;
 
+    /// <summary>Default assumed average event size (message + raw_message) when no real hot
+    /// data exists yet — a reasonable syslog-message default. Shared by
+    /// <see cref="VSoftSol.Syslog.Data.Retention.RetentionEstimateReader"/> (brand-new
+    /// database) and <see cref="RetentionPresets"/> (first-run wizard, before any events
+    /// have ever been ingested).</summary>
+    public const double DefaultAvgEventBytes = 300;
+
     public static RetentionEstimate Estimate(
         RetentionPolicy policy, double eventsPerDay, double avgHotEventBytes, double compressionRatio)
     {

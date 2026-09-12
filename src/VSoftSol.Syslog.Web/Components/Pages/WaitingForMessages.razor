@@ -1,0 +1,108 @@
+@page "/waiting-for-messages"
+@attribute [Authorize]
+@using VSoftSol.Syslog.Core.Abstractions
+@using VSoftSol.Syslog.Core.VendorSupport
+@using VSoftSol.Syslog.Data.Scoping
+@using VSoftSol.Syslog.Web.Dashboards
+@using VSoftSol.Syslog.Web.Setup
+@inject ScopedEventReader EventReader
+@inject CurrentUserAccessor CurrentUserAccessor
+@inject DashboardService Dashboards
+@inject IConfiguration Configuration
+@inject IHttpContextAccessor Http
+@inject NavigationManager Nav
+
+@* PHASE_12 build item 2a: the product's first impression after setup. Copy-ready device
+   commands parsed straight from VENDOR_SUPPORT.md, this server's own IP and the collector's
+   configured port already substituted in, and a searchable picker with the eight most
+   common vendors pinned to the top. Auto-advances to the Network Overview dashboard the
+   moment the collector has stored its first event (wwwroot/js/app.js polls the endpoint
+   below — no inline script, CSP has no 'unsafe-inline'). *@
+
+<PageTitle>Waiting for messages — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-waiting">
+    <h1><span class="ds-waiting__pulse" aria-hidden="true"></span>Waiting for your first message…</h1>
+    <p class="ds-wizard__subtitle">Configure one device below and point it at this server. The dashboard opens automatically the moment a message arrives.</p>
+
+    <input id="waiting-search" type="search" class="ds-field__input ds-waiting__search"
+           placeholder="Search your device or platform…" aria-label="Search devices" @bind="_query" @bind:event="oninput" />
+
+    <div class="ds-waiting__grid">
+        @foreach (DeviceConfigCommand candidate in Filtered)
+        {
+            <button type="button" class="ds-waiting__chip @(candidate == _selected ? "ds-waiting__chip--active" : null)"
+                    @onclick="() => _selected = candidate">@candidate.VendorName</button>
+        }
+    </div>
+
+    @if (_selected is not null)
+    {
+        string rendered = _selected.Render(_syslogIp, _syslogPort);
+        <h2>@_selected.VendorName</h2>
+        @if (_selected.IsCommandBlock)
+        {
+            <pre class="ds-waiting__command">@rendered</pre>
+        }
+        else
+        {
+            <div class="ds-waiting__prose">@rendered</div>
+        }
+    }
+
+    <div id="vsoftsol-waiting-poll" hidden
+         data-status-url="/api/setup/first-message-status"
+         data-redirect-url="@_dashboardUrl"></div>
+</div>
+
+@code {
+    private IReadOnlyList<DeviceConfigCommand> _all = [];
+    private DeviceConfigCommand? _selected;
+    private string _query = string.Empty;
+    private string _syslogIp = "this-server";
+    private int _syslogPort = 514;
+    private string _dashboardUrl = "/dashboards";
+
+    private static readonly string[] PinnedVendors =
+    [
+        "Cisco IOS / IOS-XE", "Cisco ASA", "Fortinet FortiGate", "Palo Alto PAN-OS",
+        "Juniper JunOS", "Linux — rsyslog", "pfSense", "Ubiquiti UniFi",
+    ];
+
+    private IEnumerable<DeviceConfigCommand> Filtered =>
+        string.IsNullOrWhiteSpace(_query)
+            ? _all
+            : _all.Where(c => c.VendorName.Contains(_query, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        HttpContext http = Http.HttpContext!;
+        CancellationToken ct = http.RequestAborted;
+
+        CurrentUser user = await CurrentUserAccessor.GetAsync();
+        long alreadyHasMessages = await EventReader.CountAsync(user.Scope, new LogQuery { Limit = 1 }, ct);
+        string dashboardUrl = await ResolveNetworkOverviewUrlAsync(ct);
+        if (alreadyHasMessages > 0)
+        {
+            Nav.NavigateTo(dashboardUrl, forceLoad: true);
+            return;
+        }
+
+        _dashboardUrl = dashboardUrl;
+        _syslogIp = ServerAddressResolver.Resolve(http.Request.Host.Host);
+        _syslogPort = int.TryParse(Configuration["Ingestion:UdpPort"], out int p) ? p : 514;
+
+        string document = await File.ReadAllTextAsync(VendorSupportDocumentPath, ct);
+        _all = VendorSupportDocumentParser.PinnedFirst(VendorSupportDocumentParser.Parse(document), PinnedVendors);
+        _selected = _all.FirstOrDefault();
+    }
+
+    private async Task<string> ResolveNetworkOverviewUrlAsync(CancellationToken ct)
+    {
+        IReadOnlyList<Core.Dashboards.DashboardDefinition> dashboards = await Dashboards.ListAsync(ct);
+        Core.Dashboards.DashboardDefinition? overview = dashboards.FirstOrDefault(d => d.SystemKey == "network-overview");
+        return overview is null ? "/dashboards" : $"/dashboards/{overview.Id}";
+    }
+
+    private static string VendorSupportDocumentPath => Path.Combine(AppContext.BaseDirectory, "VENDOR_SUPPORT.md");
+}

@@ -18,6 +18,8 @@ public static class WebSecurityExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.AddHttpContextAccessor();
+        services.TryAddSingleton<FirstRunState>();
+        services.TryAddSingleton<FirstRunWizardState>();
         services.TryAddScoped<NonceAccessor>();
         services.TryAddScoped<AuthSessionService>();
         services.TryAddScoped<SessionCookieEvents>();

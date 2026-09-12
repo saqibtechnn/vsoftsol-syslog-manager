@@ -54,6 +54,11 @@ else
             </div>
         </header>
 
+        @if (_dashboard.SystemKey == "network-overview")
+        {
+            <GettingStartedChecklist />
+        }
+
         @if (_dashboard.Widgets.Count == 0)
         {
             <EmptyState Title="This dashboard has no widgets yet"

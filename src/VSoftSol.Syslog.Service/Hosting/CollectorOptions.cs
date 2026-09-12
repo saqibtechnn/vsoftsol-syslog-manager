@@ -22,4 +22,16 @@ public sealed class CollectorOptions
     /// <summary>Minutes of idle time before an authenticated UI session expires.</summary>
     [Range(5, 1440)]
     public int UiSessionTimeoutMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// PHASE_12 / ADR 0005: whether the Web host should also register
+    /// <c>AddCollectorRuntime</c> (the listeners, ingest pipeline, rules/alerts/retention
+    /// hosted services) alongside its own Kestrel/Blazor pipeline, becoming the single
+    /// production Windows Service the installer registers. False by default so
+    /// <c>dotnet run --project src/VSoftSol.Syslog.Web</c> stays UI-only in development
+    /// (CLAUDE.md's documented dev command) — the packaged <c>appsettings.Production.json</c>
+    /// sets this to true, picked up automatically because a Windows-Service-hosted process
+    /// has no <c>ASPNETCORE_ENVIRONMENT</c> set and therefore defaults to Production.
+    /// </summary>
+    public bool HostCollectorRuntime { get; set; }
 }

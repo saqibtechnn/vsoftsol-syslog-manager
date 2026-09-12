@@ -3,6 +3,7 @@
 [Oo]bj/
 [Oo]ut/
 artifacts/
+/publish/
 *.user
 *.suo
 .vs/
@@ -30,6 +31,7 @@ BenchmarkDotNet.Artifacts/
 # ---------------------------------------------------------------------------
 src/VSoftSol.Syslog.Web/wwwroot/branding/
 installer/assets/
+installer/Strings.en-us.wxl
 src/VSoftSol.Syslog.Core/Generated/BrandingInfo.g.cs
 branding/.brand-cache/
 

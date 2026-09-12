@@ -36,7 +36,7 @@ public sealed class RetentionEstimateReader
             eventsPerDay = Convert.ToInt64(count, System.Globalization.CultureInfo.InvariantCulture) / 7.0;
         }
 
-        double avgBytes = 300; // a reasonable syslog-message default until real hot data exists
+        double avgBytes = RetentionEstimator.DefaultAvgEventBytes;
         await using (SqliteCommand size = connection.CreateCommand())
         {
             size.CommandText = "SELECT AVG(LENGTH(message) + LENGTH(raw_message)) FROM events WHERE tier = 'hot' LIMIT 10000;";

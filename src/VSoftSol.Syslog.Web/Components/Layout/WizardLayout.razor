@@ -1,0 +1,13 @@
+@inherits LayoutComponentBase
+
+@* PHASE_12: the first-run wizard and the "Waiting for messages" landing page. Wider than
+   BareLayout (a form-heavy wizard step, or a searchable device picker, does not fit a
+   24rem login card) but keeps the same centered, branded shell. The wide logo appears on
+   every step per PHASE_12_RELEASE.md item 2 / 3. *@
+
+<div class="ds-wizard">
+    <div class="ds-wizard__brand">
+        <BrandLogo />
+    </div>
+    @Body
+</div>

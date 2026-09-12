@@ -12,11 +12,28 @@
 
   <ItemGroup>
     <PackageReference Include="Serilog.AspNetCore" />
+    <!-- PHASE_12: the Web UI runs continuously as its own Windows Service (see
+         Hosting/WebServiceIdentity.cs and installer/Product.wxs). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
-    <ProjectReference Include="..\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj" />
+    <!-- Referenced only for the composition root (SyslogPlatformExtensions) — Web must
+         not inherit Service.exe's own appsettings.json into its publish output (they
+         collide at the same relative path; NETSDK1152). The Properties metadata below
+         flows a build-time flag into Service.csproj (see its own appsettings.json Content
+         item) telling it to exclude that one file only when built as a reference, never
+         when Service publishes itself. -->
+    <ProjectReference Include="..\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj">
+      <Properties>ExcludeAppSettingsFromPublish=true</Properties>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PHASE_12: the "Waiting for messages" page parses this at runtime (see
+         VendorSupportDocumentParser) so its device list can never drift from the doc. -->
+    <None Include="..\..\VENDOR_SUPPORT.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

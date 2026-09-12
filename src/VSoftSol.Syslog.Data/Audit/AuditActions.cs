@@ -15,6 +15,7 @@ public static class AuditActions
 
     public const string PasswordChange = "password.change";
     public const string PasswordReset = "password.reset";
+    public const string FirstRunSetupComplete = "firstrun.setup.complete";
 
     public const string UserCreate = "user.create";
     public const string UserUpdate = "user.update";

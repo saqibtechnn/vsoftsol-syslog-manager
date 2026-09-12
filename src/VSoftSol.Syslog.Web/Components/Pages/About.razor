@@ -1,6 +1,5 @@
 @page "/about"
 @attribute [Authorize]
-@using System.Reflection
 
 <PageTitle>About — @BrandingInfo.ProductName</PageTitle>
 
@@ -11,27 +10,12 @@
         <img class="ds-about__logo" src="branding/logo.png" alt="@BrandingInfo.ProductName" width="96" height="96" />
         <dl class="ds-about__facts">
             <div><dt>Product</dt><dd>@BrandingInfo.ProductName</dd></div>
-            <div><dt>Version</dt><dd>@Version</dd></div>
-            <div><dt>Build date</dt><dd>@BuildDate</dd></div>
+            <div><dt>Version</dt><dd>@AboutInfo.Version</dd></div>
+            <div><dt>Build date</dt><dd>@AboutInfo.BuildDateUtc.ToString("yyyy-MM-dd")</dd></div>
+            <div><dt>Licence</dt><dd>@AboutInfo.LicenseState</dd></div>
             <div><dt>Vendor</dt><dd><a href="@BrandingInfo.VendorUrl" rel="noopener noreferrer" target="_blank">@BrandingInfo.VendorName</a></dd></div>
-            <div><dt>Support</dt><dd>@BrandingInfo.SupportEmail</dd></div>
+            <div><dt>Support</dt><dd><a href="mailto:@BrandingInfo.SupportEmail">@BrandingInfo.SupportEmail</a></dd></div>
         </dl>
         <p class="ds-about__copyright">@BrandingInfo.Copyright</p>
     </div>
 </div>
-
-@code {
-    private static string Version =>
-        typeof(BrandingInfo).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
-
-    private static string BuildDate
-    {
-        get
-        {
-            var location = typeof(App).Assembly.Location;
-            return string.IsNullOrEmpty(location) || !System.IO.File.Exists(location)
-                ? "unknown"
-                : System.IO.File.GetLastWriteTimeUtc(location).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        }
-    }
-}

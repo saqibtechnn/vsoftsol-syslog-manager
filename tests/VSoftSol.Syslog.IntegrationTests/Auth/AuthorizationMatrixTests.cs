@@ -17,7 +17,10 @@ namespace VSoftSol.Syslog.IntegrationTests.Auth;
 /// </summary>
 public sealed class AuthorizationMatrixTests : IClassFixture<SyslogWebApplicationFactory>
 {
-    private static readonly string[] AnonymousAllowList = ["/login", "/Error"];
+    // PHASE_12: /setup is the unskippable first-run wizard, reachable before any credential
+    // exists — anonymous access is reviewed and intentional, gated separately by
+    // FirstRunGateMiddleware (it 302s away once setup has already completed).
+    private static readonly string[] AnonymousAllowList = ["/login", "/Error", "/setup"];
 
     private readonly SyslogWebApplicationFactory _factory;
 

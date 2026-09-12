@@ -233,6 +233,27 @@ PASS (10,000 cases, 0 divergences)**. DAST (ZAP) NOT RUN (P4-1). Mutation run BL
 
 No Critical or High findings are open.
 
+## Phase 12 — release: installer, first-run wizard, pre-release pentest checklist
+
+Full checklist and self-review methodology in `docs/security/PENTEST_REPORT.md` — summary:
+**SAST PASS / SCA PASS (`dotnet list package --vulnerable --include-transitive`, zero
+findings across every project) / secrets PASS (no credential in the MSI or installer logs,
+confirmed by decompiling the built package) / no-backdoor literal scan PASS
+(`NoBackdoorTests` against the published binaries) / authorization-matrix PASS (`/setup`
+reviewed as the one new, bounded, anonymous exception) / installer least-privilege
+service-account + ACL structure PASS / backup-restore round-trip PASS**. TLS grading and
+DAST (ZAP) carry the same unchanged disposition as every phase since Phase 4 (P4-1) — no
+Docker/browser on this build host; the compensating Kestrel-integration test suite covers
+the new surfaces the same way it has covered every prior phase's. Threat model **updated**
+this phase: B2 gets a first-run-wizard addendum, B3's ACL/backup rows move from planned to
+implemented, B5's installer rows move from planned to implemented/partial with the specific
+carried items named. See `docs/security/THREAT_MODEL.md`.
+
+**Independent external penetration test** (SECURITY_STANDARDS.md §7's ultimate form of this
+checklist) is carried — it needs a human tester and infrastructure this autonomous
+development session does not have access to. `docs/security/PENTEST_REPORT.md` is
+explicit about being a self-review, not a substitute for that engagement.
+
 ## Open findings by severity
 
 | Severity | Count | Must fix before |

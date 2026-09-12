@@ -1,0 +1,164 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <!--
+    VSoftSol Syslog Manager installer (Phase 12). Installs and registers exactly ONE
+    Windows Service per ADR 0005 ("One Windows Service hosting collector and UI, not split
+    processes"): VSoftSol.Syslog.Web.exe. It already hosts Kestrel/Blazor; the packaged
+    appsettings.Production.json sets CollectorOptions.HostCollectorRuntime = true, so this
+    same process also registers the collector runtime (listeners, ingest pipeline, rules,
+    alerts, retention). VSoftSol.Syslog.Service.exe is ADR 0005's dev-only, hand-run
+    console-mode collector (see CLAUDE.md's dotnet run command for that project); the
+    installer never ships or registers it.
+
+    (An earlier draft of this installer shipped two services, one per executable, before
+    re-checking ADR 0005; corrected to match that binding Phase 0 decision before this file
+    was ever tagged.)
+  -->
+
+  <Package Name="!(loc.ProductName)"
+           Manufacturer="!(loc.Manufacturer)"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="6f2a1d3e-6c2b-4f2e-9a3f-2b7d6a8c9e01"
+           Language="1033"
+           Compressed="yes"
+           InstallerVersion="500"
+           Scope="perMachine">
+
+    <SummaryInformation Keywords="Installer" Description="!(loc.ProductName) Setup" Manufacturer="!(loc.Manufacturer)" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of !(loc.ProductName) is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon.ico" SourceFile="assets\app-icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="!(loc.VendorUrl)" />
+    <Property Id="ARPCONTACT" Value="!(loc.SupportEmail)" />
+    <Property Id="ARPNOREPAIR" Value="0" />
+
+    <!--
+      Best-effort ASP.NET Core presence check (framework-dependent publish). This detects
+      that *some* .NET shared host is installed, not specifically the ASP.NET Core 8 shared
+      framework version — a precise version gate needs either a Burn bootstrapper chaining
+      the hosting bundle, or a custom action; both are out of scope for this MSI and are
+      carried to the v1.1 backlog (see PROGRESS.md). The Admin Guide states the exact
+      prerequisite (ASP.NET Core Runtime 8.0.x Hosting Bundle) so a missing/wrong version
+      still fails fast at service start with a clear .NET error, not silently.
+    -->
+    <Property Id="DOTNETSHAREDHOST" Secure="yes">
+      <RegistrySearch Id="DotNetSharedHostSearch" Root="HKLM"
+                       Key="SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedhost"
+                       Name="Version" Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR DOTNETSHAREDHOST" Message="!(loc.DotNetRequiredMessage)" />
+
+    <!-- ================================ Directory layout ================================ -->
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="!(loc.ProductName)" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="VENDORDATADIR" Name="!(loc.Manufacturer)">
+        <Directory Id="DATADIR" Name="!(loc.ProductName)" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- ================================ Data directory + ACLs ================================ -->
+
+    <Component Id="DataDirectoryComponent" Directory="DATADIR" Guid="d6a1a6f0-6b0e-4b4a-9e40-9d9d3c2a5b01">
+      <CreateFolder>
+        <util:PermissionEx User="Administrators" GenericAll="yes" />
+        <util:PermissionEx User="[SERVICEACCOUNT]" GenericAll="yes" />
+      </CreateFolder>
+      <RemoveFolder Id="RemoveDataDirOnUninstall" Directory="DATADIR" On="uninstall" />
+      <RemoveFolder Id="RemoveVendorDataDirOnUninstall" Directory="VENDORDATADIR" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\!(loc.Manufacturer)\!(loc.ProductName)"
+                      Name="DataDirectory" Type="string" Value="[DATADIR]" KeyPath="yes" />
+    </Component>
+
+    <!-- CreateFolder's PermissionEx entry above needs a literal account name resolvable at
+         install time; the virtual service account is named after the service it belongs to,
+         so this is a fixed string, not a [ServiceInstall] look-up. -->
+    <SetProperty Id="SERVICEACCOUNT" Value="NT SERVICE\!(loc.ProductName)" Before="CostFinalize" Sequence="execute" />
+
+    <!-- SerilogBootstrap.cs writes Warning+ to source "!(loc.ProductName)" with
+         manageEventSource:false, so the source must already exist before the service
+         starts. EventMessageFile points at the .NET runtime's generic message-resource DLL,
+         present on every Windows box with .NET installed, which is the standard way to
+         register a source for a managed app that writes fully-rendered strings rather than
+         parameterized, localized templates. -->
+    <Component Id="EventLogSourceComponent" Directory="INSTALLFOLDER" Guid="2b9a6f31-8e2c-4a5e-8d3f-1a7c6e9b4d02">
+      <RegistryValue Root="HKLM" Key="Software\!(loc.Manufacturer)\!(loc.ProductName)"
+                      Name="EventLogSourceInstalled" Type="integer" Value="1" KeyPath="yes" />
+      <util:EventSource Log="Application" Name="!(loc.ProductName)"
+                         EventMessageFile="%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll" />
+    </Component>
+
+    <!-- ================================ The service ================================ -->
+
+    <Component Id="ServiceComponent" Directory="INSTALLFOLDER" Guid="9d5f3b28-4a7e-4c9d-8b1f-6e2a9c4d7f04">
+      <File Id="ServiceExe" Source="$(var.WebPublishDir)\VSoftSol.Syslog.Web.exe" KeyPath="yes" />
+
+      <ServiceInstall Id="ServiceInstall"
+                       Name="!(loc.ProductName)"
+                       DisplayName="!(loc.ProductName)"
+                       Description="!(loc.ServiceDescription)"
+                       Type="ownProcess"
+                       Start="auto"
+                       ErrorControl="normal"
+                       Account="NT SERVICE\!(loc.ProductName)"
+                       Vital="yes">
+        <util:ServiceConfig FirstFailureActionType="restart"
+                             SecondFailureActionType="restart"
+                             ThirdFailureActionType="none"
+                             RestartServiceDelayInSeconds="15" />
+      </ServiceInstall>
+      <ServiceControl Id="ServiceControl" Name="!(loc.ProductName)"
+                       Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+
+      <!-- No native "delayed auto start" attribute exists on ServiceInstall/util:ServiceConfig
+           in this WiX version; SCM reads delayed-start from this registry value directly, so
+           pre-seeding it in the Registry table (written before InstallServices runs) has the
+           same effect as if the service itself had set it — a standard, widely used pattern. -->
+      <RegistryValue Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\!(loc.ProductName)"
+                      Name="DelayedAutoStart" Type="integer" Value="1" />
+
+      <fire:FirewallException Id="FirewallSyslogUdp" Name="!(loc.ProductName) - Syslog UDP"
+                               Port="514" Protocol="udp" Scope="any" IgnoreFailure="yes" />
+      <fire:FirewallException Id="FirewallSyslogTcp" Name="!(loc.ProductName) - Syslog TCP"
+                               Port="514" Protocol="tcp" Scope="any" IgnoreFailure="yes" />
+      <fire:FirewallException Id="FirewallWebHttps" Name="!(loc.ProductName) - Web UI (HTTPS)"
+                               Port="5443" Protocol="tcp" Scope="any" IgnoreFailure="yes" />
+    </Component>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.WebPublishDir)\**">
+        <Exclude Files="$(var.WebPublishDir)\VSoftSol.Syslog.Web.exe" />
+        <Exclude Files="$(var.WebPublishDir)\VSoftSol.Syslog.BrandingGen.exe" />
+        <Exclude Files="$(var.WebPublishDir)\VSoftSol.Syslog.BrandingGen.dll" />
+        <Exclude Files="$(var.WebPublishDir)\VSoftSol.Syslog.BrandingGen.deps.json" />
+        <Exclude Files="$(var.WebPublishDir)\VSoftSol.Syslog.BrandingGen.runtimeconfig.json" />
+        <Exclude Files="$(var.WebPublishDir)\appsettings.Development.json" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- ================================ Feature ================================ -->
+
+    <Feature Id="MainFeature" Title="!(loc.ProductName)" Level="1">
+      <ComponentRef Id="DataDirectoryComponent" />
+      <ComponentRef Id="EventLogSourceComponent" />
+      <ComponentRef Id="ServiceComponent" />
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+
+    <!-- ================================ UI ================================ -->
+
+    <WixVariable Id="WixUIBannerBmp" Value="assets\installer-banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="assets\installer-dialog.bmp" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    <ui:WixUI xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" Id="WixUI_Minimal" />
+
+  </Package>
+</Wix>

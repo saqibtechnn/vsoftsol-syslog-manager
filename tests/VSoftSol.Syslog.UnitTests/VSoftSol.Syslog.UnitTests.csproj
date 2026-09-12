@@ -23,6 +23,9 @@
   <ItemGroup>
     <!-- Vendor fixture corpora (PHASE_03: >=10 per vendor, >=200 total). -->
     <None Include="..\fixtures\messages\**\*.jsonl" LinkBase="fixtures\messages" CopyToOutputDirectory="PreserveNewest" />
+    <!-- PHASE_12: VendorSupportDocumentParserRealDocumentTests parses the actual document so
+         the "Waiting for messages" page's vendor list can never silently drift from it. -->
+    <None Include="..\..\VENDOR_SUPPORT.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

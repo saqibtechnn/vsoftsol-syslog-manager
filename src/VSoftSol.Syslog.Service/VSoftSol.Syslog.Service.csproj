@@ -33,4 +33,14 @@
     <ProjectReference Include="..\VSoftSol.Syslog.Reporting\VSoftSol.Syslog.Reporting.csproj" />
   </ItemGroup>
 
+  <!-- PHASE_12: Web references this project only for the composition root
+       (SyslogPlatformExtensions) and would otherwise inherit this appsettings.json into
+       its own publish output, colliding with Web's own file at the same relative path
+       (NETSDK1152). ExcludeAppSettingsFromPublish is set only via the Properties metadata
+       on Web's ProjectReference to this project — Service's own build/publish never sets
+       it, so `dotnet publish src/VSoftSol.Syslog.Service` is completely unaffected. -->
+  <ItemGroup Condition="'$(ExcludeAppSettingsFromPublish)' == 'true'">
+    <Content Update="appsettings.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
 </Project>

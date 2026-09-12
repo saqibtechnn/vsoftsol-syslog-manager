@@ -1,0 +1,307 @@
+@page "/setup"
+@layout WizardLayout
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.Extensions.Options
+@using VSoftSol.Syslog.Core.Retention
+@using VSoftSol.Syslog.Data.Bundles
+@using VSoftSol.Syslog.Data.Seed
+@using VSoftSol.Syslog.Service.Hosting
+@using VSoftSol.Syslog.Web.Hardening
+@using VSoftSol.Syslog.Web.Retention
+@inject AuthSessionService Auth
+@inject FirstRunState FirstRun
+@inject FirstRunWizardState Wizard
+@inject RetentionAdminService RetentionAdmin
+@inject ConfigBundleAdminService Bundles
+@inject IOptions<CollectorOptions> CollectorOptionsAccessor
+@inject IHttpContextAccessor Http
+@inject NavigationManager Nav
+
+<PageTitle>Set up — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-wizard__card">
+    <ul class="ds-wizard__steps" aria-hidden="true">
+        @for (int i = 1; i <= TotalSteps; i++)
+        {
+            int stepNum = i;
+            <li class="ds-wizard__step @(stepNum < Wizard.Step ? "ds-wizard__step--done" : stepNum == Wizard.Step ? "ds-wizard__step--active" : null)"></li>
+        }
+    </ul>
+
+    @if (_error is not null)
+    {
+        <div class="ds-alert ds-alert--error" role="alert">@_error</div>
+    }
+
+    @switch (Wizard.Step)
+    {
+        case 1:
+            <h1 class="ds-wizard__title">Create your administrator password</h1>
+            <p class="ds-wizard__subtitle">Step 1 of @TotalSteps &middot; This is the only account you need to sign in and manage @BrandingInfo.ProductName.</p>
+            <EditForm Model="PasswordModel" FormName="setup-password" OnValidSubmit="SubmitPasswordAsync" class="ds-form">
+                <DataAnnotationsValidator />
+                <FormField Label="Password" FieldId="setup-password" Required="true" Hint="@($"At least {MinimumPasswordLength} characters.")">
+                    <InputText id="setup-password" type="password" class="ds-field__input" @bind-Value="PasswordModel.Password" autocomplete="new-password" autofocus />
+                </FormField>
+                <FormField Label="Confirm password" FieldId="setup-password-confirm" Required="true">
+                    <InputText id="setup-password-confirm" type="password" class="ds-field__input" @bind-Value="PasswordModel.ConfirmPassword" autocomplete="new-password" />
+                </FormField>
+                <ValidationSummary class="ds-form__summary" />
+                <div class="ds-wizard__actions">
+                    <span></span>
+                    <button type="submit" class="ds-button ds-button--primary">Continue</button>
+                </div>
+            </EditForm>
+            break;
+
+        case 2:
+            <h1 class="ds-wizard__title">Listener ports</h1>
+            <p class="ds-wizard__subtitle">Step 2 of @TotalSteps &middot; These are the standard ports almost every device expects. Change them only if something else on this server already uses them.</p>
+            <EditForm Model="PortsModel" FormName="setup-ports" OnValidSubmit="SubmitPortsAsync" class="ds-form">
+                <DataAnnotationsValidator />
+                <FormField Label="Syslog UDP port" FieldId="setup-udp" Required="true">
+                    <InputNumber id="setup-udp" class="ds-field__input" @bind-Value="PortsModel.UdpPort" />
+                </FormField>
+                <FormField Label="Syslog TCP port" FieldId="setup-tcp" Required="true">
+                    <InputNumber id="setup-tcp" class="ds-field__input" @bind-Value="PortsModel.TcpPort" />
+                </FormField>
+                <FormField Label="Web dashboard HTTPS port" FieldId="setup-https" Required="true">
+                    <InputNumber id="setup-https" class="ds-field__input" @bind-Value="PortsModel.WebHttpsPort" />
+                </FormField>
+                <ValidationSummary class="ds-form__summary" />
+                <div class="ds-wizard__actions">
+                    <span></span>
+                    <button type="submit" class="ds-button ds-button--primary">Continue</button>
+                </div>
+            </EditForm>
+            break;
+
+        case 3:
+            <h1 class="ds-wizard__title">Data directory</h1>
+            <p class="ds-wizard__subtitle">Step 3 of @TotalSteps &middot; The setup program already created this folder with the right permissions for the collector and web services.</p>
+            <p class="ds-wizard__estimate"><code>@CollectorOptionsAccessor.Value.DataDirectory</code></p>
+            <form method="post" @onsubmit="SubmitDataDirectoryAsync" @formname="setup-datadir">
+                <AntiforgeryToken />
+                <div class="ds-wizard__actions">
+                    <span></span>
+                    <button type="submit" class="ds-button ds-button--primary">Continue</button>
+                </div>
+            </form>
+            break;
+
+        case 4:
+            <h1 class="ds-wizard__title">Retention</h1>
+            <p class="ds-wizard__subtitle">Step 4 of @TotalSteps &middot; Pick the size closest to your network — you can fine-tune retention per stream later from Settings.</p>
+            <EditForm Model="RetentionModel" FormName="setup-retention" OnValidSubmit="SubmitRetentionAsync">
+                <InputRadioGroup @bind-Value="RetentionModel.PresetKey">
+                    <div class="ds-wizard__presets">
+                        @foreach (RetentionPreset preset in RetentionPresets.All)
+                        {
+                            RetentionEstimate estimate = RetentionPresets.Estimate(preset);
+                            <label class="ds-wizard__preset @(RetentionModel.PresetKey == preset.Key ? "ds-wizard__preset--selected" : null)">
+                                <InputRadio Value="preset.Key" />
+                                <strong>@preset.Name</strong>
+                                <p>@preset.Description</p>
+                                <p class="ds-wizard__estimate">~@VSoftSol.Syslog.Web.Dashboards.WidgetChartModel.FormatBytes(estimate.TotalBytes) total on disk</p>
+                            </label>
+                        }
+                    </div>
+                </InputRadioGroup>
+                <div class="ds-wizard__actions">
+                    <span></span>
+                    <button type="submit" class="ds-button ds-button--primary">Continue</button>
+                </div>
+            </EditForm>
+            break;
+
+        case 5:
+            <h1 class="ds-wizard__title">Import a vendor configuration (optional)</h1>
+            <p class="ds-wizard__subtitle">Step 5 of @TotalSteps &middot; If your vendor gave you an exported config bundle (streams, rules, or device groups), add it now. Otherwise just finish.</p>
+            <form method="post" enctype="multipart/form-data" @onsubmit="SubmitFinishAsync" @formname="setup-finish">
+                <AntiforgeryToken />
+                <FormField Label="Config bundle (.json)" FieldId="setup-bundle">
+                    <input id="setup-bundle" type="file" name="BundleFile" accept=".json" class="ds-field__input" />
+                </FormField>
+                <div class="ds-wizard__actions">
+                    <span></span>
+                    <button type="submit" class="ds-button ds-button--primary">Finish setup</button>
+                </div>
+            </form>
+            break;
+    }
+</div>
+
+@code {
+    private const int TotalSteps = 5;
+    private int MinimumPasswordLength => 12;
+
+    [SupplyParameterFromForm(FormName = "setup-password")] private PasswordStepModel PasswordModel { get; set; } = new();
+
+    [SupplyParameterFromForm(FormName = "setup-ports")] private PortsStepModel PortsModel { get; set; } = new();
+
+    [SupplyParameterFromForm(FormName = "setup-retention")] private RetentionStepModel RetentionModel { get; set; } = new();
+
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        if (PortsModel is { UdpPort: 514, TcpPort: 514, WebHttpsPort: 5443 })
+        {
+            // Only pre-fill from the wizard's remembered answers when this render is not
+            // itself a postback of the ports form (which already carries its own values).
+            PortsModel.UdpPort = Wizard.UdpPort;
+            PortsModel.TcpPort = Wizard.TcpPort;
+            PortsModel.WebHttpsPort = Wizard.WebHttpsPort;
+        }
+
+        RetentionModel.PresetKey ??= Wizard.RetentionPresetKey;
+    }
+
+    private Task SubmitPasswordAsync()
+    {
+        if (PasswordModel.Password != PasswordModel.ConfirmPassword)
+        {
+            _error = "Those passwords don't match.";
+            return Task.CompletedTask;
+        }
+
+        if (PasswordModel.Password.Length < MinimumPasswordLength)
+        {
+            _error = $"The password must be at least {MinimumPasswordLength} characters.";
+            return Task.CompletedTask;
+        }
+
+        _error = null;
+        Wizard.PendingPassword = PasswordModel.Password;
+        Wizard.Step = 2;
+        return Task.CompletedTask;
+    }
+
+    private Task SubmitPortsAsync()
+    {
+        if (PortsModel.UdpPort == PortsModel.TcpPort || PortsModel.UdpPort == PortsModel.WebHttpsPort || PortsModel.TcpPort == PortsModel.WebHttpsPort)
+        {
+            _error = "The three ports must all be different from each other.";
+            return Task.CompletedTask;
+        }
+
+        _error = null;
+        Wizard.UdpPort = PortsModel.UdpPort;
+        Wizard.TcpPort = PortsModel.TcpPort;
+        Wizard.WebHttpsPort = PortsModel.WebHttpsPort;
+        Wizard.Step = 3;
+        return Task.CompletedTask;
+    }
+
+    private Task SubmitDataDirectoryAsync()
+    {
+        Wizard.Step = 4;
+        return Task.CompletedTask;
+    }
+
+    private Task SubmitRetentionAsync()
+    {
+        Wizard.RetentionPresetKey = RetentionModel.PresetKey;
+        Wizard.Step = 5;
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitFinishAsync()
+    {
+        HttpContext http = Http.HttpContext!;
+        CancellationToken ct = http.RequestAborted;
+
+        string? password = Wizard.PendingPassword;
+        Wizard.PendingPassword = null;
+        if (string.IsNullOrEmpty(password))
+        {
+            // The singleton was reset (e.g. the app restarted mid-wizard) — start over
+            // rather than setting a blank/unknown password.
+            Wizard.Step = 1;
+            _error = "Your session timed out. Please set your password again.";
+            return;
+        }
+
+        FirstRunSetupResult result = await Auth.CompleteFirstRunSetupAsync(http, DatabaseSeeder.SeededAdminUsername, password, ct);
+        if (result != FirstRunSetupResult.Success)
+        {
+            _error = "Setup could not be completed. Please try again.";
+            return;
+        }
+
+        await BootstrapConfigOverrides.WriteAsync(CollectorOptionsAccessor.Value.DataDirectory, Wizard.UdpPort, Wizard.TcpPort, Wizard.WebHttpsPort, ct);
+
+        RetentionPreset preset = RetentionPresets.All.FirstOrDefault(p => p.Key == Wizard.RetentionPresetKey) ?? RetentionPresets.Medium;
+        VSoftSol.Syslog.Core.Retention.RetentionSettings current = await RetentionAdmin.GetSettingsAsync(ct);
+        await RetentionAdmin.SaveSettingsAsync(current with
+        {
+            DefaultHotDays = preset.Policy.HotDays,
+            DefaultWarmDays = preset.Policy.WarmDays,
+            DefaultColdDays = preset.Policy.ColdDays,
+            CompressionLevel = preset.Policy.CompressionLevel,
+        }, ct);
+
+        IFormFile? bundleFile = http.Request.HasFormContentType ? http.Request.Form.Files["BundleFile"] : null;
+        if (bundleFile is { Length: > 0 })
+        {
+            await TryImportBundleAsync(bundleFile, ct);
+        }
+
+        FirstRun.MarkCompleted();
+        Nav.NavigateTo("/waiting-for-messages", forceLoad: true);
+    }
+
+    private async Task TryImportBundleAsync(IFormFile file, CancellationToken ct)
+    {
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream());
+            string json = await reader.ReadToEndAsync(ct);
+            VSoftSol.Syslog.Core.Bundles.SignedBundle? bundle = System.Text.Json.JsonSerializer.Deserialize<VSoftSol.Syslog.Core.Bundles.SignedBundle>(json);
+            if (bundle is null)
+            {
+                return;
+            }
+
+            ConfigBundleImporter.VerifiedBundle? verified = await Bundles.VerifyAsync(bundle, ct);
+            if (verified is null)
+            {
+                return;
+            }
+
+            if (!verified.SignerTrusted)
+            {
+                await Bundles.TrustSignerAsync(verified.SignerFingerprint, bundle.PublicKeyBase64, "Imported during setup", ct);
+            }
+
+            HashSet<string> allSections = [.. verified.Envelope.SectionsJson.Keys];
+            await Bundles.ApplyAsync(bundle, allSections, ct);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Optional step — a bad file here must never block finishing setup.
+        }
+    }
+
+    public sealed class PasswordStepModel
+    {
+        [Required(ErrorMessage = "Enter a password.")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Confirm your password.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+
+    public sealed class PortsStepModel
+    {
+        [Range(1, 65535)] public int UdpPort { get; set; } = 514;
+        [Range(1, 65535)] public int TcpPort { get; set; } = 514;
+        [Range(1, 65535)] public int WebHttpsPort { get; set; } = 5443;
+    }
+
+    public sealed class RetentionStepModel
+    {
+        public string PresetKey { get; set; } = "medium";
+    }
+}

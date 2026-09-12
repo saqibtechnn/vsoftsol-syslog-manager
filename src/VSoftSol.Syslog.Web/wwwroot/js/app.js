@@ -18,6 +18,12 @@
             return;
         }
 
+        if (e.key === "?" && !typing) {
+            e.preventDefault();
+            window.location.href = "/help";
+            return;
+        }
+
         if (e.key === "Escape") {
             document.querySelectorAll("details[open]").forEach(function (d) { d.open = false; });
         }
@@ -36,4 +42,35 @@
         },
         shortcuts: shortcuts,
     };
+
+    // PHASE_12: the /help page's searchable shortcut list. Self-initializing (driven by
+    // markup, not a Blazor interop call) so it works on the page's plain static HTML.
+    const helpFilterInput = document.getElementById("help-shortcut-filter");
+    if (helpFilterInput) {
+        helpFilterInput.addEventListener("input", function () {
+            const q = helpFilterInput.value.trim().toLowerCase();
+            document.querySelectorAll("[data-shortcut-row]").forEach(function (row) {
+                row.hidden = q.length > 0 && row.textContent.toLowerCase().indexOf(q) === -1;
+            });
+        });
+    }
+
+    // PHASE_12: "Waiting for messages" page auto-advance — polls until the collector has
+    // stored its first event, then does a real navigation to the dashboard.
+    const waitingEl = document.getElementById("vsoftsol-waiting-poll");
+    if (waitingEl) {
+        const statusUrl = waitingEl.dataset.statusUrl;
+        const redirectUrl = waitingEl.dataset.redirectUrl;
+        const timer = setInterval(function () {
+            fetch(statusUrl, { credentials: "same-origin" })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    if (data && data.hasMessage) {
+                        clearInterval(timer);
+                        window.location.href = redirectUrl;
+                    }
+                })
+                .catch(function () { /* transient network hiccup — try again next tick */ });
+        }, 3000);
+    }
 })();

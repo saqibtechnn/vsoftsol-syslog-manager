@@ -69,6 +69,11 @@
     <!-- Static analysis (SECURITY_STANDARDS.md §4 SAST) -->
     <PackageVersion Include="Roslynator.Analyzers" Version="4.12.9" />
     <PackageVersion Include="SecurityCodeScan.VS2019" Version="5.6.7" />
+
+    <!-- Installer (Phase 12) -->
+    <PackageVersion Include="WixToolset.Util.wixext" Version="7.0.0" />
+    <PackageVersion Include="WixToolset.Firewall.wixext" Version="7.0.0" />
+    <PackageVersion Include="WixToolset.UI.wixext" Version="7.0.0" />
   </ItemGroup>
 
   <!-- Transitive pins (CentralPackageTransitivePinningEnabled). Legacy System.* packages

@@ -1,0 +1,44 @@
+@page "/help"
+@attribute [Authorize]
+
+@* PHASE_12 build item 2b: a searchable shortcut list, opened by pressing "?" anywhere
+   outside a text field (wwwroot/js/app.js). Field-level one-sentence help text is already
+   on every form field via FormField's Help parameter (PHASE_04) — nothing new needed there. *@
+
+<PageTitle>Help — @BrandingInfo.ProductName</PageTitle>
+<div class="ds-page">
+    <header class="ds-page__header"><h1>Help</h1></header>
+
+    <section class="ds-card">
+        <h2>Keyboard shortcuts</h2>
+        <input id="help-shortcut-filter" type="search" class="ds-field__input ds-waiting__search"
+               placeholder="Search shortcuts…" aria-label="Search keyboard shortcuts" />
+        <table class="ds-table">
+            <thead><tr><th>Key</th><th>Does what</th></tr></thead>
+            <tbody>
+                @foreach ((string Key, string Description) shortcut in Shortcuts)
+                {
+                    <tr data-shortcut-row>
+                        <td><kbd>@shortcut.Key</kbd></td>
+                        <td>@shortcut.Description</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+
+    <section class="ds-card">
+        <h2>Need more?</h2>
+        <p>Field-level help is available throughout the product — look for the <span class="ds-field__help" aria-hidden="true">?</span> next to a field's label.</p>
+        <p>The Admin Guide and User Guide installed alongside @BrandingInfo.ProductName cover setup, device configuration, and troubleshooting in more depth.</p>
+    </section>
+</div>
+
+@code {
+    private static readonly (string Key, string Description)[] Shortcuts =
+    [
+        ("/", "Focus the global search box"),
+        ("?", "Open this help page"),
+        ("Esc", "Close an open menu or expanded panel"),
+    ];
+}
