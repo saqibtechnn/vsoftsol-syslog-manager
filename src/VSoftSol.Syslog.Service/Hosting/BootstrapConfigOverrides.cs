@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 
 namespace VSoftSol.Syslog.Service.Hosting;
@@ -45,5 +46,40 @@ public static class BootstrapConfigOverrides
 
         await using FileStream stream = File.Create(path);
         await JsonSerializer.SerializeAsync(stream, document, SerializerOptions, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// v1.1 — live listener port changes. Unlike <see cref="WriteAsync"/> (the first-run
+    /// wizard's one-shot write of every bootstrap setting), a later port change from
+    /// Settings touches only <c>Ingestion:UdpPort</c>/<c>TcpPort</c> — it merges into
+    /// whatever is already on disk (preserving the wizard's <c>Kestrel</c> section and
+    /// anything else) rather than reconstructing the whole file from values this call site
+    /// does not have.
+    /// </summary>
+    public static async Task UpdateIngestionPortsAsync(
+        string dataDirectory, int udpPort, int tcpPort, CancellationToken cancellationToken)
+    {
+        string path = PathFor(dataDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        JsonObject root;
+        if (File.Exists(path))
+        {
+            await using FileStream read = File.OpenRead(path);
+            root = await JsonNode.ParseAsync(read, cancellationToken: cancellationToken).ConfigureAwait(false)
+                as JsonObject ?? [];
+        }
+        else
+        {
+            root = [];
+        }
+
+        var ingestion = root["Ingestion"] as JsonObject ?? [];
+        ingestion["UdpPort"] = udpPort;
+        ingestion["TcpPort"] = tcpPort;
+        root["Ingestion"] = ingestion;
+
+        await using FileStream write = File.Create(path);
+        await JsonSerializer.SerializeAsync(write, root, SerializerOptions, cancellationToken).ConfigureAwait(false);
     }
 }

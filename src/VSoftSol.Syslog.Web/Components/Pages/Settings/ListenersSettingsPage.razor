@@ -22,6 +22,40 @@
     else
     {
         <section class="ds-card">
+            <h2>Core syslog (UDP/TCP)</h2>
+            <p class="ds-muted">
+                UDP <span class="ds-chip @(Listeners.Ingestion.UdpEnabled ? "ds-chip--ok" : "ds-chip")">@(Listeners.Ingestion.UdpEnabled ? "Enabled" : "Disabled")</span>
+                @Listeners.Ingestion.UdpBindAddress:@Listeners.Ingestion.UdpPort
+                &nbsp;·&nbsp;
+                TCP <span class="ds-chip @(Listeners.Ingestion.TcpEnabled ? "ds-chip--ok" : "ds-chip")">@(Listeners.Ingestion.TcpEnabled ? "Enabled" : "Disabled")</span>
+                @Listeners.Ingestion.TcpBindAddress:@Listeners.Ingestion.TcpPort
+            </p>
+
+            @if (Listeners.CanApplyPortsLive)
+            {
+                <form class="ds-form" @onsubmit="() => _showApplyPorts = true" @onsubmit:preventDefault>
+                    <FormField Label="UDP port" FieldId="ds-udp-port" Help="1-65535. Leave unchanged to keep the current UDP port.">
+                        <input id="ds-udp-port" class="ds-input" type="number" min="1" max="65535" @bind="_udpPort" />
+                    </FormField>
+                    <FormField Label="TCP port" FieldId="ds-tcp-port" Help="1-65535. Leave unchanged to keep the current TCP port.">
+                        <input id="ds-tcp-port" class="ds-input" type="number" min="1" max="65535" @bind="_tcpPort" />
+                    </FormField>
+                    <div class="ds-form__actions">
+                        <button type="submit" class="ds-button ds-button--primary"
+                                disabled="@(_udpPort == Listeners.Ingestion.UdpPort && _tcpPort == Listeners.Ingestion.TcpPort)">
+                            Apply
+                        </button>
+                    </div>
+                </form>
+            }
+            else
+            {
+                <p class="ds-muted">This instance is not hosting the collector runtime, so a port change here needs a
+                    restart — the bind address and port are set in the service configuration file (<code>Ingestion:*</code>).</p>
+            }
+        </section>
+
+        <section class="ds-card">
             <h2>TLS syslog <span class="ds-chip @(Listeners.Tls.Enabled ? "ds-chip--ok" : "ds-chip")">@(Listeners.Tls.Enabled ? "Enabled" : "Disabled")</span></h2>
             <p class="ds-muted">Bind @Listeners.Tls.BindAddress:@Listeners.Tls.Port · minimum @Listeners.Tls.MinimumProtocol
                 · mutual TLS @(Listeners.Tls.RequireClientCertificate ? $"required ({Listeners.Tls.TrustedClientCertificateThumbprints.Count} trusted client cert(s))" : "off")</p>
@@ -71,6 +105,26 @@
     }
 </div>
 
+<Modal Visible="_showApplyPorts" Title="Apply listener port change" VisibleChanged="v => _showApplyPorts = v">
+    <ChildContent>
+        <p>This briefly interrupts collection on the listener(s) being changed — the new port is bound before the
+            old one closes, so nothing sent in that instant is lost, but a sender using the old port will need the
+            new one.</p>
+        @if (_udpPort != Listeners.Ingestion.UdpPort)
+        {
+            <p><strong>UDP:</strong> @Listeners.Ingestion.UdpPort → @_udpPort</p>
+        }
+        @if (_tcpPort != Listeners.Ingestion.TcpPort)
+        {
+            <p><strong>TCP:</strong> @Listeners.Ingestion.TcpPort → @_tcpPort</p>
+        }
+    </ChildContent>
+    <Footer>
+        <button type="button" class="ds-button ds-button--ghost" @onclick="() => _showApplyPorts = false">Cancel</button>
+        <button type="button" class="ds-button ds-button--primary" @onclick="ApplyPortsAsync">Apply now</button>
+    </Footer>
+</Modal>
+
 <Modal Visible="_showCreateKey" Title="New Windows Event Log API key" VisibleChanged="v => _showCreateKey = v">
     <ChildContent>
         <FormField Label="Label" FieldId="ds-key-label" Help="What forwarder is this for?">
@@ -106,9 +160,14 @@
     private string _newKeyLabel = string.Empty;
     private string _newKeyIp = string.Empty;
     private string? _createdKey;
+    private int _udpPort;
+    private int _tcpPort;
+    private bool _showApplyPorts;
 
     protected override async Task OnInitializedAsync()
     {
+        _udpPort = Listeners.Ingestion.UdpPort;
+        _tcpPort = Listeners.Ingestion.TcpPort;
         _apiKeyColumns =
         [
             new() { Header = "Label", SortValue = k => k.Label, Cell = k => @<text>@k.Label</text> },
@@ -124,6 +183,17 @@
         _communitySet = !string.IsNullOrWhiteSpace(current);
         _apiKeys = [.. await ApiKeys.ListAsync(CancellationToken.None)];
         _loading = false;
+    }
+
+    private async Task ApplyPortsAsync()
+    {
+        _showApplyPorts = false;
+        int? newUdp = _udpPort == Listeners.Ingestion.UdpPort ? null : _udpPort;
+        int? newTcp = _tcpPort == Listeners.Ingestion.TcpPort ? null : _tcpPort;
+        (bool ok, string message) = await Listeners.SetUdpTcpPortsAsync(newUdp, newTcp, CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+        _udpPort = Listeners.Ingestion.UdpPort;
+        _tcpPort = Listeners.Ingestion.TcpPort;
     }
 
     private async Task SaveCommunityAsync()

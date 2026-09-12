@@ -10,8 +10,9 @@ to learn where the build stands. Keep it terse and factual.
 - **Last completed phase:** 12 — Release (**final phase**)
 - **Last tag:** `v1.0.0`
 - **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
-  and "v1.1 log"). First v1.1 item closed: **B11-3 TOTP MFA login-flow enforcement** — see
-  "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
+  and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
+  **live UDP/TCP listener port changes** — see "v1.1 log" below. No new tag has been cut;
+  `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -73,6 +74,59 @@ red-green.md). Docs: `docs/security/ASVS-checklist.md` and
 place (living doc); `docs/RELEASE_NOTES.md` new "Unreleased" section (v1.0.0's own text
 left untouched). No new git tag — the operator has only asked to work the v1.1 backlog, not
 cut a release; version/tag timing is the operator's call.
+
+### Live UDP/TCP listener port changes — 2026-09-12
+
+Closes the other RELEASE_NOTES.md v1.0.0 known limitation named as an illustrative v1.1
+backlog example: "listener port changes need a manual service restart." Scoped to the core
+UDP/TCP syslog ports only (TLS/SNMP/WinEventLog ports remain restart-tier, unchanged —
+narrower, deliberately confirmed scope, not a partial fix). Re-examined the Phase 12
+disposition that assumed this would need "granting the web-facing service account rights to
+control the Windows Service itself" — that no longer applies: ADR 0005/0020 already made
+`Web.exe` the single process hosting both the UI and the collector runtime, so a port
+change is an in-process socket rebind, never a cross-process signal or a privilege grant.
+
+`UdpSyslogListener`/`TcpSyslogListener` each gained `RebindAsync(newPort, ct)`: it binds the
+new socket *before* touching the old one, so a bind failure (port in use, no permission)
+throws with the original listener completely undisturbed — this protocol is never left with
+zero listeners (Constraint 3). A new `ListenerPortReloadService` (Service.Hosting)
+orchestrates it: on success it persists the new port via a new, merging
+`BootstrapConfigOverrides.UpdateIngestionPortsAsync` (so a later restart keeps it, without
+ever clobbering the wizard-set Web HTTPS port the way a naive whole-file rewrite would), and
+patches the matching entry in `ActionExecutorOptions.LocalSyslogEndpoints` in place — that
+list is shared by reference everywhere the rule engine's own-listener loop guard reads it,
+so the fix requires no cache invalidation. Settings → Listeners (`ListenerSettingsService`,
+already the Phase 11 home for TLS/SNMP/WinEventLog) gained a UDP/TCP card: current
+values shown live, an explicit Apply with a confirmation ("this briefly interrupts
+collection on that listener"), and a plain restart-still-required message when the process
+is not hosting the collector runtime at all (the documented dev-only standalone-Web case).
+Every attempt — accepted or refused — is audited (`AuditActions.ConfigChange`).
+
+Test-first: `ListenerRebindTests` (4, real loopback sockets — new-port-live/old-port-freed
+for both protocols, plus a busy-port failure case proving the original listener survives
+untouched) written before the `RebindAsync` methods existed, observed RED (compile failure —
+the right reason, the method did not exist), GREEN after implementation on the first run.
+`BootstrapConfigOverridesTests` gained 2 cases for the new merge-write.
+`ListenerPortReloadServiceTests` (4) and `ListenerSettingsServiceTests` (3) cover the
+orchestrator and the Web-facing validation/audit wrapper, including the loop-guard-list and
+shared-`IngestionOptions`-mutation assertions. Full regression: unit 1060/1060; integration
+786/786 (13 new, zero regressions, not even the usually-load-sensitive `P2-5` flake this
+run); `dotnet build -c Release` 0 warnings; `dotnet format --verify-no-changes` clean.
+
+UI verified two ways: the Settings → Listeners page was fetched over real authenticated
+HTTP (a scripted first-run wizard + login, since this sandbox's browser automation cannot
+click through the app's self-signed HTTPS certificate's interstitial on either browser
+surface available — a documented environment limit, not a claim of a full interactive
+click-through) and confirmed to render the new card with the true live port values, correct
+enabled/disabled state, and the Apply button correctly disabled with no change pending. The
+actual click → confirm → live-rebind → toast path is the same `ListenerSettingsService.
+SetUdpTcpPortsAsync` call exercised end-to-end (with a real listener actually rebinding)
+in `ListenerSettingsServiceTests`.
+
+**Verification** — `docs/evidence/v1.1-live-listener-ports/` (verification.md, red-green.md).
+Docs: `docs/security/ASVS-checklist.md` and `docs/security/SECURITY_REVIEW.md` v1.1
+sections; `docs/RELEASE_NOTES.md` new "Unreleased" bullet (v1.0.0's own text left
+untouched). No new git tag, same standing reason as B11-3 above.
 
 ---
 

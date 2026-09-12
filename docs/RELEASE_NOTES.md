@@ -6,6 +6,13 @@
   notes below: enabling MFA on an account now actually changes what signing in requires — a
   correct password alone no longer signs you in if MFA is on; a current authenticator code
   or an unused recovery code is required too, with its own independent rate limit.
+- **UDP/TCP syslog listener port changes are now live** — closing another limitation named
+  in v1.0.0's own notes below. Settings → Listeners gained a "Core syslog (UDP/TCP)" card:
+  change either port and it applies immediately, no service restart, with a confirmation
+  ("this briefly interrupts collection on that listener") before it takes effect. The new
+  port is bound before the old one closes, so a mistyped or already-used port is rejected
+  with the previous port left running, never with nothing listening at all. TLS/SNMP/
+  Windows Event Log ports remain a restart-time setting, unchanged.
 
 ## v1.0.0
 

@@ -81,4 +81,56 @@ public sealed class BootstrapConfigOverridesTests
             Directory.Delete(dataDir, recursive: true);
         }
     }
+
+    /// <summary>
+    /// v1.1 — live listener port changes. Unlike <see cref="BootstrapConfigOverrides.WriteAsync"/>
+    /// (the first-run wizard's one-shot write of everything), a later, targeted port change
+    /// from Settings must never clobber the Web HTTPS port the wizard already wrote — it
+    /// merges into the existing file instead of replacing it wholesale.
+    /// </summary>
+    [Fact]
+    public async Task UpdateIngestionPortsAsync_PreservesTheExistingWebHttpsPort()
+    {
+        string dataDir = NewTempDataDir();
+        try
+        {
+            await BootstrapConfigOverrides.WriteAsync(dataDir, udpPort: 514, tcpPort: 514, webHttpsPort: 8443, CancellationToken.None);
+
+            await BootstrapConfigOverrides.UpdateIngestionPortsAsync(dataDir, udpPort: 5514, tcpPort: 5515, CancellationToken.None);
+
+            ConfigurationBuilder builder = new();
+            BootstrapConfigOverrides.Apply(builder, dataDir);
+            IConfigurationRoot configuration = builder.Build();
+
+            configuration["Ingestion:UdpPort"].Should().Be("5514");
+            configuration["Ingestion:TcpPort"].Should().Be("5515");
+            configuration["Kestrel:Endpoints:Https:Url"].Should().Be("https://0.0.0.0:8443",
+                "a Settings-page port change must not silently revert the wizard-configured Web HTTPS port");
+        }
+        finally
+        {
+            Directory.Delete(dataDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateIngestionPortsAsync_NoExistingFile_CreatesOneWithJustThePorts()
+    {
+        string dataDir = NewTempDataDir();
+        try
+        {
+            await BootstrapConfigOverrides.UpdateIngestionPortsAsync(dataDir, udpPort: 5514, tcpPort: 5515, CancellationToken.None);
+
+            ConfigurationBuilder builder = new();
+            BootstrapConfigOverrides.Apply(builder, dataDir);
+            IConfigurationRoot configuration = builder.Build();
+
+            configuration["Ingestion:UdpPort"].Should().Be("5514");
+            configuration["Ingestion:TcpPort"].Should().Be("5515");
+        }
+        finally
+        {
+            Directory.Delete(dataDir, recursive: true);
+        }
+    }
 }

@@ -24,6 +24,7 @@ public sealed class UdpSyslogListener : ISyslogListener
     private Socket? _socket;
     private CancellationTokenSource? _cts;
     private Task _receiveLoop = Task.CompletedTask;
+    private readonly SemaphoreSlim _rebindLock = new(1, 1);
 
     public UdpSyslogListener(FrameIntake intake, IOptions<IngestionOptions> options, ILogger<UdpSyslogListener> logger)
     {
@@ -143,6 +144,76 @@ public sealed class UdpSyslogListener : ISyslogListener
         _logger.LogInformation("UDP syslog listener {Name} stopped.", Name);
     }
 
+    /// <summary>
+    /// Moves this listener to <paramref name="newPort"/> without a process restart (v1.1
+    /// live listener ports). Binds the new socket <em>before</em> touching the old one, so a
+    /// bind failure (port in use, no permission) throws with the original listener still
+    /// fully running — this protocol is never left with zero listeners
+    /// (CLAUDE.md Constraint 3). <paramref name="cancellationToken"/> only governs waiting
+    /// for the old receive loop to retire; it must not be a request-scoped token whose
+    /// cancellation could reach the new, otherwise-unrelated receive loop.
+    /// </summary>
+    public async Task RebindAsync(int newPort, CancellationToken cancellationToken)
+    {
+        await _rebindLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            IPAddress address = IPAddress.Parse(_options.UdpBindAddress);
+            var newSocket = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            try
+            {
+                newSocket.ReceiveBufferSize = _options.UdpReceiveBufferBytes;
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    newSocket.IOControl(SioUdpConnReset, [0, 0, 0, 0], null);
+                }
+
+                newSocket.Bind(new IPEndPoint(address, newPort));
+            }
+            catch
+            {
+                newSocket.Dispose();
+                throw;
+            }
+
+            // The new socket is bound and about to receive — only now is it safe to retire
+            // the old one, so there is never a gap with nothing listening on this protocol.
+            Socket? oldSocket = _socket;
+            CancellationTokenSource? oldCts = _cts;
+            Task oldLoop = _receiveLoop;
+
+            _socket = newSocket;
+            BoundPort = ((IPEndPoint)newSocket.LocalEndPoint!).Port;
+            Name = $"udp:{_options.UdpBindAddress}:{BoundPort}";
+            var newCts = new CancellationTokenSource();
+            _cts = newCts;
+            _receiveLoop = Task.Run(() => ReceiveLoopAsync(newSocket, newCts.Token), CancellationToken.None);
+            _logger.LogInformation("UDP syslog listener rebound to {Endpoint}.", newSocket.LocalEndPoint);
+
+            if (oldCts is not null)
+            {
+                await oldCts.CancelAsync().ConfigureAwait(false);
+            }
+
+            oldSocket?.Close();
+
+            try
+            {
+                await oldLoop.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            oldCts?.Dispose();
+            oldSocket?.Dispose();
+        }
+        finally
+        {
+            _rebindLock.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -156,5 +227,6 @@ public sealed class UdpSyslogListener : ISyslogListener
 
         _cts?.Dispose();
         _socket?.Dispose();
+        _rebindLock.Dispose();
     }
 }

@@ -149,6 +149,15 @@ public static class SyslogPlatformExtensions
         services.AddOptions<SnmpOptions>().Bind(configuration.GetSection(SnmpOptions.SectionName)).ValidateDataAnnotations();
         services.AddOptions<WinEventLogOptions>().Bind(configuration.GetSection(WinEventLogOptions.SectionName)).ValidateDataAnnotations();
 
+        // v1.1 — same disposition as the block above: IngestionOptions (UDP/TCP bind
+        // address/port) is otherwise only bound inside AddCollectorRuntime, so a
+        // standalone Web host would see nothing but compiled-in defaults on its Settings
+        // page. ListenerPortReloadService additionally needs IEnumerable<ISyslogListener>,
+        // which resolves to an empty list here and only gets real instances from
+        // AddCollectorRuntime — CanApplyLive is how the page tells the two cases apart.
+        services.AddOptions<IngestionOptions>().Bind(configuration.GetSection(IngestionOptions.SectionName));
+        services.TryAddSingleton<ListenerPortReloadService>();
+
         // MFA / API keys / config bundles — both hosts need these stores (Web for its
         // Settings pages and the login MFA step; the collector host for the Windows Event
         // Log listener's API-key check).

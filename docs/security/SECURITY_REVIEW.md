@@ -267,6 +267,21 @@ itself without also producing a valid TOTP/recovery code). Full detail in
 `docs/security/ASVS-checklist.md`'s v1.1 section; evidence in
 `docs/evidence/v1.1-mfa-login-enforcement/`.
 
+## v1.1 — Live listener port changes
+
+Closes the v1.0.0 "listener port changes need a manual service restart" limitation for
+UDP/TCP. The Phase 12 deferral reasoned this would need "granting the web-facing service
+account rights to control the Windows Service itself" — re-examined and found not to apply:
+ADR 0005/0020 already merged the Web UI and the collector runtime into one process, so a
+port change is an in-process listener rebind, not a cross-process signal or an SCM
+privilege grant. No new dependency, no new external attack surface, no privilege change.
+Administrator-only (`AuthPolicies.Administer`); every attempt is audited
+(`AuditActions.ConfigChange`), success or refusal. Bind-before-close ordering means a
+failed rebind (port already in use, insufficient privilege for a low port) leaves the
+previously-working listener exactly as it was — this protocol is never left with zero
+listeners. Full detail in `docs/security/ASVS-checklist.md`'s v1.1 section; evidence in
+`docs/evidence/v1.1-live-listener-ports/`.
+
 ## Open findings by severity
 
 | Severity | Count | Must fix before |

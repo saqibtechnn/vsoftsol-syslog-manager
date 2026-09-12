@@ -25,6 +25,7 @@ public sealed class TcpSyslogListener : ISyslogListener
     private Task _acceptLoop = Task.CompletedTask;
     private readonly List<Task> _connections = [];
     private readonly object _connectionsLock = new();
+    private readonly SemaphoreSlim _rebindLock = new(1, 1);
 
     public TcpSyslogListener(
         FrameIntake intake,
@@ -238,6 +239,79 @@ public sealed class TcpSyslogListener : ISyslogListener
         _logger.LogInformation("TCP syslog listener {Name} stopped.", Name);
     }
 
+    /// <summary>
+    /// Moves this listener to <paramref name="newPort"/> without a process restart (v1.1
+    /// live listener ports). Binds the new listen socket <em>before</em> touching the old
+    /// one, so a bind failure (port in use, no permission) throws with the original listener
+    /// still fully running — this protocol is never left with zero listeners (CLAUDE.md
+    /// Constraint 3). Existing connections on the old port are closed, the same as a full
+    /// restart would have done, but new connections on the new port are already being
+    /// accepted before that happens. <paramref name="cancellationToken"/> only governs
+    /// waiting for the old accept loop and its connections to retire.
+    /// </summary>
+    public async Task RebindAsync(int newPort, CancellationToken cancellationToken)
+    {
+        await _rebindLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            IPAddress address = IPAddress.Parse(_options.TcpBindAddress);
+            var newSocket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                newSocket.Bind(new IPEndPoint(address, newPort));
+                newSocket.Listen(backlog: 512);
+            }
+            catch
+            {
+                newSocket.Dispose();
+                throw;
+            }
+
+            // The new socket is bound and listening — only now is it safe to retire the old
+            // one, so there is never a gap with nothing accepting on this protocol.
+            Socket? oldSocket = _listenSocket;
+            CancellationTokenSource? oldCts = _cts;
+            Task oldAcceptLoop = _acceptLoop;
+
+            _listenSocket = newSocket;
+            BoundPort = ((IPEndPoint)newSocket.LocalEndPoint!).Port;
+            Name = $"tcp:{_options.TcpBindAddress}:{BoundPort}";
+            var newCts = new CancellationTokenSource();
+            _cts = newCts;
+            _acceptLoop = Task.Run(() => AcceptLoopAsync(newSocket, newCts.Token), CancellationToken.None);
+            _logger.LogInformation("TCP syslog listener rebound to {Endpoint}.", newSocket.LocalEndPoint);
+
+            if (oldCts is not null)
+            {
+                await oldCts.CancelAsync().ConfigureAwait(false);
+            }
+
+            oldSocket?.Close();
+
+            Task[] outstanding;
+            lock (_connectionsLock)
+            {
+                outstanding = [.. _connections];
+            }
+
+            try
+            {
+                await Task.WhenAll([oldAcceptLoop, .. outstanding]).WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error while retiring the previous TCP listener during rebind.");
+            }
+
+            oldCts?.Dispose();
+            oldSocket?.Dispose();
+        }
+        finally
+        {
+            _rebindLock.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -252,5 +326,6 @@ public sealed class TcpSyslogListener : ISyslogListener
         _cts?.Dispose();
         _connectionSlots?.Dispose();
         _listenSocket?.Dispose();
+        _rebindLock.Dispose();
     }
 }

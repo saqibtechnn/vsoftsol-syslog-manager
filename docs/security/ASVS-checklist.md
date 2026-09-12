@@ -294,3 +294,20 @@ exceeding the attempt limit discards the challenge even for a subsequently-corre
 
 **V2.1/V2.6 is now fully I** — both the primitives (Phase 11) and login-flow enforcement
 (v1.1) are implemented and tested.
+
+## v1.1 — V1.2/V1.14/V7.1 live listener port changes
+
+Closes RELEASE_NOTES.md's v1.0.0 "listener port changes need a manual service restart"
+limitation, UDP/TCP scope. Re-examines the Phase 12 disposition that assumed making this
+live would mean "granting the web-facing service account rights to control the Windows
+Service itself" (`PROGRESS.md`'s Phase 12 interpretations) — that assumption predates
+nothing changing: ADR 0005/0020 already make the packaged `Web.exe` process the single
+Windows Service that also holds the listener sockets (**V1.14**, segregation of
+components — no new process boundary is crossed), so a port change is an in-process socket
+rebind (`UdpSyslogListener`/`TcpSyslogListener.RebindAsync`), never an SCM privilege grant;
+the service account's privilege stays exactly what ADR 0006 already granted it (**V1.2**).
+The new socket is bound before the old one is closed, so a bind failure (port in use, no
+permission) leaves the working listener untouched and this protocol is never left with zero
+listeners (Constraint 3). Gated to `AuthPolicies.Administer` and every attempted change —
+accepted or refused — is audited under `AuditActions.ConfigChange` (**V7.1**), the same as
+every other Settings write. Evidence: `docs/evidence/v1.1-live-listener-ports/`.
