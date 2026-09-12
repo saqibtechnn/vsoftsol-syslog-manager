@@ -21,4 +21,16 @@ public sealed class WebAuthOptions
 
     /// <summary>Cookie name for the authentication ticket.</summary>
     public string CookieName { get; set; } = "vsoftsol.auth";
+
+    /// <summary>v1.1 (B11-3): how long a second-factor challenge stays valid after a correct
+    /// password, independent of the account's own idle/absolute session settings — this is
+    /// a brief window to type a 6-digit code, not a session.</summary>
+    [Range(typeof(TimeSpan), "00:01:00", "00:30:00")]
+    public TimeSpan MfaChallengeValidity { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Wrong-code attempts allowed against one challenge before it is discarded and
+    /// the admin must re-enter their password — bounds how many guesses a 6-digit TOTP code
+    /// (1,000,000 possibilities) can be brute-forced against within its short validity window.</summary>
+    [Range(3, 10)]
+    public int MfaMaxAttempts { get; set; } = 5;
 }

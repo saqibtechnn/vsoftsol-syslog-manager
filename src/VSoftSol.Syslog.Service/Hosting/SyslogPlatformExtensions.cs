@@ -153,6 +153,7 @@ public static class SyslogPlatformExtensions
         // Settings pages and the login MFA step; the collector host for the Windows Event
         // Log listener's API-key check).
         services.TryAddSingleton<SqliteMfaRecoveryCodeStore>();
+        services.TryAddSingleton<SqliteMfaLoginChallengeStore>();
         services.TryAddSingleton<SqliteApiKeyStore>();
         services.TryAddSingleton<SqliteBundleTrustStore>();
         services.TryAddSingleton<ConfigBundleExporter>(sp => new ConfigBundleExporter(

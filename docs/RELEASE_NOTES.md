@@ -1,5 +1,12 @@
 # VSoftSol Syslog Manager — Release Notes
 
+## Unreleased
+
+- **TOTP MFA is now enforced at sign-in**, closing the one limitation named in v1.0.0's own
+  notes below: enabling MFA on an account now actually changes what signing in requires — a
+  correct password alone no longer signs you in if MFA is on; a current authenticator code
+  or an unused recovery code is required too, with its own independent rate limit.
+
 ## v1.0.0
 
 First general release. On-premises Windows syslog collection and log management: single

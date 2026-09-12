@@ -5,6 +5,7 @@ using VSoftSol.Syslog.Core.Abstractions;
 using VSoftSol.Syslog.Data.Audit;
 using VSoftSol.Syslog.Data.Security;
 using VSoftSol.Syslog.Data.Users;
+using VSoftSol.Syslog.Web.Hardening;
 using LocalAuthOptions = VSoftSol.Syslog.Data.Users.AuthenticationOptions;
 
 namespace VSoftSol.Syslog.Web.Security;
@@ -16,17 +17,47 @@ public enum SignInStatus
     InvalidCredentials,
     LockedOut,
     Disabled,
+
+    /// <summary>v1.1 (B11-3): the password was correct and the account has MFA enabled — a
+    /// second step (<see cref="AuthSessionService.CompleteMfaSignInAsync"/>) must succeed
+    /// before a session exists. <see cref="PasswordSignInResult.MfaChallengeToken"/> carries
+    /// the short-lived challenge to that second step.</summary>
+    MfaRequired,
+}
+
+/// <summary>The result of <see cref="AuthSessionService.PasswordSignInAsync"/> — a bare
+/// <see cref="SignInStatus"/> plus, only for <see cref="SignInStatus.MfaRequired"/>, the
+/// challenge token the login page must carry into its second step.</summary>
+public sealed record PasswordSignInResult(SignInStatus Status, string? MfaChallengeToken = null);
+
+/// <summary>Outcome of the second (MFA) sign-in step.</summary>
+public enum MfaSignInResult
+{
+    Success,
+    InvalidCode,
+
+    /// <summary>The challenge does not exist, already expired, or its account vanished —
+    /// deliberately not distinguished from "wrong code" in what the login page shows, but
+    /// distinguished here so the caller can tell "start over" from "try again".</summary>
+    ChallengeExpiredOrNotFound,
+
+    /// <summary>Too many wrong codes against this challenge — it has been discarded
+    /// (bounds brute-forcing a 6-digit TOTP code); the admin must sign in again.</summary>
+    TooManyAttempts,
 }
 
 /// <summary>
 /// Orchestrates password sign-in / sign-out / change against the authentication seam, the
-/// server-side session store, and the audit log (PHASE_04 build items 2, 5, 6).
+/// server-side session store, and the audit log (PHASE_04 build items 2, 5, 6; v1.1 B11-3
+/// adds the MFA second step).
 /// </summary>
 public sealed class AuthSessionService
 {
     private readonly IAuthenticationProvider _auth;
     private readonly SqliteUserStore _users;
     private readonly SqliteSessionStore _sessions;
+    private readonly SqliteMfaLoginChallengeStore _mfaChallenges;
+    private readonly MfaSelfServiceService _mfaVerifier;
     private readonly SqliteAuditLog _audit;
     private readonly IPasswordHasher _hasher;
     private readonly LocalAuthOptions _authOptions;
@@ -37,6 +68,8 @@ public sealed class AuthSessionService
         IAuthenticationProvider auth,
         SqliteUserStore users,
         SqliteSessionStore sessions,
+        SqliteMfaLoginChallengeStore mfaChallenges,
+        MfaSelfServiceService mfaVerifier,
         SqliteAuditLog audit,
         IPasswordHasher hasher,
         IOptions<LocalAuthOptions> authOptions,
@@ -46,6 +79,8 @@ public sealed class AuthSessionService
         _auth = auth;
         _users = users;
         _sessions = sessions;
+        _mfaChallenges = mfaChallenges;
+        _mfaVerifier = mfaVerifier;
         _audit = audit;
         _hasher = hasher;
         _authOptions = authOptions.Value;
@@ -53,7 +88,7 @@ public sealed class AuthSessionService
         _time = timeProvider;
     }
 
-    public async Task<SignInStatus> PasswordSignInAsync(
+    public async Task<PasswordSignInResult> PasswordSignInAsync(
         HttpContext httpContext, string username, string password, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
@@ -79,12 +114,94 @@ public sealed class AuthSessionService
                     Detail: result.FailureReason.ToString()),
                 cancellationToken).ConfigureAwait(false);
 
-            return status;
+            return new PasswordSignInResult(status);
         }
 
         UserAccount? account = await _users.FindByUsernameAsync(result.User.Username, cancellationToken).ConfigureAwait(false);
         long userId = account?.UserId ?? 0;
 
+        if (account?.MfaEnabled == true)
+        {
+            string challengeToken = await _mfaChallenges.CreateAsync(
+                userId, _time.GetUtcNow(), _webOptions.MfaChallengeValidity, cancellationToken).ConfigureAwait(false);
+            return new PasswordSignInResult(SignInStatus.MfaRequired, challengeToken);
+        }
+
+        await FinalizeSignInAsync(httpContext, result.User, userId, sourceIp, cancellationToken).ConfigureAwait(false);
+        return new PasswordSignInResult(SignInStatus.Success);
+    }
+
+    /// <summary>
+    /// v1.1 (B11-3) — the second step for an MFA-enabled account. Accepts a current TOTP
+    /// code or an unused recovery code (<see cref="MfaSelfServiceService.VerifyLoginCodeAsync"/>).
+    /// A wrong code counts against the challenge's own attempt limit
+    /// (<see cref="WebAuthOptions.MfaMaxAttempts"/>), independent of the password lockout —
+    /// exceeding it discards the challenge outright rather than letting it be retried
+    /// indefinitely within its validity window.
+    /// </summary>
+    public async Task<MfaSignInResult> CompleteMfaSignInAsync(
+        HttpContext httpContext, string challengeToken, string code, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+        string? sourceIp = httpContext.Connection.RemoteIpAddress?.ToString();
+        string token = challengeToken ?? string.Empty;
+
+        Data.Security.MfaLoginChallenge? challenge = await _mfaChallenges.FindAsync(token, cancellationToken).ConfigureAwait(false);
+        if (challenge is null || challenge.IsExpired(_time.GetUtcNow()))
+        {
+            if (challenge is not null)
+            {
+                await _mfaChallenges.DeleteAsync(token, cancellationToken).ConfigureAwait(false);
+            }
+
+            return MfaSignInResult.ChallengeExpiredOrNotFound;
+        }
+
+        UserAccount? account = await _users.FindByIdAsync(challenge.UserId, cancellationToken).ConfigureAwait(false);
+        if (account is null)
+        {
+            await _mfaChallenges.DeleteAsync(token, cancellationToken).ConfigureAwait(false);
+            return MfaSignInResult.ChallengeExpiredOrNotFound;
+        }
+
+        bool codeOk = await _mfaVerifier.VerifyLoginCodeAsync(challenge.UserId, code ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        if (!codeOk)
+        {
+            int attempts = await _mfaChallenges.IncrementAttemptsAsync(token, cancellationToken).ConfigureAwait(false);
+            await _audit.AppendAsync(
+                new AuditEntry(AuditActions.LoginFailure, Actor: account.Username, SourceIp: sourceIp, Detail: "MFA code incorrect"),
+                cancellationToken).ConfigureAwait(false);
+
+            if (attempts >= _webOptions.MfaMaxAttempts)
+            {
+                await _mfaChallenges.DeleteAsync(token, cancellationToken).ConfigureAwait(false);
+                await _audit.AppendAsync(
+                    new AuditEntry(AuditActions.LoginLockout, Actor: account.Username, SourceIp: sourceIp, Detail: "Too many incorrect MFA codes"),
+                    cancellationToken).ConfigureAwait(false);
+                return MfaSignInResult.TooManyAttempts;
+            }
+
+            return MfaSignInResult.InvalidCode;
+        }
+
+        await _mfaChallenges.DeleteAsync(token, cancellationToken).ConfigureAwait(false);
+
+        AuthenticatedUser? authenticated = await _auth.RefreshAsync(account.Username, cancellationToken).ConfigureAwait(false);
+        if (authenticated is null)
+        {
+            return MfaSignInResult.ChallengeExpiredOrNotFound;
+        }
+
+        await FinalizeSignInAsync(httpContext, authenticated, account.UserId, sourceIp, cancellationToken).ConfigureAwait(false);
+        return MfaSignInResult.Success;
+    }
+
+    /// <summary>Creates the server-side session, sets the auth cookie, and writes the
+    /// login-success audit entry — the shared tail of both a direct (no-MFA) sign-in and a
+    /// completed MFA second step.</summary>
+    private async Task FinalizeSignInAsync(
+        HttpContext httpContext, AuthenticatedUser user, long userId, string? sourceIp, CancellationToken cancellationToken)
+    {
         string sessionId = await _sessions.CreateAsync(
             userId,
             _time.GetUtcNow(),
@@ -95,7 +212,7 @@ public sealed class AuthSessionService
 
         await httpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            PrincipalFactory.Build(result.User, sessionId),
+            PrincipalFactory.Build(user, sessionId),
             new AuthenticationProperties
             {
                 IsPersistent = false,
@@ -104,11 +221,9 @@ public sealed class AuthSessionService
             }).ConfigureAwait(false);
 
         await _audit.AppendAsync(
-            new AuditEntry(AuditActions.LoginSuccess, Actor: result.User.Username, EntityType: "user",
+            new AuditEntry(AuditActions.LoginSuccess, Actor: user.Username, EntityType: "user",
                 EntityId: userId.ToString(System.Globalization.CultureInfo.InvariantCulture), SourceIp: sourceIp),
             cancellationToken).ConfigureAwait(false);
-
-        return SignInStatus.Success;
     }
 
     public async Task SignOutAsync(HttpContext httpContext, CancellationToken cancellationToken)

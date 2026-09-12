@@ -48,12 +48,12 @@ server's identity, which matters more the more the deployment is used.
   visibility, not control.
 - Passwords are Argon2id-hashed at rest; a configurable minimum length is enforced at
   account setup and every later password change.
-- **TOTP multi-factor authentication** is available as self-service enrollment (Account →
-  Security) using any standard authenticator app. Enrollment is available today;
-  **enforcing MFA as a login requirement is not yet wired into the sign-in flow** — this is
-  a known, tracked v1 limitation (see `PROGRESS.md`'s Phase 11 backlog), not a
-  configuration you are missing. If MFA-at-login is a hard requirement for your deployment,
-  treat network placement and account hygiene as your primary controls until that lands.
+- **TOTP multi-factor authentication** is self-service (Account → Security) using any
+  standard authenticator app, and is **enforced at sign-in**: once enabled on an account,
+  signing in requires a correct current code (or an unused recovery code) after the
+  password, every time — a correct password alone is not enough. A wrong code is rate
+  limited independently of the password lockout; too many wrong codes in a row discards
+  that sign-in attempt and the admin must enter their password again.
 - Review the audit log (Settings → Audit log) periodically — every login, configuration
   change, and export is recorded there, in order, for the life of the install.
 

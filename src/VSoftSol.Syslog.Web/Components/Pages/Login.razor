@@ -7,55 +7,123 @@
 
 <PageTitle>Sign in — @BrandingInfo.ProductName</PageTitle>
 
-<h1 class="ds-bare__title">Sign in</h1>
-
-@if (_status is { } status && status != SignInStatus.Success)
+@if (!ShowMfaStep)
 {
-    <div class="ds-alert ds-alert--error" role="alert">
-        @(status switch
-        {
-            SignInStatus.LockedOut => "This account is temporarily locked after too many failed attempts. Try again later.",
-            SignInStatus.Disabled => "This account is disabled. Contact your administrator.",
-            _ => "The username or password is incorrect.",
-        })
-    </div>
+    <h1 class="ds-bare__title">Sign in</h1>
+
+    @if (_status is { } status && status != SignInStatus.Success && status != SignInStatus.MfaRequired)
+    {
+        <div class="ds-alert ds-alert--error" role="alert">
+            @(status switch
+            {
+                SignInStatus.LockedOut => "This account is temporarily locked after too many failed attempts. Try again later.",
+                SignInStatus.Disabled => "This account is disabled. Contact your administrator.",
+                _ => "The username or password is incorrect.",
+            })
+        </div>
+    }
+
+    <EditForm Model="Model" FormName="login" OnValidSubmit="SubmitAsync" class="ds-form">
+        <DataAnnotationsValidator />
+
+        <FormField Label="Username" FieldId="login-username" Required="true">
+            <InputText id="login-username" class="ds-field__input" @bind-Value="Model.Username"
+                       autocomplete="username" autofocus />
+        </FormField>
+
+        <FormField Label="Password" FieldId="login-password" Required="true">
+            <InputText id="login-password" type="password" class="ds-field__input" @bind-Value="Model.Password"
+                       autocomplete="current-password" />
+        </FormField>
+
+        <ValidationSummary class="ds-form__summary" />
+
+        <div class="ds-form__actions">
+            <button type="submit" class="ds-button ds-button--primary ds-button--block">Sign in</button>
+        </div>
+    </EditForm>
+}
+else
+{
+    <h1 class="ds-bare__title">Enter your authentication code</h1>
+    <p class="ds-bare__subtitle">Open your authenticator app, or use one of your saved recovery codes.</p>
+
+    @if (_mfaError is not null)
+    {
+        <div class="ds-alert ds-alert--error" role="alert">@_mfaError</div>
+    }
+
+    <EditForm Model="MfaModel" FormName="login-mfa" OnValidSubmit="SubmitMfaAsync" class="ds-form">
+        <DataAnnotationsValidator />
+        <input type="hidden" name="MfaModel.ChallengeToken" value="@MfaModel.ChallengeToken" />
+
+        <FormField Label="Code" FieldId="login-mfa-code" Required="true" Hint="A 6-digit code, or a recovery code.">
+            <InputText id="login-mfa-code" class="ds-field__input" @bind-Value="MfaModel.Code"
+                       autocomplete="one-time-code" inputmode="numeric" autofocus />
+        </FormField>
+
+        <ValidationSummary class="ds-form__summary" />
+
+        <div class="ds-form__actions">
+            <button type="submit" class="ds-button ds-button--primary ds-button--block">Verify</button>
+        </div>
+    </EditForm>
 }
 
-<EditForm Model="Model" FormName="login" OnValidSubmit="SubmitAsync" class="ds-form">
-    <DataAnnotationsValidator />
-
-    <FormField Label="Username" FieldId="login-username" Required="true">
-        <InputText id="login-username" class="ds-field__input" @bind-Value="Model.Username"
-                   autocomplete="username" autofocus />
-    </FormField>
-
-    <FormField Label="Password" FieldId="login-password" Required="true">
-        <InputText id="login-password" type="password" class="ds-field__input" @bind-Value="Model.Password"
-                   autocomplete="current-password" />
-    </FormField>
-
-    <ValidationSummary class="ds-form__summary" />
-
-    <div class="ds-form__actions">
-        <button type="submit" class="ds-button ds-button--primary ds-button--block">Sign in</button>
-    </div>
-</EditForm>
-
 @code {
-    [SupplyParameterFromForm] private LoginModel Model { get; set; } = new();
+    [SupplyParameterFromForm(FormName = "login")] private LoginModel Model { get; set; } = new();
+
+    [SupplyParameterFromForm(FormName = "login-mfa")] private MfaCodeModel MfaModel { get; set; } = new();
 
     [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
 
     private SignInStatus? _status;
+    private string? _mfaError;
+
+    /// <summary>Step 2 renders whenever a challenge token is present — either just issued
+    /// by <see cref="SubmitAsync"/> in this same response, or carried forward by the hidden
+    /// field on a retry of step 2 itself (a wrong code re-renders step 2, it does not fall
+    /// back to step 1).</summary>
+    private bool ShowMfaStep => !string.IsNullOrEmpty(MfaModel.ChallengeToken);
 
     private async Task SubmitAsync()
     {
         HttpContext http = Http.HttpContext!;
-        _status = await Auth.PasswordSignInAsync(http, Model.Username, Model.Password, http.RequestAborted);
+        PasswordSignInResult result = await Auth.PasswordSignInAsync(http, Model.Username, Model.Password, http.RequestAborted);
+        _status = result.Status;
 
-        if (_status == SignInStatus.Success)
+        if (result.Status == SignInStatus.Success)
         {
             Nav.NavigateTo(SafeReturnUrl(), forceLoad: true);
+        }
+        else if (result.Status == SignInStatus.MfaRequired)
+        {
+            MfaModel.ChallengeToken = result.MfaChallengeToken!;
+        }
+    }
+
+    private async Task SubmitMfaAsync()
+    {
+        HttpContext http = Http.HttpContext!;
+        MfaSignInResult result = await Auth.CompleteMfaSignInAsync(http, MfaModel.ChallengeToken, MfaModel.Code, http.RequestAborted);
+
+        switch (result)
+        {
+            case MfaSignInResult.Success:
+                Nav.NavigateTo(SafeReturnUrl(), forceLoad: true);
+                break;
+            case MfaSignInResult.TooManyAttempts:
+                // Force a fresh password entry rather than let step 2 be retried indefinitely.
+                MfaModel = new MfaCodeModel();
+                _status = SignInStatus.InvalidCredentials;
+                break;
+            case MfaSignInResult.ChallengeExpiredOrNotFound:
+                MfaModel = new MfaCodeModel();
+                _status = SignInStatus.InvalidCredentials;
+                break;
+            default:
+                _mfaError = "That code is not correct or has expired. Check your authenticator app's clock and try again.";
+                break;
         }
     }
 
@@ -69,5 +137,13 @@
 
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your password.")]
         public string Password { get; set; } = string.Empty;
+    }
+
+    public sealed class MfaCodeModel
+    {
+        public string ChallengeToken { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter your code.")]
+        public string Code { get; set; } = string.Empty;
     }
 }

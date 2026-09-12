@@ -267,3 +267,30 @@ With V2.x explicitly justified and every other control now closed, **every ASVS 
 this checklist tracks is now either implemented or has a written not-applicable-in-v1
 reason** —
 the Phase 11 completion requirement is met.
+
+## v1.1 — V2.1/V2.6 MFA login-flow enforcement (B11-3 closed)
+
+Phase 11 shipped enrollment/verification/recovery-code primitives but explicitly carried
+login-flow enforcement (`known-issues.md` B11-3, restated above): an account could turn MFA
+on and see no actual change in what signing in required. Closed in v1.1: `AuthSessionService.
+PasswordSignInAsync` now checks `UserAccount.MfaEnabled` after a correct password and, when
+set, returns `SignInStatus.MfaRequired` with a short-lived, single-use challenge
+(`SqliteMfaLoginChallengeStore`, migration 010) instead of establishing a session — no
+session/cookie exists until `CompleteMfaSignInAsync` verifies a current TOTP code or an
+unused recovery code via the existing, already-tested `MfaSelfServiceService.
+VerifyLoginCodeAsync`. A wrong-code attempt limit (`WebAuthOptions.MfaMaxAttempts`, default
+5) independent of the password lockout bounds brute-forcing the 6-digit code within the
+challenge's short validity window (`WebAuthOptions.MfaChallengeValidity`, default 5
+minutes); exceeding it discards the challenge and forces a fresh password entry.
+
+`MfaLoginFlowTests` (end-to-end over real HTTP, mirroring `AuthFlowTests`' static-SSR
+form-post pattern): no-MFA accounts sign in exactly as before (regression-critical —
+`Login_WithoutMfaEnabled_StillSignsInDirectly`); an MFA-enabled account gets no session
+from password alone; a correct TOTP code (computed via `TotpGenerator` against a known
+seeded secret) completes sign-in; a wrong code leaves the account unauthenticated; and
+exceeding the attempt limit discards the challenge even for a subsequently-correct code.
+`SqliteMfaLoginChallengeStoreTests` covers the store in isolation. Evidence:
+`docs/evidence/v1.1-mfa-login-enforcement/`.
+
+**V2.1/V2.6 is now fully I** — both the primitives (Phase 11) and login-flow enforcement
+(v1.1) are implemented and tested.

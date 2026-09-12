@@ -9,7 +9,9 @@ to learn where the build stands. Keep it terse and factual.
 
 - **Last completed phase:** 12 — Release (**final phase**)
 - **Last tag:** `v1.0.0`
-- **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below).
+- **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
+  and "v1.1 log"). First v1.1 item closed: **B11-3 TOTP MFA login-flow enforcement** — see
+  "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -30,6 +32,47 @@ to learn where the build stands. Keep it terse and factual.
   so they are reclassified as an explicit **v1.1 backlog** rather than deferred again to a
   phase that no longer exists. See "Deferred items" below and
   `docs/evidence/phase-12/known-issues.md`.
+
+---
+
+## v1.1 log
+
+<!-- Post-v1.0.0 work, not phase-numbered (START_HERE.md has no Phase 13). Same TDD/evidence
+     rigor as a phase; historical phase-log/security-doc sections above are never rewritten —
+     each v1.1 item gets a new entry here plus new sections appended to the living security
+     docs, never edits to their Phase 11/12-dated history. -->
+
+### TOTP MFA login-flow enforcement (B11-3 closed) — 2026-09-12
+
+Closes the one Medium-severity item carried out of Phase 11/v1.0.0 (`known-issues.md` B11-3):
+enrolling MFA on an account previously changed nothing about what signing in actually
+required. `AuthSessionService.PasswordSignInAsync` now checks `UserAccount.MfaEnabled` after
+a correct password and, when set, returns a new `SignInStatus.MfaRequired` with a short-lived,
+single-use, attempt-limited challenge (`SqliteMfaLoginChallengeStore`, migration
+`010_mfa_login_challenges.sql`) instead of establishing a session; a new
+`CompleteMfaSignInAsync` verifies a current TOTP code or an unused recovery code via the
+already-tested `MfaSelfServiceService.VerifyLoginCodeAsync` (Phase 11) before completing
+sign-in. `Login.razor` gained a second step (static-SSR named form `login-mfa`, carrying the
+challenge token forward via a hidden field — the same multi-form-on-one-page pattern as the
+Phase 12 setup wizard, minus its server-memory-singleton shortcut since login is concurrent).
+Wrong-code attempts are rate-limited independently of the password lockout
+(`WebAuthOptions.MfaMaxAttempts`, default 5) within a short validity window
+(`WebAuthOptions.MfaChallengeValidity`, default 5 min).
+
+Test-first: `MfaLoginFlowTests` (5, end-to-end over real HTTP) written before touching
+`AuthSessionService`/`Login.razor`, observed RED (4/5 failing for the right reason — no MFA
+step existed), then GREEN after implementation. `SqliteMfaLoginChallengeStoreTests` (5)
+cover the store in isolation. Full regression: unit 1060/1060; integration 772/773, the one
+failure being the pre-existing `P2-5` `WalCrashConsistencyTests` load-sensitive flake
+(unrelated code path, confirmed non-regression); `dotnet build -c Release` 0 warnings;
+`dotnet format --verify-no-changes` clean.
+
+**Verification** — `docs/evidence/v1.1-mfa-login-enforcement/` (verification.md,
+red-green.md). Docs: `docs/security/ASVS-checklist.md` and
+`docs/security/SECURITY_REVIEW.md` v1.1 sections; `docs/HARDENING_GUIDE.md` updated in
+place (living doc); `docs/RELEASE_NOTES.md` new "Unreleased" section (v1.0.0's own text
+left untouched). No new git tag — the operator has only asked to work the v1.1 backlog, not
+cut a release; version/tag timing is the operator's call.
 
 ---
 
@@ -2082,7 +2125,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | P10-2 `ReportContentReader` should surface `AggregationOutcome.Status`/`Detail` for a malformed custom query | `Data/Reports/ReportContentReader.cs` | 11+ (Reports polish) |
 | B11-1 config bundle import applies only `is_system` dashboards/reports; personal-content ownership cannot be remapped across installs | `ConfigBundleImporter` | later (identity-bridge design) |
 | B11-2 "listener down" self-monitoring detects never-started/gracefully-stopped, not an in-process crash bypassing `StopAsync` | `ListenerHealthRegistry` / `SelfMonitoringService` | later (listener supervision) |
-| B11-3 TOTP MFA primitives complete and tested; login flow does not yet enforce the second factor | `LocalAuthenticationProvider` / `AuthEndpoints` | 11 follow-up |
+| ~~B11-3 TOTP MFA primitives complete and tested; login flow does not yet enforce the second factor~~ | ~~`LocalAuthenticationProvider` / `AuthEndpoints`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
 | P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | v1.1 |
 | P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | v1.1 (clean-VM) |

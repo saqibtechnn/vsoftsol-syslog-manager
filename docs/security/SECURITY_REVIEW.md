@@ -254,13 +254,26 @@ checklist) is carried — it needs a human tester and infrastructure this autono
 development session does not have access to. `docs/security/PENTEST_REPORT.md` is
 explicit about being a self-review, not a substitute for that engagement.
 
+## v1.1 — MFA login-flow enforcement (B11-3 closed)
+
+Closes the one Medium-severity item Phase 11 shipped with (`known-issues.md` B11-3):
+enrolling MFA previously changed nothing about what signing in actually required.
+`AuthSessionService` now gates a session behind a verified TOTP code or recovery code for
+any account with `MfaEnabled`, via a short-lived, single-use, attempt-limited challenge
+(`SqliteMfaLoginChallengeStore`). No new dependency, no new external attack surface — the
+challenge token is a 256-bit random value, stored server-side, never itself a bearer
+credential (it only continues an already-password-verified attempt, and grants nothing by
+itself without also producing a valid TOTP/recovery code). Full detail in
+`docs/security/ASVS-checklist.md`'s v1.1 section; evidence in
+`docs/evidence/v1.1-mfa-login-enforcement/`.
+
 ## Open findings by severity
 
 | Severity | Count | Must fix before |
 |---|---|---|
 | Critical | 0 | — |
 | High | 0 | — |
-| Medium | 0 | v1.0.0 |
+| Medium | 0 (B11-3 closed in v1.1) | — |
 | Low | 0 (P0-3 closed in Phase 4) | — |
 
 Accepted residual risks (P2-R1, P2-R2) are design properties, not defects, and do not
