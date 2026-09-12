@@ -135,8 +135,17 @@ other setting in the product, which lives in the database and takes effect immed
 the UI.
 
 If you need to change a port after setup (a conflict with something else on the server, for
-example), the wizard cannot be re-run. Edit
-`<data directory>\config\bootstrap-overrides.json` directly:
+example), the wizard cannot be re-run.
+
+**Syslog UDP/TCP ports (v1.1+)**: change these from **Settings → Listeners** — an "Apply"
+button changes the running listener immediately, no restart, with a confirmation before it
+takes effect (the new port is bound before the old one closes, so a mistyped or
+already-used port is refused with the previous port left untouched). This only applies live
+in the packaged, installed service; a plain `dotnet run` dev session that isn't hosting the
+collector runtime shows a restart-required message instead.
+
+**Web dashboard HTTPS port**, and UDP/TCP as a fallback when the live option above is not
+available: edit `<data directory>\config\bootstrap-overrides.json` directly —
 ```json
 {
   "Ingestion": { "UdpPort": 1514, "TcpPort": 1514 },
@@ -144,7 +153,50 @@ example), the wizard cannot be re-run. Edit
 }
 ```
 and restart the service. This is the one file in the product an administrator may need to
-hand-edit, and only for this one bootstrap-tier setting — everything else stays UI-driven.
+hand-edit, and only for these bootstrap-tier settings — everything else stays UI-driven.
+
+## Data directory
+
+The first-run wizard's third step shows, but does not let you change, the data directory
+the installer already provisioned with the correct ACLs. Relocating it afterward — to a
+larger disk, for example — is a manual procedure: the service account is deliberately
+least-privileged (see **Service account** below) and cannot grant itself access to an
+arbitrary new path or restart its own service, so there is no live, UI-driven option for
+this, unlike the port changes above.
+
+1. **Stop the service.**
+   ```powershell
+   Stop-Service "VSoftSol Syslog Manager"
+   ```
+2. **Move the data directory** to the new location:
+   ```powershell
+   robocopy "C:\ProgramData\Vision Software Solutions\VSoftSol Syslog Manager" "D:\SyslogData" /E /MOVE /R:2 /W:5
+   ```
+3. **Re-apply the restrictive ACLs** on the new path — the service account and
+   Administrators only, matching what the installer set on the original directory:
+   ```powershell
+   icacls "D:\SyslogData" /inheritance:r
+   icacls "D:\SyslogData" /grant:r "NT SERVICE\VSoftSol Syslog Manager:(OI)(CI)F"
+   icacls "D:\SyslogData" /grant:r "Administrators:(OI)(CI)F"
+   ```
+4. **Point the service at the new path.** The data directory is a bootstrap-tier setting
+   read before the database (and therefore before `bootstrap-overrides.json` inside it) can
+   be consulted, so it cannot be set there — it is read from the service's own process
+   environment instead, using the standard Windows Service Control Manager per-service
+   `Environment` registry value:
+   ```powershell
+   Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\VSoftSol Syslog Manager" `
+     -Name Environment -Value @("Collector__DataDirectory=D:\SyslogData")
+   ```
+   (The installer also writes `HKLM\Software\Vision Software Solutions\VSoftSol Syslog
+   Manager\DataDirectory` — that key is Windows Installer bookkeeping only, used for
+   repair/uninstall, and is never read by the running service; changing it has no effect and
+   you do not need to touch it.)
+5. **Start the service** and confirm the dashboard loads and a test message lands correctly
+   before removing the old directory:
+   ```powershell
+   Start-Service "VSoftSol Syslog Manager"
+   ```
 
 ## Service account
 

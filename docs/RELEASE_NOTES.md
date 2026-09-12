@@ -13,6 +13,12 @@
   port is bound before the old one closes, so a mistyped or already-used port is rejected
   with the previous port left running, never with nothing listening at all. TLS/SNMP/
   Windows Event Log ports remain a restart-time setting, unchanged.
+- **The data directory's manual relocation procedure is now actually written down** — the
+  Admin Guide's own known limitations below call it "a manual, documented procedure," but no
+  such document existed. It does now: see the [Admin Guide's Data directory
+  section](ADMIN_GUIDE.md#data-directory). Relocating it remains manual by design — the
+  service's least-privilege account cannot grant itself access to an arbitrary new path or
+  restart its own service — this is a documentation fix, not a new UI feature.
 
 ## v1.0.0
 

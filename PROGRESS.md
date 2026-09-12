@@ -11,8 +11,8 @@ to learn where the build stands. Keep it terse and factual.
 - **Last tag:** `v1.0.0`
 - **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
   and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
-  **live UDP/TCP listener port changes** — see "v1.1 log" below. No new tag has been cut;
-  `v1.0.0` remains the last tag.
+  **live UDP/TCP listener port changes**, **data-directory relocation documentation** — see
+  "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -127,6 +127,40 @@ in `ListenerSettingsServiceTests`.
 Docs: `docs/security/ASVS-checklist.md` and `docs/security/SECURITY_REVIEW.md` v1.1
 sections; `docs/RELEASE_NOTES.md` new "Unreleased" bullet (v1.0.0's own text left
 untouched). No new git tag, same standing reason as B11-3 above.
+
+### Data-directory relocation — documentation only — 2026-09-12
+
+Investigated as the next v1.1 backlog example before writing any code, per the operator's
+direction. Finding, presented to the operator before proceeding: unlike the two items
+above, this is not a bounded fix. The service account is deliberately least-privileged
+(ADR 0006) and has no OS capability to grant itself access to an arbitrary admin-chosen
+path or to stop/restart its own Windows Service — both are prerequisites for any UI-driven
+relocation. A safe design needs a separate elevated component (an installer custom action,
+a signed elevated helper, or a SYSTEM-run scheduled task) to do the ACL work and drive the
+stop/copy/start sequence — a real new attack surface needing its own threat-model/ASVS
+pass, not something to build unilaterally under a broad "work the v1.1 backlog" direction.
+
+Separately found while investigating: RELEASE_NOTES.md's v1.0.0 text calls relocation "a
+manual, documented procedure" — but no such section existed anywhere in `ADMIN_GUIDE.md`.
+Given a choice between (a) documenting the fix on offer, (b) designing the elevated-helper
+approach, or (c) skipping it, the operator chose (a). `ADMIN_GUIDE.md` gained a **Data
+directory** section: stop the service, move the directory, re-apply the ACLs (`icacls`),
+and point the service at the new path via the standard per-service SCM `Environment`
+registry value (`Collector__DataDirectory`) — the actual, already-supported mechanism
+(`WebApplication.CreateBuilder`'s default environment-variable configuration source, read
+before `bootstrap-overrides.json` can be), confirmed working in this session's own
+`ListenerSettingsService` UI verification, which used the same environment variable to
+point a locally-run instance at a scratch data directory. Also corrected: the installer's
+`HKLM\Software\...\DataDirectory` registry key (`Product.wxs`) is Windows Installer
+bookkeeping only, never read by the running service — RELEASE_NOTES.md's "update the
+registry pointer" phrasing was misleading; that historical text is left as-is per this
+document's own convention, corrected only in the new Admin Guide section itself.
+`ADMIN_GUIDE.md`'s **Port configuration** section also updated in place to mention the new
+live UDP/TCP option from the previous v1.1 item, which had not been reflected there yet.
+
+No code, no tests, no evidence pack — a documentation-only change has nothing to red/green
+against. `docs/RELEASE_NOTES.md` gained a matching "Unreleased" bullet (v1.0.0's own text
+left untouched). No new git tag.
 
 ---
 
