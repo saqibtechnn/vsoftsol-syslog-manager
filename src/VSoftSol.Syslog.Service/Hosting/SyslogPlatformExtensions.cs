@@ -306,6 +306,12 @@ public static class SyslogPlatformExtensions
         // sockets themselves, so it does not need to run after IngestionHostedService.
         services.AddHostedService<ListenerRegistrationHostedService>();
 
+        // v1.1 — P5-3 (`docs/evidence/phase-05/known-issues.md`): loads operator-saved
+        // extractors (Settings → Pattern tester) into UserExtractorRegistry so
+        // VendorExtractor.Enrich runs them on every message, matched vendor or not. Same
+        // disposition as ListenerRegistrationHostedService above — only needs the database.
+        services.AddHostedService<UserExtractorLoaderHostedService>();
+
         // The dispatcher executes queued actions off the ingest thread (PHASE_07 isolation).
         services.AddHostedService<ActionDispatchService>();
 

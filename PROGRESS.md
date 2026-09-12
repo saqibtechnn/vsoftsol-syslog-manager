@@ -12,8 +12,8 @@ to learn where the build stands. Keep it terse and factual.
 - **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
   and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
   **live UDP/TCP listener port changes**, **data-directory relocation documentation**,
-  **P2-1 listener identity linkage** — see "v1.1 log" below. No new tag has been cut;
-  `v1.0.0` remains the last tag.
+  **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest** —
+  see "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -201,6 +201,52 @@ immediate re-run in isolation, not a regression; `dotnet build -c Release` 0 war
 red-green.md). `docs/RELEASE_NOTES.md` new "Unreleased" bullet (P2-1 was never a
 user-documented v1.0.0 limitation, only an internal tracking item — no historical text to
 preserve). No new git tag, same standing reason as the other v1.1 items above.
+
+### User-authored extractors wired into ingest (P5-3 closed) — 2026-09-12
+
+Closes `docs/evidence/phase-05/known-issues.md`'s P5-3: the Settings → Pattern tester has let
+an operator build, verify against a sample, and save a GROK/regex extractor since Phase 5 —
+but nothing ever applied a saved one. `VendorExtractor.Enrich` now always runs a new global
+stage, `UserExtractorRegistry`, on top of whichever vendor pack (if any) matched — including
+when *no* pack matched, since a device with no built-in pack is exactly the gap this feature
+exists to close (CLAUDE.md constraint 4: "parsing is per-vendor and user-extensible"). The
+`user_extractors` schema (migration 003) and the pattern-tester UI never had a vendor-scoping
+concept to begin with, so "global, every message" is the existing shape, not a new one.
+`UserExtractorLoaderHostedService` compiles every *enabled* saved pattern once at collector
+startup with the same `GrokLibrary`/match-timeout ReDoS guard vendor packs already use
+(PHASE_03 Security Validation) — a malformed saved pattern (the store itself never validated
+regex syntax, only the tester's live preview does) is logged and skipped, never fatal, same
+contract `PatternPackLoader` already gives a malformed `.pack` file. Same disposition as
+vendor packs: a saved/edited/disabled extractor takes effect on the next restart, never live
+— kept consistent with the existing, unreloaded vendor-pack mechanism rather than building a
+second, inconsistent live-reload path for only this one source. A user-extractor field name
+that collides with a vendor-pack field name overwrites it (it ran second) — the same
+last-writer-wins rule every multi-stage pipeline already applies. `PatternTester.razor`'s
+stale "once stream routing is configured (Phase 6)" copy (Phase 6 shipped long ago; this was
+still never wired in) is corrected to state the actual, current behavior.
+
+Test-first: `VendorExtractorTests` (6, new file — `VendorExtractor` itself had no direct
+tests before this; behavior was previously exercised only indirectly via
+`VendorFixtureTests`/`MessageParserTests`) covering no-match/no-extractor, extractor-only
+(null vendor), pack-plus-extractor merge, and the field-collision ordering, plus two
+`UserExtractorRegistry` cases. `UserExtractorLoaderHostedServiceTests` (4, integration,
+real SQLite): loads enabled, skips disabled, skips-a-malformed-pattern-without-failing-the-
+others, and the empty-store case. One new `MessageParserTests` case proves the wiring
+end-to-end through the real `MessageParser` → `VendorExtractor` path via
+`ParsingComposition.Build(userExtractors:)`. Full regression: unit 1067/1067; integration
+suite full-green modulo the pre-existing, already-documented flake(s) (see this item's
+`verification.md`); `dotnet build -c Release` 0 warnings; `dotnet format --verify-no-changes`
+clean.
+
+**Verification** — `docs/evidence/v1.1-user-extractor-wiring/` (verification.md,
+red-green.md). `docs/RELEASE_NOTES.md` new "Unreleased" bullet (P5-3 was never a
+user-documented v1.0.0 limitation, only an internal tracking item — no historical text to
+preserve). New `docs/security/SECURITY_REVIEW.md`/`ASVS-checklist.md` v1.1 sections: an
+authenticated Operator's saved pattern now runs against live, attacker-controlled network
+input on the ingest hot path, not just a pasted sample — mitigated by reusing the identical,
+already-reviewed ReDoS-timeout mechanism vendor packs use, and by the fact that Operators
+already author streams/rules that run on this same path (Phase 6/7 precedent) unchanged
+here. No new git tag, same standing reason as the other v1.1 items above.
 
 ---
 
@@ -2258,7 +2304,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | ~~P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002)~~ | ~~`Web` Settings~~ | **DONE (v1.1)** — see "v1.1 log" |
 | P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | v1.1 (clean-VM) |
 | P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | v1.1 |
-| P5-3 wire `user_extractors` into the ingest `ExtractorPipeline` | `Ingestion` / `Web` config | 8+ |
+| ~~P5-3 wire `user_extractors` into the ingest `ExtractorPipeline`~~ | ~~`Ingestion` / `Web` config~~ | **DONE (v1.1)** — see "v1.1 log" |
 | P6-1 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 20 active streams | `benchmarks` `--ingest-probe --streams 20` | v1.1 (clean-VM) |
 | P7-4 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 50 active rules | `benchmarks` `--ingest-probe --rules 50` | v1.1 (clean-VM) |
 | P7-3 `WriteToOdbc` live SQLite-ODBC round-trip | `IntegrationTests` | v1.1 (driver installed) |

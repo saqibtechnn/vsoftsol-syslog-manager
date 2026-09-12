@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using VSoftSol.Syslog.Ingestion.Extraction;
 using VSoftSol.Syslog.Ingestion.Parsing;
 using VSoftSol.Syslog.Ingestion.Patterns;
 
@@ -46,6 +47,7 @@ public static class IngestionServiceCollectionExtensions
         services.TryAddSingleton<Rfc5424Parser>();
         services.TryAddSingleton<Rfc3164Parser>();
         services.TryAddSingleton<PatternPackLoader>();
+        services.TryAddSingleton<UserExtractorRegistry>();
         services.TryAddSingleton<VendorExtractor>();
         services.TryAddSingleton<MessageParser>();
         services.TryAddSingleton<DeduplicationWindow>();

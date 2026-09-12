@@ -3,6 +3,7 @@ using FluentAssertions;
 using VSoftSol.Syslog.Core.Enums;
 using VSoftSol.Syslog.Core.Events;
 using VSoftSol.Syslog.Ingestion;
+using VSoftSol.Syslog.Ingestion.Extraction;
 using VSoftSol.Syslog.Ingestion.Parsing;
 using Xunit;
 
@@ -60,6 +61,22 @@ public sealed class MessageParserTests
 
         e.SourceIp.Should().Be("10.0.0.9", "the wire-observed source IP always wins");
         e.Hostname.Should().Be("totally-fake-host");
+    }
+
+    [Fact]
+    public void Parse_NoVendorPackForThisDevice_StillAppliesASavedGlobalUserExtractor()
+    {
+        // v1.1 — P5-3, end-to-end through the real MessageParser -> VendorExtractor path
+        // (no vendor .pack loaded here — the empty-directory default from ParsingComposition).
+        var registry = new UserExtractorRegistry();
+        var grok = new GrokLibrary(TimeSpan.FromMilliseconds(250));
+        registry.SetPipeline(new ExtractorPipeline([new GrokExtractor(grok.Compile(@"session %{INT:session_id} closed"))]));
+        MessageParser parser = ParsingComposition.Build(userExtractors: registry).Parser;
+
+        SyslogEvent e = parser.Parse(Frame("<38>Oct 12 09:15:00 web01 mystery-app[1]: session 9182 closed"));
+
+        e.Vendor.Should().BeNull("no built-in pack recognises this device");
+        e.Fields.Should().Contain(f => f.Name == "session_id" && f.Value == "9182");
     }
 
     [Theory]

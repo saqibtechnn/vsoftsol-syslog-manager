@@ -282,6 +282,20 @@ previously-working listener exactly as it was — this protocol is never left wi
 listeners. Full detail in `docs/security/ASVS-checklist.md`'s v1.1 section; evidence in
 `docs/evidence/v1.1-live-listener-ports/`.
 
+## v1.1 — User-authored extractors wired into ingest (P5-3 closed)
+
+Closes the Phase 5 "stored but not applied" gap (`known-issues.md` P5-3). The only
+meaningfully new consideration: an Operator-saved pattern now runs against live,
+attacker-controlled syslog input on the ingest hot path, not just a sample the operator
+pasted into the tester. No new dependency, no new regex engine, and no new mitigation
+invented for this — it reuses the exact `GrokLibrary` mandatory match-timeout ReDoS guard
+already relied upon for every vendor `.pack` file, and it is no more privileged a path than
+the operator-authored streams and rules Phase 6/7 already run on every message. Authoring an
+extractor still requires `AuthPolicies.Operate`, unchanged. A malformed saved pattern is
+logged and skipped at collector startup, never fatal to ingestion. Full detail in
+`docs/security/ASVS-checklist.md`'s v1.1 section; evidence in
+`docs/evidence/v1.1-user-extractor-wiring/`.
+
 ## Open findings by severity
 
 | Severity | Count | Must fix before |

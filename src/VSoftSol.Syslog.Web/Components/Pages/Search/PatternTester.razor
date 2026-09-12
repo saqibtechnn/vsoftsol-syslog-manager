@@ -82,7 +82,11 @@
                     <li><strong>@x.Name</strong> <span class="ds-chip">@x.Kind</span> <code>@x.Pattern</code></li>
                 }
             </ul>
-            <p class="ds-muted">These are applied by the collector's extraction pipeline once stream routing is configured (Phase 6).</p>
+            <p class="ds-muted">
+                Every enabled extractor here runs against every ingested message, whether or not it matched a
+                built-in vendor pack. Saving, editing, or disabling one takes effect the next time the collector
+                service restarts — the same as dropping in a new vendor pack.
+            </p>
         </section>
     }
 </div>

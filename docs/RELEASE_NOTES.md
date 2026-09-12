@@ -23,6 +23,12 @@
   Previously invisible internally; Settings → Listeners gained a read-only "Listener
   identities" card showing the persisted identity behind each protocol (a new one appears
   whenever a port changes, so history is never silently rewritten).
+- **Extractors saved in the pattern tester are now actually applied at ingest.** Previously
+  a pattern could be built, verified against a sample, and saved — but nothing used it.
+  Every enabled saved extractor now runs against every ingested message, including devices
+  with no built-in vendor pack at all, which is exactly the gap this feature exists to fill.
+  Takes effect on the next collector restart after saving, editing, or disabling one — the
+  same as dropping in a new vendor pack.
 
 ## v1.0.0
 

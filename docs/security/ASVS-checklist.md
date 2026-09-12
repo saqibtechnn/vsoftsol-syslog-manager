@@ -295,6 +295,24 @@ exceeding the attempt limit discards the challenge even for a subsequently-corre
 **V2.1/V2.6 is now fully I** — both the primitives (Phase 11) and login-flow enforcement
 (v1.1) are implemented and tested.
 
+## v1.1 — V5.1/V11.1 user-authored extractors wired into ingest (P5-3 closed)
+
+Closes `docs/evidence/phase-05/known-issues.md`'s P5-3: a saved pattern from the Settings →
+Pattern tester now runs against every ingested message. This moves an Operator-authored
+regex from "matched only against a sample the operator pasted themselves" to "matched
+against live, unauthenticated network input on the ingest hot path" — the same trust
+boundary crossing already accepted for Phase 6/7's operator-authored streams and rules, not
+a new one. **V5.1** (input validation): the pattern itself is untrusted-input-adjacent (it
+runs against attacker-controlled syslog bodies) but the *author* is not — saving one
+requires `AuthPolicies.Operate`, unchanged from Phase 5. **V11.1** (business-logic /
+availability): the ReDoS risk of a catastrophic-backtracking regex is mitigated by reusing
+the identical `GrokLibrary` mandatory match-timeout every vendor `.pack` file already relies
+on (PHASE_03 Security Validation) — no new regex engine, no new timeout policy, no new
+attack surface class. A malformed saved pattern (the store never validated regex syntax,
+only the tester's live preview does) is logged and skipped at load, never fatal — the same
+contract `PatternPackLoader` already gives a malformed `.pack` file. Evidence:
+`docs/evidence/v1.1-user-extractor-wiring/`.
+
 ## v1.1 — V1.2/V1.14/V7.1 live listener port changes
 
 Closes RELEASE_NOTES.md's v1.0.0 "listener port changes need a manual service restart"
