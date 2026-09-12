@@ -22,6 +22,11 @@ public static class ReportCsvWriter
 
         await WriteMetaAsync(writer, content, cancellationToken).ConfigureAwait(false);
 
+        if (content.Error is not null)
+        {
+            return 0;
+        }
+
         if (content.EventRows.Count > 0)
         {
             return await WriteRowsAsync(
@@ -67,6 +72,11 @@ public static class ReportCsvWriter
         await writer.WriteLineAsync($"# query,{Cell(content.QueryText)}").ConfigureAwait(false);
         await writer.WriteLineAsync($"# generating_user,{Cell(content.GeneratingUser)}").ConfigureAwait(false);
         await writer.WriteLineAsync($"# archived_data_omitted,{Cell(content.HasArchivedDataOmitted ? "yes" : "no")}").ConfigureAwait(false);
+        if (content.Error is { } error)
+        {
+            await writer.WriteLineAsync($"# error,{Cell(error)}").ConfigureAwait(false);
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
     }
 

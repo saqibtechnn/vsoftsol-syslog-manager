@@ -53,9 +53,11 @@ public sealed class ReportRenderService
         await ReportCsvWriter.WriteAsync(writer, content, ct).ConfigureAwait(false);
         byte[] csv = Encoding.UTF8.GetBytes(writer.ToString());
 
+        string detail = content.Error is { } error
+            ? $"{report.Name}: failed to run — {error}"
+            : $"{report.Name}: {content.RowCount} row(s), run on demand";
         await _audit.AppendAsync(
-            new AuditEntry(AuditActions.ReportRun, user.UserName, "report", report.Id.ToString(CultureInfo.InvariantCulture),
-                Detail: $"{report.Name}: {content.RowCount} row(s), run on demand"),
+            new AuditEntry(AuditActions.ReportRun, user.UserName, "report", report.Id.ToString(CultureInfo.InvariantCulture), Detail: detail),
             CancellationToken.None).ConfigureAwait(false);
 
         string stamp = _time.GetUtcNow().UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);

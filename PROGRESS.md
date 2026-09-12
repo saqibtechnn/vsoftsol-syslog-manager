@@ -12,8 +12,9 @@ to learn where the build stands. Keep it terse and factual.
 - **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
   and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
   **live UDP/TCP listener port changes**, **data-directory relocation documentation**,
-  **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest** —
-  see "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
+  **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest**,
+  **P10-2 report query failures surfaced instead of "no data"** — see "v1.1 log" below. No
+  new tag has been cut; `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -247,6 +248,53 @@ input on the ingest hot path, not just a pasted sample — mitigated by reusing 
 already-reviewed ReDoS-timeout mechanism vendor packs use, and by the fact that Operators
 already author streams/rules that run on this same path (Phase 6/7 precedent) unchanged
 here. No new git tag, same standing reason as the other v1.1 items above.
+
+### Report query failures surfaced instead of "no data" (P10-2 closed) — 2026-09-12
+
+Closes `docs/evidence/phase-10/known-issues.md`'s P10-2: Phase 10's own B10-3/B10-4 bug hunt
+found (and fixed) two canned-template mistakes that both silently rendered an empty report
+rather than an error, and named the pattern as a real, un-closed gap — `ReportContentReader`
+had `AggregationOutcome.Status`/`Detail` available on every aggregate call and never looked
+at either. `ReportContent` gained a nullable `Error`; `ResolveAsync` now populates it on
+*both* branches a custom or canned report can take — the aggregate branch (any non-`Ok`
+`AggregationStatus`, mapped through a new `DescribeAggregationFailure` to a plain-English
+reason, `ScopeExcludesEverything` deliberately rephrased rather than echoing the compiler's
+internal rejection string) and the list/`EventQuery` branch (`SearchResult.Ok == false` —
+this is the actually-reachable "malformed custom-report query" case the known-issue's title
+describes, since a custom report is always list-shaped; canned templates are the only source
+of an aggregate query today, and they're code-defined, so `BadQuery`/`BadAggregation` there
+can currently only come from a bug like B10-3/4, not a user typo). `ReportPdfRenderer` and
+`ReportCsvWriter` both now show the failure plainly instead of falling through to their
+generic empty-result rendering; `ReportRenderService`'s "Run now" audit entry says
+`failed to run — {reason}` instead of a misleading `0 row(s)`.
+
+One design correction made honestly rather than glossed over: the first draft of the
+aggregate-branch test tried to reach `AggregationStatus.ScopeExcludesEverything` with a
+`UserScope` restricted to a non-existent stream id — that legitimately produces `Ok` with
+zero rows (a real empty result), not a failure. `ScopeExcludesEverything` only fires when
+`AllStreams == false && StreamIds.Count == 0`, a state `UserScope.Create`/`FromUser` cannot
+currently construct (both treat an empty visible-set as "all") — effectively unreachable
+through today's public API, a defensive "fail closed" branch rather than live behavior. The
+mapping for that status (and the other three) is instead proven directly via a new
+`internal` visibility on `DescribeAggregationFailure` (no new architectural seam — `Data`
+already grants `InternalsVisibleTo` to both test projects) in a dedicated unit test.
+
+Test-first: `ReportContentReaderTests` (+2, integration, real SQLite — a malformed custom
+query and the scope-restricted-but-still-matching regression guard),
+`ReportContentReaderErrorMappingTests` (+5, new unit-test file — the exhaustive
+`AggregationStatus -> Error` mapping), `ReportRenderingTests` (+2, integration — the PDF
+renders visibly different bytes, the CSV carries a `# error,...` meta line and never falls
+through to the audit-shaped empty table). Full regression: unit 1072/1072; integration
+suite full-green modulo the pre-existing, already-documented flake(s) (see this item's
+`verification.md`); `dotnet build -c Release` 0 warnings; `dotnet format --verify-no-changes`
+clean.
+
+**Verification** — `docs/evidence/v1.1-report-error-surfacing/` (verification.md,
+red-green.md). `docs/RELEASE_NOTES.md` new "Unreleased" bullet (P10-2 was never a
+user-documented v1.0.0 limitation, only an internal tracking item — no historical text to
+preserve). No new security-doc section: this closes a UX/correctness gap in an
+already-reviewed, scope-safe query path — no new attack surface, no new privilege. No new
+git tag, same standing reason as the other v1.1 items above.
 
 ---
 
@@ -2296,7 +2344,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 |---|---|---|
 | _(none — no `TODO(phase-N)` in code)_ | | |
 | P10-1 10M-event-backlog tiering with concurrent search latency unaffected | `RetentionBenchmark` | v1.1 (clean-VM) |
-| P10-2 `ReportContentReader` should surface `AggregationOutcome.Status`/`Detail` for a malformed custom query | `Data/Reports/ReportContentReader.cs` | 11+ (Reports polish) |
+| ~~P10-2 `ReportContentReader` should surface `AggregationOutcome.Status`/`Detail` for a malformed custom query~~ | ~~`Data/Reports/ReportContentReader.cs`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | B11-1 config bundle import applies only `is_system` dashboards/reports; personal-content ownership cannot be remapped across installs | `ConfigBundleImporter` | later (identity-bridge design) |
 | B11-2 "listener down" self-monitoring detects never-started/gracefully-stopped, not an in-process crash bypassing `StopAsync` | `ListenerHealthRegistry` / `SelfMonitoringService` | later (listener supervision) |
 | ~~B11-3 TOTP MFA primitives complete and tested; login flow does not yet enforce the second factor~~ | ~~`LocalAuthenticationProvider` / `AuthEndpoints`~~ | **DONE (v1.1)** — see "v1.1 log" |

@@ -38,6 +38,15 @@ public sealed record ReportContent
 
     public required string GeneratingUser { get; init; }
 
+    /// <summary>
+    /// Set when the report's query could not run at all (a malformed custom query, or an
+    /// aggregate template rejected by the compiler / excluded entirely by the viewer's
+    /// scope) — P10-2 (`docs/evidence/phase-10/known-issues.md`). When set, every row list
+    /// below is empty by construction; renderers must show this instead of a bare "no data"
+    /// message, so a broken query is never indistinguishable from a genuinely empty result.
+    /// </summary>
+    public string? Error { get; init; }
+
     public IReadOnlyList<ReportEventRow> EventRows { get; init; } = [];
 
     public IReadOnlyList<ReportAggregateRow> AggregateRows { get; init; } = [];

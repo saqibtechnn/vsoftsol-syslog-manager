@@ -142,6 +142,50 @@ public sealed class ReportContentReaderTests : IAsyncLifetime
         content.EventRows.Should().ContainSingle(r => r.Host == "db-1");
     }
 
+    [Fact]
+    public async Task ResolveAsync_SuccessfulReport_HasNoError()
+    {
+        var report = new ReportDefinition { Name = "r", TemplateKey = CannedReportCatalog.SeverityTrend, TimeRangeDays = 30 };
+        ReportContent content = await _h.Content.ResolveAsync(report, UserScope.Unrestricted, "tester", _generated, CancellationToken.None);
+
+        content.Error.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CustomReport_WithAMalformedQuery_SurfacesTheParserErrorInstead_OfLookingLikeNoData()
+    {
+        // v1.1 — P10-2 (docs/evidence/phase-10/known-issues.md): a bare "*" is the exact
+        // B10-3 mistake (a rejected wildcard-with-no-prefix, not this grammar's match-all —
+        // that's an empty string). Before this fix, this silently produced a "0 rows" report
+        // indistinguishable from a genuinely empty time range.
+        var report = new ReportDefinition { Name = "custom", TemplateKey = ReportDefinition.CustomTemplateKey, QueryText = "*", TimeRangeDays = 30 };
+        ReportContent content = await _h.Content.ResolveAsync(report, UserScope.Unrestricted, "tester", _generated, CancellationToken.None);
+
+        content.Error.Should().NotBeNullOrEmpty();
+        content.EventRows.Should().BeEmpty();
+        content.RowCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CannedAggregateReport_ScopeRestrictedButStillMatchesStreams_HasNoError()
+    {
+        // A scope restricted to real, matching streams is not a failure — it is the normal
+        // multi-tenant case (two viewers of one shared report see their own data). Only a
+        // status other than Ok should ever populate Error; this is the regression guard for
+        // that boundary on the aggregate branch (see ReportContentReaderErrorMappingTests
+        // for the exhaustive AggregationStatus -> Error mapping, which is what actually
+        // proves P10-2 — a "scope excludes everything" UserScope cannot currently be built
+        // through the public UserScope.Create/FromUser API, which always treats an empty
+        // visible-set as "all", so that specific status is tested at the mapping level).
+        var restricted = VSoftSol.Syslog.Core.Security.UserScope.Create(streamIds: [999_999], deviceGroupIds: null);
+        var report = new ReportDefinition { Name = "r", TemplateKey = CannedReportCatalog.SeverityTrend, TimeRangeDays = 30 };
+
+        ReportContent content = await _h.Content.ResolveAsync(report, restricted, "tester", _generated, CancellationToken.None);
+
+        content.Error.Should().BeNull();
+        content.AggregateRows.Should().BeEmpty("the restricted scope matches no real stream, but this is an empty result, not a broken query");
+    }
+
     private async Task<long> ScalarAsync(string sql)
     {
         await using SqliteConnection connection = await _h.Db.Factory.OpenAsync(CancellationToken.None);

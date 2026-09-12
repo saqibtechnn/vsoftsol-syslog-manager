@@ -116,6 +116,7 @@ public sealed class ReportContentReader
                 FromUtc = from,
                 ToUtc = to,
                 GeneratingUser = generatingUser,
+                Error = DescribeAggregationFailure(outcome.Status, outcome.Detail),
                 AggregateRows = rows,
                 RowCount = rows.Count,
                 Truncated = outcome.Result.Truncated,
@@ -137,12 +138,26 @@ public sealed class ReportContentReader
             FromUtc = from,
             ToUtc = to,
             GeneratingUser = generatingUser,
+            Error = result.Ok ? null : result.Error,
             EventRows = eventRows,
             RowCount = eventRows.Count,
             Truncated = eventRows.Count >= _maxRows,
             ArchivedPeriodsOmitted = omitted,
         };
     }
+
+    /// <summary>
+    /// v1.1 — P10-2 (`docs/evidence/phase-10/known-issues.md`): before this, a broken
+    /// aggregate query (B10-3/B10-4's exact bug class) and a scope that legitimately
+    /// excludes every matching stream were both indistinguishable from "no data in range."
+    /// </summary>
+    internal static string? DescribeAggregationFailure(SqliteAggregationReader.AggregationStatus status, string? detail) => status switch
+    {
+        SqliteAggregationReader.AggregationStatus.Ok => null,
+        SqliteAggregationReader.AggregationStatus.ScopeExcludesEverything =>
+            "This viewer's scope does not include any of the streams this report would cover.",
+        _ => detail ?? status.ToString(),
+    };
 
     private async Task<IReadOnlyList<ArchivedPeriod>> FindOmittedPeriodsAsync(
         UserScope scope, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)

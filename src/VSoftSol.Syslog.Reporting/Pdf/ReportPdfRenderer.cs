@@ -97,6 +97,16 @@ public static class ReportPdfRenderer
 
     private static void ComposeBody(IContainer container, ReportContent content)
     {
+        if (content.Error is { } error)
+        {
+            container.Text(text =>
+            {
+                text.Span("This report could not run: ").Bold();
+                text.Span(error);
+            });
+            return;
+        }
+
         if (content.EventRows.Count > 0)
         {
             ComposeEventTable(container, content.EventRows);

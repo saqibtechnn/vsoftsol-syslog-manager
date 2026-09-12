@@ -97,6 +97,27 @@ public sealed class ReportRenderingTests
     }
 
     [Fact]
+    public void ReportPdfRenderer_Render_WithAnError_DoesNotThrow_AndActuallyRendersDifferentContent()
+    {
+        // v1.1 — P10-2: before this, a report with Error set still rendered the identical
+        // "No matching data in this time range." page a genuinely empty report shows — the
+        // exact silent-failure this fix exists to close. No PDF-text-extraction dependency
+        // exists in this test project, so — matching this file's existing structural-only
+        // style for the PDF renderer (byte length / "does not throw", never literal text) —
+        // proving the error message reaches the page means proving the bytes differ from the
+        // plain-empty case, not just that the model field is set.
+        ReportContent noData = ListContent([]);
+        ReportContent errored = noData with { Error = "the query could not be parsed: unexpected token" };
+
+        Action act = () => ReportPdfRenderer.Render(errored, null);
+        act.Should().NotThrow();
+
+        byte[] noDataPdf = ReportPdfRenderer.Render(noData, null);
+        byte[] erroredPdf = ReportPdfRenderer.Render(errored, null);
+        erroredPdf.Should().NotBeEquivalentTo(noDataPdf);
+    }
+
+    [Fact]
     public async Task ReportCsvWriter_WriteAsync_ReturnsTheCorrectRowCount()
     {
         ReportContent content = ListContent([
@@ -163,5 +184,24 @@ public sealed class ReportRenderingTests
 
         csv.Should().Contain("group,bucket,value");
         csv.Should().Contain("Error,2026-01-01 00:00 UTC,42");
+    }
+
+    [Fact]
+    public async Task ReportCsvWriter_WriteAsync_WithAnError_WritesAnErrorMetaLine_AndNoEmptyDataTable()
+    {
+        // v1.1 — P10-2: before this, an errored report (Error set, every row list empty)
+        // still fell through to the audit-shaped empty-table branch (WriteAsync's own
+        // fallback when EventRows/AggregateRows are both empty) — an "occurred_utc,actor,..."
+        // header with zero data rows, which reads exactly like "no audit activity", not
+        // "this report's query failed."
+        ReportContent content = ListContent([]) with { Error = "unexpected token at 4" };
+        using var writer = new StringWriter();
+
+        int count = await ReportCsvWriter.WriteAsync(writer, content, CancellationToken.None);
+        string csv = writer.ToString();
+
+        csv.Should().Contain("# error,unexpected token at 4");
+        csv.Should().NotContain("occurred_utc", "an error must never fall through to the audit-shaped empty table");
+        count.Should().Be(0);
     }
 }

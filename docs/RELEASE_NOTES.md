@@ -29,6 +29,11 @@
   with no built-in vendor pack at all, which is exactly the gap this feature exists to fill.
   Takes effect on the next collector restart after saving, editing, or disabling one — the
   same as dropping in a new vendor pack.
+- **A report whose query fails no longer looks like an empty report.** A malformed custom
+  report query, or a compliance-template aggregation this viewer's scope excludes entirely,
+  previously rendered an identical "no data" page/CSV to a genuinely empty time range — the
+  PDF, the CSV, and the audit log all now say plainly that the report's query didn't run,
+  and why.
 
 ## v1.0.0
 
