@@ -98,6 +98,14 @@ public sealed class SyslogEvent
     }
 
     /// <summary>
+    /// Returns a copy with <c>listener_id</c> resolved to the persisted <c>listeners</c> row
+    /// for the protocol/port that actually received this frame (v1.1 — P2-1). 0 (the
+    /// default from the parser) means unresolved, e.g. no collector runtime is registering
+    /// listeners in this process — never a reason to reject or delay the event.
+    /// </summary>
+    public SyslogEvent WithListenerId(long listenerId) => CopyWith(listenerId: listenerId);
+
+    /// <summary>
     /// Returns a copy with a rule engine's inline outcome applied: extra tag fields, extra
     /// stream ids (unioned with the routing result), and the side-effecting actions to
     /// enqueue (PHASE_07).
@@ -123,7 +131,8 @@ public sealed class SyslogEvent
         long? deviceId = null,
         IReadOnlyList<EventField>? fields = null,
         IReadOnlyList<long>? streamIds = null,
-        IReadOnlyList<Rules.PendingRuleAction>? pendingActions = null) => new()
+        IReadOnlyList<Rules.PendingRuleAction>? pendingActions = null,
+        long? listenerId = null) => new()
         {
             EventId = EventId,
             ReceivedUtc = ReceivedUtc,
@@ -136,7 +145,7 @@ public sealed class SyslogEvent
             Facility = Facility,
             Severity = Severity,
             Protocol = Protocol,
-            ListenerId = ListenerId,
+            ListenerId = listenerId ?? ListenerId,
             Message = Message,
             RawMessage = RawMessage,
             ParseStatus = ParseStatus,

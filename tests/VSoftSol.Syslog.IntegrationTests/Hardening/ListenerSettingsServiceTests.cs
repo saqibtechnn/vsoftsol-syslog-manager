@@ -4,7 +4,9 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using VSoftSol.Syslog.Core.Enums;
 using VSoftSol.Syslog.Data.Audit;
+using VSoftSol.Syslog.Data.Listeners;
 using VSoftSol.Syslog.Data.Secrets;
 using VSoftSol.Syslog.Ingestion;
 using VSoftSol.Syslog.IntegrationTests.TestSupport;
@@ -36,13 +38,14 @@ public sealed class ListenerSettingsServiceTests
     }
 
     private static ListenerSettingsService BuildService(
-        SqliteTestDatabase db, ListenerPortReloadService portReload, IngestionOptions ingestion) =>
+        SqliteTestDatabase db, ListenerPortReloadService portReload, IngestionOptions ingestion, SqliteListenerStore? listenerStore = null) =>
         new(
             Options.Create(new TlsOptions()),
             Options.Create(new SnmpOptions()),
             Options.Create(new WinEventLogOptions()),
             Options.Create(ingestion),
             portReload,
+            listenerStore ?? new SqliteListenerStore(db.Factory),
             new SqliteSecretStore(db.Factory, new DpapiSecretProtector()),
             new SqliteAuditLog(db.Factory),
             new CurrentUserAccessor(new FixedUserAuthenticationStateProvider("admin@test")));
@@ -76,6 +79,8 @@ public sealed class ListenerSettingsServiceTests
                 Options.Create(h.Options),
                 Options.Create(new ActionExecutorOptions()),
                 Options.Create(new CollectorOptions { DataDirectory = dataDir }),
+                new SqliteListenerStore(h.Db.Factory),
+                new ListenerIdRegistry(),
                 NullLogger<ListenerPortReloadService>.Instance);
             ListenerSettingsService service = BuildService(db, portReload, h.Options);
 
@@ -128,6 +133,8 @@ public sealed class ListenerSettingsServiceTests
                 Options.Create(h.Options),
                 Options.Create(new ActionExecutorOptions()),
                 Options.Create(new CollectorOptions { DataDirectory = Path.GetTempPath() }),
+                new SqliteListenerStore(h.Db.Factory),
+                new ListenerIdRegistry(),
                 NullLogger<ListenerPortReloadService>.Instance);
             ListenerSettingsService service = BuildService(db, portReload, h.Options);
 
@@ -144,5 +151,30 @@ public sealed class ListenerSettingsServiceTests
             await udp.StopAsync(default);
             await tcp.StopAsync(default);
         }
+    }
+
+    [Fact]
+    public async Task ListRegisteredListenersAsync_ReturnsWhatTheStoreHoldsForTheUiToShow()
+    {
+        await using SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
+        var listenerStore = new SqliteListenerStore(db.Factory);
+        await listenerStore.UpsertAsync(Protocol.Udp, "0.0.0.0", 514, enabled: true, CancellationToken.None);
+        await listenerStore.UpsertAsync(Protocol.Tls, "0.0.0.0", 6514, enabled: false, CancellationToken.None);
+
+        var portReload = new ListenerPortReloadService(
+            [],
+            Options.Create(new IngestionOptions()),
+            Options.Create(new ActionExecutorOptions()),
+            Options.Create(new CollectorOptions { DataDirectory = Path.GetTempPath() }),
+            listenerStore,
+            new ListenerIdRegistry(),
+            NullLogger<ListenerPortReloadService>.Instance);
+        ListenerSettingsService service = BuildService(db, portReload, new IngestionOptions(), listenerStore);
+
+        IReadOnlyList<ListenerRecord> listeners = await service.ListRegisteredListenersAsync(CancellationToken.None);
+
+        listeners.Should().HaveCount(2);
+        listeners.Should().Contain(l => l.Protocol == Protocol.Udp && l.Enabled);
+        listeners.Should().Contain(l => l.Protocol == Protocol.Tls && !l.Enabled);
     }
 }

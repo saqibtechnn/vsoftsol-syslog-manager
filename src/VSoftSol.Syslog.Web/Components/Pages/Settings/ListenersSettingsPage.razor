@@ -1,6 +1,7 @@
 @page "/settings/listeners"
 @attribute [Authorize(Policy = AuthPolicies.Administer)]
 @rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Listeners
 @using VSoftSol.Syslog.Data.Security
 @using VSoftSol.Syslog.Web.Hardening
 @inject ListenerSettingsService Listeners
@@ -102,6 +103,21 @@
                 <button type="button" class="ds-button ds-button--primary" @onclick="() => _showCreateKey = true">New API key</button>
             </div>
         </section>
+
+        <section class="ds-card">
+            <h2>Listener identities</h2>
+            <p class="ds-muted">The persisted identity behind each protocol above — every stored message is linked to
+                one of these. System-managed, not editable here: a new row appears whenever a port changes.</p>
+            @if (_registeredListeners.Count == 0)
+            {
+                <EmptyState Title="Not registered yet" Icon="🔌"
+                            Explanation="This instance is not hosting the collector runtime, so nothing has registered a listener identity." />
+            }
+            else
+            {
+                <DataTable TItem="ListenerRecord" Items="_registeredListeners" Columns="_listenerColumns" RowKey="l => l.ListenerId" EmptyTitle="" EmptyExplanation="" />
+            }
+        </section>
     }
 </div>
 
@@ -163,11 +179,21 @@
     private int _udpPort;
     private int _tcpPort;
     private bool _showApplyPorts;
+    private List<ListenerRecord> _registeredListeners = [];
+    private IReadOnlyList<TableColumn<ListenerRecord>> _listenerColumns = [];
 
     protected override async Task OnInitializedAsync()
     {
         _udpPort = Listeners.Ingestion.UdpPort;
         _tcpPort = Listeners.Ingestion.TcpPort;
+        _listenerColumns =
+        [
+            new() { Header = "Id", SortValue = l => l.ListenerId, Cell = l => @<text>@l.ListenerId</text> },
+            new() { Header = "Protocol", Cell = l => @<text>@l.Protocol</text> },
+            new() { Header = "Bind address", Cell = l => @<text>@l.BindAddress:@l.Port</text> },
+            new() { Header = "Status", Cell = l => @<span class="ds-chip @(l.Enabled ? "ds-chip--ok" : "ds-chip")">@(l.Enabled ? "Enabled" : "Disabled")</span> },
+            new() { Header = "First seen", SortValue = l => l.CreatedUtc, Cell = l => @<text>@l.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd")</text> },
+        ];
         _apiKeyColumns =
         [
             new() { Header = "Label", SortValue = k => k.Label, Cell = k => @<text>@k.Label</text> },
@@ -182,6 +208,7 @@
         string? current = await Listeners.GetSnmpCommunityAsync(CancellationToken.None);
         _communitySet = !string.IsNullOrWhiteSpace(current);
         _apiKeys = [.. await ApiKeys.ListAsync(CancellationToken.None)];
+        _registeredListeners = [.. await Listeners.ListRegisteredListenersAsync(CancellationToken.None)];
         _loading = false;
     }
 
@@ -194,6 +221,7 @@
         Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
         _udpPort = Listeners.Ingestion.UdpPort;
         _tcpPort = Listeners.Ingestion.TcpPort;
+        _registeredListeners = [.. await Listeners.ListRegisteredListenersAsync(CancellationToken.None)];
     }
 
     private async Task SaveCommunityAsync()

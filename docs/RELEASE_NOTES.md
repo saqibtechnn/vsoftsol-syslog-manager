@@ -19,6 +19,10 @@
   section](ADMIN_GUIDE.md#data-directory). Relocating it remains manual by design — the
   service's least-privilege account cannot grant itself access to an arbitrary new path or
   restart its own service — this is a documentation fix, not a new UI feature.
+- **Every stored message now links back to the listener that actually received it.**
+  Previously invisible internally; Settings → Listeners gained a read-only "Listener
+  identities" card showing the persisted identity behind each protocol (a new one appears
+  whenever a port changes, so history is never silently rewritten).
 
 ## v1.0.0
 

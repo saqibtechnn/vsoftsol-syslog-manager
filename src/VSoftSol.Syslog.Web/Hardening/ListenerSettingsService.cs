@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using VSoftSol.Syslog.Data.Audit;
+using VSoftSol.Syslog.Data.Listeners;
 using VSoftSol.Syslog.Data.Secrets;
 using VSoftSol.Syslog.Ingestion;
 using VSoftSol.Syslog.Service.Hosting;
@@ -25,13 +26,14 @@ public sealed class ListenerSettingsService
     private readonly WinEventLogOptions _winEventLog;
     private readonly IngestionOptions _ingestion;
     private readonly ListenerPortReloadService _portReload;
+    private readonly SqliteListenerStore _listenerStore;
     private readonly SqliteSecretStore _secrets;
     private readonly SqliteAuditLog _audit;
     private readonly CurrentUserAccessor _currentUser;
 
     public ListenerSettingsService(
         IOptions<TlsOptions> tls, IOptions<SnmpOptions> snmp, IOptions<WinEventLogOptions> winEventLog,
-        IOptions<IngestionOptions> ingestion, ListenerPortReloadService portReload,
+        IOptions<IngestionOptions> ingestion, ListenerPortReloadService portReload, SqliteListenerStore listenerStore,
         SqliteSecretStore secrets, SqliteAuditLog audit, CurrentUserAccessor currentUser)
     {
         _tls = tls.Value;
@@ -39,6 +41,7 @@ public sealed class ListenerSettingsService
         _winEventLog = winEventLog.Value;
         _ingestion = ingestion.Value;
         _portReload = portReload;
+        _listenerStore = listenerStore;
         _secrets = secrets;
         _audit = audit;
         _currentUser = currentUser;
@@ -105,6 +108,15 @@ public sealed class ListenerSettingsService
             ? "No change — the requested port(s) already match the current configuration."
             : $"{string.Join(", ", result.Applied)} — applied live, no restart needed.");
     }
+
+    /// <summary>
+    /// v1.1 — P2-1: the registered `listeners` rows (migration 001), for display only — an
+    /// admin can see the real identity <c>events.listener_id</c> now resolves to for each
+    /// protocol. These rows are system-managed (populated at startup and on a live port
+    /// change), never admin-editable here.
+    /// </summary>
+    public Task<IReadOnlyList<ListenerRecord>> ListRegisteredListenersAsync(CancellationToken ct) =>
+        _listenerStore.ListAsync(ct);
 
     public async Task<string?> GetSnmpCommunityAsync(CancellationToken ct) =>
         string.IsNullOrWhiteSpace(_snmp.CommunitySecretName) ? null : await _secrets.GetAsync(_snmp.CommunitySecretName, ct).ConfigureAwait(false);

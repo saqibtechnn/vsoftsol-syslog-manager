@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using VSoftSol.Syslog.Core.Enums;
+using VSoftSol.Syslog.Data.Listeners;
 using VSoftSol.Syslog.Ingestion;
 using VSoftSol.Syslog.Rules.Actions;
 
@@ -36,6 +37,8 @@ public sealed class ListenerPortReloadService
     private readonly IOptions<IngestionOptions> _ingestion;
     private readonly IOptions<ActionExecutorOptions> _actionOptions;
     private readonly IOptions<CollectorOptions> _collector;
+    private readonly SqliteListenerStore _listenerStore;
+    private readonly ListenerIdRegistry _listenerIds;
     private readonly ILogger<ListenerPortReloadService> _logger;
 
     public ListenerPortReloadService(
@@ -43,12 +46,16 @@ public sealed class ListenerPortReloadService
         IOptions<IngestionOptions> ingestion,
         IOptions<ActionExecutorOptions> actionOptions,
         IOptions<CollectorOptions> collector,
+        SqliteListenerStore listenerStore,
+        ListenerIdRegistry listenerIds,
         ILogger<ListenerPortReloadService> logger)
     {
         _listeners = listeners.ToList();
         _ingestion = ingestion;
         _actionOptions = actionOptions;
         _collector = collector;
+        _listenerStore = listenerStore;
+        _listenerIds = listenerIds;
         _logger = logger;
     }
 
@@ -78,6 +85,8 @@ public sealed class ListenerPortReloadService
                     await udp.RebindAsync(udpPort, cancellationToken).ConfigureAwait(false);
                     RelinkLocalSyslogEndpoint(_ingestion.Value.UdpBindAddress, oldPort, udp.BoundPort);
                     _ingestion.Value.UdpPort = udp.BoundPort;
+                    await RegisterListenerAsync(Protocol.Udp, _ingestion.Value.UdpBindAddress, udp.BoundPort, cancellationToken)
+                        .ConfigureAwait(false);
                     applied.Add($"UDP {oldPort} → {udp.BoundPort}");
                     appliedUdpPort = udp.BoundPort;
                 }
@@ -100,6 +109,8 @@ public sealed class ListenerPortReloadService
                     await tcp.RebindAsync(tcpPort, cancellationToken).ConfigureAwait(false);
                     RelinkLocalSyslogEndpoint(_ingestion.Value.TcpBindAddress, oldPort, tcp.BoundPort);
                     _ingestion.Value.TcpPort = tcp.BoundPort;
+                    await RegisterListenerAsync(Protocol.Tcp, _ingestion.Value.TcpBindAddress, tcp.BoundPort, cancellationToken)
+                        .ConfigureAwait(false);
                     applied.Add($"TCP {oldPort} → {tcp.BoundPort}");
                     appliedTcpPort = tcp.BoundPort;
                 }
@@ -129,6 +140,21 @@ public sealed class ListenerPortReloadService
         }
 
         return new PortReloadResult(applied, errors);
+    }
+
+    /// <summary>
+    /// v1.1 — P2-1: after a successful live rebind, the `listeners` table and
+    /// <see cref="ListenerIdRegistry"/> must reflect the new port too — otherwise every
+    /// event received after the rebind would keep carrying the stale, pre-rebind
+    /// <c>listener_id</c>. A changed port is a genuinely new listener identity (a new row,
+    /// not an in-place rewrite), so events already stored under the old id keep resolving
+    /// correctly.
+    /// </summary>
+    private async Task RegisterListenerAsync(Protocol protocol, string bindAddress, int port, CancellationToken cancellationToken)
+    {
+        long listenerId = await _listenerStore.UpsertAsync(protocol, bindAddress, port, enabled: true, cancellationToken)
+            .ConfigureAwait(false);
+        _listenerIds.SetId(protocol, listenerId);
     }
 
     private void RelinkLocalSyslogEndpoint(string bindAddress, int oldPort, int newPort)

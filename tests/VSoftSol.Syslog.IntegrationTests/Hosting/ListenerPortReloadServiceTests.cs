@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using VSoftSol.Syslog.Core.Enums;
+using VSoftSol.Syslog.Data.Listeners;
 using VSoftSol.Syslog.Ingestion;
 using VSoftSol.Syslog.IntegrationTests.TestSupport;
 using VSoftSol.Syslog.Rules.Actions;
@@ -42,22 +44,28 @@ public sealed class ListenerPortReloadServiceTests
     }
 
     private static ListenerPortReloadService BuildService(
-        IngestionHarness h, IReadOnlyList<ISyslogListener> listeners, ActionExecutorOptions actionOptions, string dataDirectory) =>
+        IngestionHarness h, IReadOnlyList<ISyslogListener> listeners, ActionExecutorOptions actionOptions, string dataDirectory,
+        ListenerIdRegistry? registry = null) =>
         new(
             listeners,
             Options.Create(h.Options),
             Options.Create(actionOptions),
             Options.Create(new CollectorOptions { DataDirectory = dataDirectory }),
+            new SqliteListenerStore(h.Db.Factory),
+            registry ?? new ListenerIdRegistry(),
             NullLogger<ListenerPortReloadService>.Instance);
 
     [Fact]
-    public void CanApplyLive_NoUdpOrTcpListenersRegistered_IsFalse()
+    public async Task CanApplyLive_NoUdpOrTcpListenersRegistered_IsFalse()
     {
+        await using SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
         var service = new ListenerPortReloadService(
             [],
             Options.Create(new IngestionOptions()),
             Options.Create(new ActionExecutorOptions()),
             Options.Create(new CollectorOptions { DataDirectory = NewTempDataDir() }),
+            new SqliteListenerStore(db.Factory),
+            new ListenerIdRegistry(),
             NullLogger<ListenerPortReloadService>.Instance);
 
         service.CanApplyLive.Should().BeFalse("a Web-standalone process (no collector runtime) hosts no listener to rebind");
@@ -150,11 +158,14 @@ public sealed class ListenerPortReloadServiceTests
     public async Task ApplyAsync_NotApplicable_WhenNoListenersHostedInThisProcess()
     {
         string dataDir = NewTempDataDir();
+        await using SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
         var service = new ListenerPortReloadService(
             [],
             Options.Create(new IngestionOptions()),
             Options.Create(new ActionExecutorOptions()),
             Options.Create(new CollectorOptions { DataDirectory = dataDir }),
+            new SqliteListenerStore(db.Factory),
+            new ListenerIdRegistry(),
             NullLogger<ListenerPortReloadService>.Instance);
 
         PortReloadResult result = await service.ApplyAsync(5514, 5515, CancellationToken.None);
@@ -162,5 +173,49 @@ public sealed class ListenerPortReloadServiceTests
         result.Success.Should().BeFalse();
         result.NotApplicable.Should().BeTrue();
         Directory.Exists(dataDir).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ApplyAsync_NewUdpPort_RegistersTheNewListenerRow_AndUpdatesTheIdRegistry()
+    {
+        int udpPort = LoopbackSyslog.FreeUdpPort();
+        int tcpPort = LoopbackSyslog.FreeTcpPort();
+        int newUdpPort = LoopbackSyslog.FreeUdpPort();
+        string dataDir = NewTempDataDir();
+
+        (IngestionHarness h, UdpSyslogListener udp, TcpSyslogListener tcp) = await StartedListenersAsync(udpPort, tcpPort);
+        await using (h)
+        {
+            var store = new SqliteListenerStore(h.Db.Factory);
+            long oldListenerId = await store.UpsertAsync(Protocol.Udp, "127.0.0.1", udpPort, enabled: true, CancellationToken.None);
+            var registry = new ListenerIdRegistry();
+            registry.SetId(Protocol.Udp, oldListenerId);
+
+            ListenerPortReloadService service = BuildService(h, [udp, tcp], new ActionExecutorOptions(), dataDir, registry);
+
+            try
+            {
+                PortReloadResult result = await service.ApplyAsync(newUdpPort, null, CancellationToken.None);
+
+                result.Success.Should().BeTrue();
+
+                registry.TryGetId(Protocol.Udp, out long newListenerId).Should().BeTrue();
+                newListenerId.Should().NotBe(oldListenerId, "a port change is a genuinely different listener identity");
+
+                IReadOnlyList<ListenerRecord> rows = await store.ListAsync(CancellationToken.None);
+                rows.Should().Contain(r => r.ListenerId == oldListenerId && r.Port == udpPort,
+                    "the old identity stays on record — events already stored under it must keep resolving correctly");
+                rows.Should().Contain(r => r.ListenerId == newListenerId && r.Port == newUdpPort);
+            }
+            finally
+            {
+                await udp.StopAsync(default);
+                await tcp.StopAsync(default);
+                if (Directory.Exists(dataDir))
+                {
+                    Directory.Delete(dataDir, recursive: true);
+                }
+            }
+        }
     }
 }

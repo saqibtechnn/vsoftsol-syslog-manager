@@ -158,6 +158,14 @@ public static class SyslogPlatformExtensions
         services.AddOptions<IngestionOptions>().Bind(configuration.GetSection(IngestionOptions.SectionName));
         services.TryAddSingleton<ListenerPortReloadService>();
 
+        // v1.1 — P2-1: the listeners table (migration 001, previously unused) + the live
+        // Protocol -> listener_id map ListenerPortReloadService and EventEnricher both need.
+        // Bound here (not AddCollectorRuntime) for the same reason as IngestionOptions
+        // above — ListenerPortReloadService, which lives in both hosts, needs them even
+        // when this process turns out not to be hosting the collector runtime.
+        services.TryAddSingleton<VSoftSol.Syslog.Data.Listeners.SqliteListenerStore>();
+        services.TryAddSingleton<ListenerIdRegistry>();
+
         // MFA / API keys / config bundles — both hosts need these stores (Web for its
         // Settings pages and the login MFA step; the collector host for the Windows Event
         // Log listener's API-key check).
@@ -219,9 +227,17 @@ public static class SyslogPlatformExtensions
             var runtime = sp.GetRequiredService<RuleRuntime>();
             var hits = sp.GetRequiredService<RuleHitTracker>();
             var time = sp.GetRequiredService<TimeProvider>();
+            var listenerIds = sp.GetRequiredService<ListenerIdRegistry>();
 
-            return async (parsed, cancellationToken) =>
+            return async (parsedFrame, cancellationToken) =>
             {
+                // v1.1 — P2-1: a pure in-memory lookup (populated at startup and on a live
+                // port change), never a database call on the ingest path. A miss leaves
+                // ListenerId at its unresolved default — never a reason to delay the event.
+                VSoftSol.Syslog.Core.Events.SyslogEvent parsed = listenerIds.TryGetId(parsedFrame.Protocol, out long listenerId)
+                    ? parsedFrame.WithListenerId(listenerId)
+                    : parsedFrame;
+
                 long? deviceId = await resolver.ResolveAsync(parsed.SourceIp, parsed.Hostname, cancellationToken)
                     .ConfigureAwait(false);
                 VSoftSol.Syslog.Rules.Streams.StreamRouter router =
@@ -283,6 +299,12 @@ public static class SyslogPlatformExtensions
                 return routed.WithRuleOutcome(outcome.Tags, outcome.ExtraStreamIds, pending);
             };
         });
+
+        // v1.1 — P2-1: registers this collector's listeners into the `listeners` table and
+        // populates ListenerIdRegistry. Only needs the database (already migrated by
+        // DatabaseInitializer, registered first in AddSyslogPlatform), not the listener
+        // sockets themselves, so it does not need to run after IngestionHostedService.
+        services.AddHostedService<ListenerRegistrationHostedService>();
 
         // The dispatcher executes queued actions off the ingest thread (PHASE_07 isolation).
         services.AddHostedService<ActionDispatchService>();

@@ -11,8 +11,9 @@ to learn where the build stands. Keep it terse and factual.
 - **Last tag:** `v1.0.0`
 - **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
   and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
-  **live UDP/TCP listener port changes**, **data-directory relocation documentation** — see
-  "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
+  **live UDP/TCP listener port changes**, **data-directory relocation documentation**,
+  **P2-1 listener identity linkage** — see "v1.1 log" below. No new tag has been cut;
+  `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -161,6 +162,45 @@ live UDP/TCP option from the previous v1.1 item, which had not been reflected th
 No code, no tests, no evidence pack — a documentation-only change has nothing to red/green
 against. `docs/RELEASE_NOTES.md` gained a matching "Unreleased" bullet (v1.0.0's own text
 left untouched). No new git tag.
+
+### Listener identity linkage (P2-1 closed) — 2026-09-12
+
+Closes `docs/evidence/phase-02/known-issues.md`'s P2-1: `events.listener_id` had been
+stored as NULL, unconditionally, since Phase 1/2 — the `listeners` table existed but
+nothing ever wrote to it. A new `SqliteListenerStore` upserts one row per protocol,
+keyed on `name` (built the same way every `ISyslogListener` already builds its own —
+`"{protocol}:{bindAddress}:{port}"`), so a restart with unchanged config reuses the same
+id while a changed port (a live rebind from the previous v1.1 item, or a config edit) is a
+genuinely new listener identity and gets a new row — already-stored events keep pointing at
+whichever identity actually received them, never silently rewritten. A new
+`ListenerRegistrationHostedService` runs this from configuration at collector startup
+(not each listener's bound socket — a real install never uses an ephemeral port 0, so this
+does not need to wait on `IngestionHostedService`), populating a new `ListenerIdRegistry`
+(Protocol → id, a pure in-memory map) that `EventEnricher` reads before routing/rules run —
+zero per-event database cost. `ListenerPortReloadService` (the previous v1.1 item) now also registers a new row and
+updates the registry after a successful live rebind — without this, every event received
+after a live port change would keep carrying the stale, pre-rebind `listener_id`, a silent
+correctness gap that would have been easy to miss since the rebind itself would still look
+fully successful. Settings → Listeners gained a read-only "Listener identities" card
+(system-managed rows, not admin-editable) so an Administrator can see the linkage directly.
+
+Test-first: `SqliteListenerStoreTests` (3), `ListenerRegistrationHostedServiceTests` (2),
+`ListenerIdEnrichmentTests` (2) — the first draft of the second of these hardcoded a
+synthetic listener id and tripped the exact "synthetic id → FK violation → silent infinite
+retry loop" pitfall already known from stream routing (`events.listener_id REFERENCES
+listeners(listener_id)`, `PRAGMA foreign_keys = ON`): the test hung at the 60s timeout
+instead of failing fast, fixed by upserting a real row first, exactly as production does.
+`ListenerPortReloadServiceTests`/`ListenerSettingsServiceTests` extended (1 new case each)
+for the rebind interaction and the UI passthrough. Full regression: unit 1060/1060;
+integration 794/795, the one failure (`ConcurrencyTests`, an unrelated SQLite
+read/write-concurrency stress test) confirmed a one-off environmental flake — 5/5 clean on
+immediate re-run in isolation, not a regression; `dotnet build -c Release` 0 warnings;
+`dotnet format --verify-no-changes` clean.
+
+**Verification** — `docs/evidence/v1.1-listener-identity-linkage/` (verification.md,
+red-green.md). `docs/RELEASE_NOTES.md` new "Unreleased" bullet (P2-1 was never a
+user-documented v1.0.0 limitation, only an internal tracking item — no historical text to
+preserve). No new git tag, same standing reason as the other v1.1 items above.
 
 ---
 
@@ -2215,7 +2255,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | B11-2 "listener down" self-monitoring detects never-started/gracefully-stopped, not an in-process crash bypassing `StopAsync` | `ListenerHealthRegistry` / `SelfMonitoringService` | later (listener supervision) |
 | ~~B11-3 TOTP MFA primitives complete and tested; login flow does not yet enforce the second factor~~ | ~~`LocalAuthenticationProvider` / `AuthEndpoints`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
-| P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002) | `Web` Settings | v1.1 |
+| ~~P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002)~~ | ~~`Web` Settings~~ | **DONE (v1.1)** — see "v1.1 log" |
 | P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | v1.1 (clean-VM) |
 | P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | v1.1 |
 | P5-3 wire `user_extractors` into the ingest `ExtractorPipeline` | `Ingestion` / `Web` config | 8+ |
