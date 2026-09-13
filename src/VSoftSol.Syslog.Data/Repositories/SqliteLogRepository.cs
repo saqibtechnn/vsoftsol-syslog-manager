@@ -17,12 +17,6 @@ namespace VSoftSol.Syslog.Data.Repositories;
 /// </summary>
 public sealed class SqliteLogRepository : ILogRepository
 {
-    // tier is trailing (PHASE_10) so every existing positional index in EventReader.Read stays valid.
-    private const string EventColumns =
-        "event_id, received_utc, event_utc, source_ip, hostname, app_name, proc_id, msg_id, " +
-        "facility, severity, protocol, listener_id, message, raw_message, parse_status, " +
-        "occurrence_count, structured_data_json, device_id, vendor, tier";
-
     private const string InsertEventSql = """
         INSERT INTO events
           (received_utc, event_utc, source_ip, hostname, app_name, proc_id, msg_id, facility, severity,
@@ -345,10 +339,10 @@ public sealed class SqliteLogRepository : ILogRepository
         SyslogEvent? evt;
         await using (SqliteCommand command = connection.CreateCommand())
         {
-            command.CommandText = $"SELECT {EventColumns} FROM events WHERE event_id = $id;";
+            command.CommandText = $"SELECT {EventRowMapper.Columns} FROM events WHERE event_id = $id;";
             command.Parameters.AddWithValue("$id", eventId);
             await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            evt = await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? EventReader.Read(reader) : null;
+            evt = await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? EventRowMapper.Read(reader) : null;
         }
 
         if (evt is null)
@@ -357,9 +351,9 @@ public sealed class SqliteLogRepository : ILogRepository
         }
 
         Dictionary<long, IReadOnlyList<EventField>> map =
-            await LoadFieldsAsync(connection, [eventId], cancellationToken).ConfigureAwait(false);
+            await EventRowMapper.LoadFieldsAsync(connection, [eventId], cancellationToken).ConfigureAwait(false);
         return map.TryGetValue(eventId, out IReadOnlyList<EventField>? fields) && fields.Count > 0
-            ? CloneWithFields(evt, fields)
+            ? EventRowMapper.WithFields(evt, fields)
             : evt;
     }
 
@@ -372,7 +366,7 @@ public sealed class SqliteLogRepository : ILogRepository
         await using SqliteConnection connection = await _factory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteCommand command = connection.CreateCommand();
 
-        var sql = new StringBuilder($"SELECT {Prefixed(EventColumns, "e")} FROM events e");
+        var sql = new StringBuilder($"SELECT {EventRowMapper.Prefixed("e")} FROM events e");
         AppendFilter(command, sql, query, forCount: false);
         sql.Append(query.Descending
             ? " ORDER BY e.received_utc DESC, e.event_id DESC"
@@ -387,7 +381,7 @@ public sealed class SqliteLogRepository : ILogRepository
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                page.Add(EventReader.Read(reader));
+                page.Add(EventRowMapper.Read(reader));
             }
         }
 
@@ -397,12 +391,12 @@ public sealed class SqliteLogRepository : ILogRepository
         }
 
         Dictionary<long, IReadOnlyList<EventField>> fieldMap =
-            await LoadFieldsAsync(connection, page.Select(e => e.EventId).ToList(), cancellationToken).ConfigureAwait(false);
+            await EventRowMapper.LoadFieldsAsync(connection, page.Select(e => e.EventId).ToList(), cancellationToken).ConfigureAwait(false);
 
         foreach (SyslogEvent evt in page)
         {
             yield return fieldMap.TryGetValue(evt.EventId, out IReadOnlyList<EventField>? fields) && fields.Count > 0
-                ? CloneWithFields(evt, fields)
+                ? EventRowMapper.WithFields(evt, fields)
                 : evt;
         }
     }
@@ -635,66 +629,6 @@ public sealed class SqliteLogRepository : ILogRepository
     internal static string ToFtsPhrase(string text) =>
         "\"" + StorageFormat.SanitizeText(text).Replace("\"", "\"\"") + "\"";
 
-    private static string Prefixed(string columns, string alias) =>
-        string.Join(", ", columns.Split(',', StringSplitOptions.TrimEntries).Select(c => $"{alias}.{c}"));
-
-    // ----- field loading -----
-
-    private static async Task<Dictionary<long, IReadOnlyList<EventField>>> LoadFieldsAsync(
-        SqliteConnection connection,
-        IReadOnlyCollection<long> eventIds,
-        CancellationToken cancellationToken)
-    {
-        var map = new Dictionary<long, IReadOnlyList<EventField>>();
-        if (eventIds.Count == 0)
-        {
-            return map;
-        }
-
-        await using SqliteCommand command = connection.CreateCommand();
-        string list = BindList(command, "id", eventIds.Select(id => (object)id));
-        command.CommandText = $"SELECT event_id, name, value FROM event_fields WHERE event_id IN ({list}) ORDER BY event_id, rowid;";
-
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            long id = reader.GetInt64(0);
-            if (!map.TryGetValue(id, out IReadOnlyList<EventField>? bucket))
-            {
-                bucket = new List<EventField>();
-                map[id] = bucket;
-            }
-
-            ((List<EventField>)bucket).Add(new EventField(reader.GetString(1), reader.GetString(2)));
-        }
-
-        return map;
-    }
-
-    private static SyslogEvent CloneWithFields(SyslogEvent evt, IReadOnlyList<EventField> fields) => new()
-    {
-        EventId = evt.EventId,
-        ReceivedUtc = evt.ReceivedUtc,
-        EventUtc = evt.EventUtc,
-        SourceIp = evt.SourceIp,
-        Hostname = evt.Hostname,
-        AppName = evt.AppName,
-        ProcId = evt.ProcId,
-        MsgId = evt.MsgId,
-        Facility = evt.Facility,
-        Severity = evt.Severity,
-        Protocol = evt.Protocol,
-        ListenerId = evt.ListenerId,
-        Message = evt.Message,
-        RawMessage = evt.RawMessage,
-        ParseStatus = evt.ParseStatus,
-        OccurrenceCount = evt.OccurrenceCount,
-        StructuredDataJson = evt.StructuredDataJson,
-        DeviceId = evt.DeviceId,
-        Vendor = evt.Vendor,
-        Fields = fields,
-    };
-
     private static async Task<(string sourceIp, string receivedUtc)?> ReadAnchorAsync(
         SqliteConnection connection, long eventId, CancellationToken cancellationToken)
     {
@@ -834,55 +768,5 @@ public sealed class SqliteLogRepository : ILogRepository
 
         private static object Text(string? value) =>
             value is null ? DBNull.Value : StorageFormat.SanitizeText(value);
-    }
-
-    private static class EventReader
-    {
-        public static SyslogEvent Read(SqliteDataReader reader)
-        {
-            // Column order matches EventColumns.
-            long eventId = reader.GetInt64(0);
-            var received = StorageFormat.ParseTimestamp(reader.GetString(1));
-            DateTimeOffset? eventUtc = reader.IsDBNull(2) ? null : StorageFormat.ParseTimestamp(reader.GetString(2));
-            string sourceIp = reader.GetString(3);
-            string? hostname = reader.IsDBNull(4) ? null : reader.GetString(4);
-            string? appName = reader.IsDBNull(5) ? null : reader.GetString(5);
-            string? procId = reader.IsDBNull(6) ? null : reader.GetString(6);
-            string? msgId = reader.IsDBNull(7) ? null : reader.GetString(7);
-            var facility = (Facility)reader.GetInt32(8);
-            var severity = (Severity)reader.GetInt32(9);
-            Protocol protocol = StorageFormat.ParseProtocol(reader.GetString(10));
-            long listenerId = reader.IsDBNull(11) ? 0 : reader.GetInt64(11);
-            ParseStatus parseStatus = StorageFormat.ParseParseStatus(reader.GetString(14));
-            int occurrence = reader.GetInt32(15);
-            string? structured = reader.IsDBNull(16) ? null : reader.GetString(16);
-            long? deviceId = reader.IsDBNull(17) ? null : reader.GetInt64(17);
-            string? vendor = reader.IsDBNull(18) ? null : reader.GetString(18);
-            bool warm = string.Equals(reader.GetString(19), "warm", StringComparison.Ordinal);
-            (string message, byte[] raw) = VSoftSol.Syslog.Data.Retention.WarmTierCodec.Decode(warm, reader, messageIndex: 12, rawIndex: 13);
-
-            return new SyslogEvent
-            {
-                EventId = eventId,
-                ReceivedUtc = received,
-                EventUtc = eventUtc,
-                SourceIp = sourceIp,
-                Hostname = hostname,
-                AppName = appName,
-                ProcId = procId,
-                MsgId = msgId,
-                Facility = facility,
-                Severity = severity,
-                Protocol = protocol,
-                ListenerId = listenerId,
-                Message = message,
-                RawMessage = raw,
-                ParseStatus = parseStatus,
-                OccurrenceCount = occurrence,
-                StructuredDataJson = structured,
-                DeviceId = deviceId,
-                Vendor = vendor,
-            };
-        }
     }
 }

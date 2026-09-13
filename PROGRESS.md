@@ -13,8 +13,9 @@ to learn where the build stands. Keep it terse and factual.
   and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
   **live UDP/TCP listener port changes**, **data-directory relocation documentation**,
   **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest**,
-  **P10-2 report query failures surfaced instead of "no data"** — see "v1.1 log" below. No
-  new tag has been cut; `v1.0.0` remains the last tag.
+  **P10-2 report query failures surfaced instead of "no data"**, **P5-4 SqliteLogRepository
+  unified onto EventRowMapper** — see "v1.1 log" below. No new tag has been cut; `v1.0.0`
+  remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -295,6 +296,42 @@ user-documented v1.0.0 limitation, only an internal tracking item — no histori
 preserve). No new security-doc section: this closes a UX/correctness gap in an
 already-reviewed, scope-safe query path — no new attack surface, no new privilege. No new
 git tag, same standing reason as the other v1.1 items above.
+
+### SqliteLogRepository unified onto EventRowMapper (P5-4 closed) — 2026-09-13
+
+Closes `docs/evidence/phase-05/known-issues.md`'s P5-4: `SqliteLogRepository` had kept its
+own private, byte-for-byte duplicate of `EventRowMapper` (the Phase 5 search executor's
+shared row mapper) since Phase 1 — the exact same 20-column read, the exact same
+`WithFields`/`LoadFieldsAsync` shape, just copy-pasted into a private nested `EventReader`
+class and two private static methods rather than calling the one that already existed. Both
+now call the shared `EventRowMapper.{Columns,Prefixed,Read,WithFields,LoadFieldsAsync}` —
+~90 lines of dead-duplicate code deleted, zero behavior change. `SqliteLogRepository`'s own
+general-purpose `BindList` (used for severity/device/stream IN-list filter clauses,
+unrelated to field loading) was left in place — it isn't part of the `EventRowMapper`
+overlap.
+
+This is a pure refactor, not a feature or a bug fix, so — per `TESTING_STANDARDS.md`'s own
+red/green requirement applying to new *behavior* — there is no new behavior to write a
+failing test against; the known-issue itself names the safety net: "the oracle + repository
+tests guard equivalence." `SqliteLogRepositoryTests.AppendAsync_ThenGetById_
+RoundTripsEveryField` in particular asserts every `SyslogEvent` property and `Fields`
+round-trips exactly, which is precisely what would break if `EventRowMapper` mapped one
+column differently than the deleted private code did — it and the other five cases in that
+file passed unchanged, zero test-file edits, which is the correctness proof for this change.
+
+Verification: `dotnet build src/VSoftSol.Syslog.Data` 0 warnings (confirms nothing else
+referenced the deleted private members); unit 1072/1072 (unchanged — no new unit tests, as
+expected for a same-behavior refactor); integration suite full-green modulo the pre-existing,
+already-documented flake(s) (see this item's `verification.md`); `dotnet format
+--verify-no-changes` clean.
+
+**Verification** — `docs/evidence/v1.1-log-repository-unification/` (verification.md,
+red-green.md). No `docs/RELEASE_NOTES.md` bullet — this is an internal cleanup with zero
+observable behavior change, nothing a user would notice or need documented, unlike every
+other v1.1 item so far. No new security-doc section: no query, no schema, no attack surface
+changed — the exact same parameterized SQL and the exact same scope enforcement run
+unchanged, just from one shared place instead of two. No new git tag, same standing reason
+as the other v1.1 items above.
 
 ---
 
@@ -2360,7 +2397,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | P8-2 DeviceSilent live-`rsyslogd` scenario | `IntegrationTests` | v1.1 (container / daemon host) |
 | P8-1 "would have fired" preview — full replay for filtered / distinct-count / absence alerts (currently sampled) | `AlertAdminService.PreviewAsync` | any |
 | P7-5 Argon2 decoy-timing test — widen / quiet-gate | `LocalAuthenticationProviderTests` | CI host with dedicated cores |
-| P5-4 unify `SqliteLogRepository` onto `EventRowMapper` | `Data` | any |
+| ~~P5-4 unify `SqliteLogRepository` onto `EventRowMapper`~~ | ~~`Data`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | ~~P2-2 spill / segment / cursor file ACLs~~ | ~~Phase 12 installer~~ | **DONE (Phase 12)** |
 | P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | v1.1 (container host) |
 | P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | v1.1 |
