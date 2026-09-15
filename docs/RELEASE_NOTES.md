@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.1.0 — 2026-09-15
+
 - **TOTP MFA is now enforced at sign-in**, closing the one limitation named in v1.0.0's own
   notes below: enabling MFA on an account now actually changes what signing in requires — a
   correct password alone no longer signs you in if MFA is on; a current authenticator code

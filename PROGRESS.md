@@ -8,15 +8,20 @@ to learn where the build stands. Keep it terse and factual.
 ## Current state
 
 - **Last completed phase:** 12 — Release (**final phase**)
-- **Last tag:** `v1.0.0`
-- **Next phase:** none — v1.0.0 shipped. Further work is v1.1+ (see "Deferred items" below
-  and "v1.1 log"). v1.1 items closed so far: **B11-3 TOTP MFA login-flow enforcement**,
-  **live UDP/TCP listener port changes**, **data-directory relocation documentation**,
-  **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest**,
-  **P10-2 report query failures surfaced instead of "no data"**, **P5-4 SqliteLogRepository
-  unified onto EventRowMapper**, **P8-1 "would have fired" preview is a full replay, not a
-  sample**, **the live scheduler's window-scan-cap detection (found while building P8-1)** —
-  see "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
+- **Last tag:** `v1.1.0` (2026-09-15) — nine items closed since `v1.0.0`: **B11-3 TOTP MFA
+  login-flow enforcement**, **live UDP/TCP listener port changes**, **data-directory
+  relocation documentation**, **P2-1 listener identity linkage**, **P5-3 user-authored
+  extractors wired into ingest**, **P10-2 report query failures surfaced instead of "no
+  data"**, **P5-4 SqliteLogRepository unified onto EventRowMapper**, **P8-1 "would have
+  fired" preview is a full replay, not a sample**, **the live scheduler's
+  window-scan-cap detection (found while building P8-1)** — see "v1.1 log" below.
+- **Next phase:** none — v1.0.0 shipped; v1.1.0 is the current tag. Further work is
+  v1.1.1+/v1.2+ (see "Deferred items" below) — B11-1 (config-bundle personal-content
+  ownership remapping) and B11-2 (in-process-crash listener-supervision detection) remain
+  deliberately deferred design decisions (ADR 0019), explicitly declined for now
+  (2026-09-15) rather than picked up; everything else left is blocked on infrastructure this
+  sandbox lacks (clean-VM hardware, a container/daemon host, a real ODBC driver, a CI host,
+  a browser).
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
