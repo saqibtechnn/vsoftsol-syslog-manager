@@ -40,6 +40,10 @@
   same, unchanged alert. It now replays every bucket across the whole look-back and shows
   the real count; the only time it says "at least N" now is when the historical scan hits
   its own row cap, in which case it says so plainly instead of hedging with "approximately."
+- **A filtered alert on a very busy window now correctly warns when its count is a lower
+  bound.** A scan that hit its internal row cap (500,000 events by default) never actually
+  triggered the "this count may be incomplete" notification, and could auto-resolve an
+  instance that might still have been breaching. Both now work as intended.
 
 ## v1.0.0
 

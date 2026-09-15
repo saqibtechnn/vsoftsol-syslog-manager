@@ -241,8 +241,14 @@ public sealed class AlertEvaluationService : BackgroundService
         int scanned = 0;
         bool truncated = false;
 
+        // v1.1: ask for one more row than the cap. StreamWindowAsync's own SQL applies
+        // MaxWindowScan as a LIMIT, so requesting exactly that many made "scanned >
+        // MaxWindowScan" below unreachable — the stream could never yield more rows than
+        // the cap, so a scan that truly had more matching events than MaxWindowScan was
+        // never detected as truncated. Only the extra (cap+1)-th row makes "more rows than
+        // the cap" observable; it is excluded from every count below by the break.
         await foreach (SyslogEvent evt in _reader.StreamWindowAsync(
-            windowStart, now, deviceIds, alert.StreamIds, _options.MaxWindowScan, cancellationToken).ConfigureAwait(false))
+            windowStart, now, deviceIds, alert.StreamIds, _options.MaxWindowScan + 1, cancellationToken).ConfigureAwait(false))
         {
             if (++scanned > _options.MaxWindowScan)
             {

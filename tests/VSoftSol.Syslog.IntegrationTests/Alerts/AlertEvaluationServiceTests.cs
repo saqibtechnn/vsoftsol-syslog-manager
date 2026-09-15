@@ -163,4 +163,25 @@ public sealed class AlertEvaluationServiceTests
         ((int)await h.AuditCountAsync(AuditActions.AlertFired)).Should().Be(30 * 24);
         (await h.OpenInstancesAsync()).Should().ContainSingle("only the final hour's group is still breaching");
     }
+
+    [Fact]
+    public async Task InMemoryScan_HittingItsCap_IsDetected_AndRaisesTheScanCapNotification()
+    {
+        // v1.1 — found while building the P8-1 alert-preview full replay: InMemoryAsync
+        // requested exactly MaxWindowScan rows from StreamWindowAsync, whose own SQL already
+        // applies that as a LIMIT — so "scanned > MaxWindowScan" could never be true and
+        // AlertWindowData.Truncated could never become true for a filtered alert, no matter
+        // how many matching events existed. Ten matching events against a cap of five must
+        // be detected as truncated and raise the operator-facing "hit its scan cap" diagnostic
+        // (EvaluateOneAsync), not silently evaluate as if there were only five.
+        AlertEvaluationHarness h = await AlertEvaluationHarness.CreateAsync(T0, configureEval: o => o.MaxWindowScan = 5);
+        await h.Store.CreateAsync(ThresholdAlert(threshold: 1, windowSeconds: 300), "op", CancellationToken.None);
+
+        await h.Db.Repository.AppendBatchAsync(
+            Enumerable.Range(0, 10).Select(i => Event(T0.AddSeconds(-60 + i))).ToList(), CancellationToken.None);
+
+        await h.AdvanceAndTickAsync(TimeSpan.FromSeconds(1));
+
+        h.Notifications.Should().Contain(n => n.Title.Contains("hit its scan cap", StringComparison.Ordinal));
+    }
 }

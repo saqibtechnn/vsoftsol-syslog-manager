@@ -15,7 +15,8 @@ to learn where the build stands. Keep it terse and factual.
   **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest**,
   **P10-2 report query failures surfaced instead of "no data"**, **P5-4 SqliteLogRepository
   unified onto EventRowMapper**, **P8-1 "would have fired" preview is a full replay, not a
-  sample** — see "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
+  sample**, **the live scheduler's window-scan-cap detection (found while building P8-1)** —
+  see "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -381,6 +382,42 @@ preserve). No new security-doc section: no new query path, no new attack surface
 preview already ran the operator-authored filter against scoped, already-reviewed event
 data; only the aggregation strategy above it changed. No new git tag, same standing reason
 as the other v1.1 items above.
+
+### Live scheduler's window-scan-cap detection fixed (found while building P8-1) — 2026-09-15
+
+Not a numbered backlog item — a real bug found and flagged during the P8-1 work above, and
+fixed as its own follow-up rather than folded silently into that commit.
+`AlertEvaluationService.InMemoryAsync` requested exactly `AlertEvaluationOptions.
+MaxWindowScan` rows from `SqliteAlertWindowReader.StreamWindowAsync`, whose own SQL already
+applies that value as a `LIMIT` — so the loop's `scanned > MaxWindowScan` check could never
+be true, and a filtered alert with more matching events in its window than the cap
+(500,000 by default) would silently undercount with `AlertWindowData.Truncated` never
+becoming `true`. Two real consequences: the operator-facing "hit its scan cap... the count
+is a lower bound" diagnostic notification never fired, and `ReconcileAsync`'s explicit
+"never auto-resolve on a truncated scan" protection — added specifically so a
+possibly-still-breaching truncated count can never be mistaken for a cleared condition —
+never actually engaged. Fixed identically to the sibling bug already caught (and fixed) in
+`AlertAdminService.FullReplayAsync` for the P8-1 preview: request `MaxWindowScan + 1` rows,
+so the extra row unambiguously signals "more matching events than the cap" rather than
+"there were exactly `MaxWindowScan`."
+
+Test-first: `AlertEvaluationServiceTests.InMemoryScan_HittingItsCap_IsDetected_
+AndRaisesTheScanCapNotification` (new) — `MaxWindowScan = 5` against 10 matching events on
+the virtual-clock scheduler harness, asserting the recorded notification queue actually
+receives the "hit its scan cap" diagnostic. RED confirmed the bug (notification queue empty
+against 10 events over a cap of 5); GREEN after the fix. All 5 pre-existing
+`AlertEvaluationServiceTests` cases pass unchanged. Full regression: unit 1072/1072;
+integration suite full-green modulo the pre-existing, already-documented flake(s) (see this
+item's `verification.md`); `dotnet build -c Release` 0 warnings; `dotnet format
+--verify-no-changes` clean.
+
+**Verification** — `docs/evidence/v1.1-alert-scan-cap-truncation-fix/` (verification.md,
+red-green.md). `docs/RELEASE_NOTES.md` new "Unreleased" bullet — this is a real, if narrow,
+correctness/safety fix an operator running a busy filtered alert could be silently affected
+by, unlike the purely-internal P5-4 refactor earlier in this series. No new security-doc
+section: no new query path, no new attack surface, no privilege change — the fix only
+corrects when an existing, already-reviewed diagnostic fires. No new git tag, same standing
+reason as the other v1.1 items above.
 
 ---
 
