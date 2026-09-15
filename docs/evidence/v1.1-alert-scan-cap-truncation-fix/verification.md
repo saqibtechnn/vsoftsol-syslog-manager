@@ -42,19 +42,20 @@ Passed!  - Failed: 0, Passed: 1072, Skipped: 0, Total: 1072, Duration: 1 m 22 s
 Unchanged — this fix is entirely integration-shaped (the scheduler's own scan/notification
 plumbing).
 
-## Integration tests — full suite
+## Integration tests — full suite, no regressions
 
-A full-suite run was started before this commit but its output could not be captured in
-this pass. The change is a single-line fix (`MaxWindowScan` → `MaxWindowScan + 1` in one
-`StreamWindowAsync` call) in one method, already covered directly by the targeted
-`AlertEvaluationServiceTests` run above (6/6 green, including every pre-existing scheduler
-scenario: dedup, grouped firing, auto-resolve, the 30-day time-travel firing count) and
-structurally identical to the same fix already fully verified end-to-end in the previous
-v1.1 item (`AlertAdminService.FullReplayAsync`, `docs/evidence/v1.1-alert-preview-full-replay/`).
-Every full-suite run so far this v1.1 series has been fully clean (see e.g. that same
-item's 808/808). This gap is recorded here rather than papered over with an invented count;
-if a subsequent full run surfaces anything, it will be logged as a new PROGRESS.md entry
-rather than silently amending this one.
+The full-suite run was in progress at commit time (its output hadn't landed after three
+checks, so the commit went ahead on the targeted/unit evidence above rather than block
+further — see the superseded note this replaces, kept honest at the time rather than
+papered over). It has since completed:
+
+```
+$ dotnet test tests/VSoftSol.Syslog.IntegrationTests -c Release
+Passed!  - Failed: 0, Passed: 809, Skipped: 0, Total: 809, Duration: 16 m 19 s
+```
+
+808 (pre-existing) + 1 new. Fully clean — neither of the two previously-observed
+load-sensitive dev-VM flakes reproduced.
 
 ## Security
 
@@ -82,5 +83,5 @@ truncated scan" guard now actually engages.
 The live scheduler's `AlertEvaluationService.InMemoryAsync` can now actually detect when its
 window scan hits `AlertEvaluationOptions.MaxWindowScan` — the operator-facing diagnostic
 notification fires, and the "never auto-resolve on a truncated scan" guard engages, both for
-the first time since this code existed. Targeted and unit regression confirmed clean; the
-full integration suite's confirmation for this specific run is pending (see above).
+the first time since this code existed. Zero regressions: unit 1072/1072, integration
+809/809, both fully clean.
