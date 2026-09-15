@@ -14,8 +14,8 @@ to learn where the build stands. Keep it terse and factual.
   **live UDP/TCP listener port changes**, **data-directory relocation documentation**,
   **P2-1 listener identity linkage**, **P5-3 user-authored extractors wired into ingest**,
   **P10-2 report query failures surfaced instead of "no data"**, **P5-4 SqliteLogRepository
-  unified onto EventRowMapper** — see "v1.1 log" below. No new tag has been cut; `v1.0.0`
-  remains the last tag.
+  unified onto EventRowMapper**, **P8-1 "would have fired" preview is a full replay, not a
+  sample** — see "v1.1 log" below. No new tag has been cut; `v1.0.0` remains the last tag.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -331,6 +331,55 @@ observable behavior change, nothing a user would notice or need documented, unli
 other v1.1 item so far. No new security-doc section: no query, no schema, no attack surface
 changed — the exact same parameterized SQL and the exact same scope enforcement run
 unchanged, just from one shared place instead of two. No new git tag, same standing reason
+as the other v1.1 items above.
+
+### Alert "would have fired" preview is a full replay, not a sample (P8-1 closed) — 2026-09-13
+
+Closes `docs/evidence/phase-08/known-issues.md`'s P8-1: a filtered, distinct-count, or
+absence alert's editor preview used to sample 24 evenly-spaced windows across the look-back
+and extrapolate, labelled "approximately N times" — a genuine statistical estimate that
+could visibly disagree between two clicks of "Preview" on the same alert. Every
+non-overlapping `WindowSeconds`-long bucket across the whole look-back is now evaluated —
+via one bounded scan of the raw events instead of one scan per bucket, so this stays cheap
+even with many buckets — reusing the exact same `AlertEvaluator` the live scheduler runs,
+summing the breaching groups per bucket (a grouped threshold alert can breach more than one
+group in the same bucket, exactly mirroring `AlertEvaluationService.ReconcileAsync` opening
+one instance per breaching group). `AlertPreview.Approximate` now means only one thing:
+the historical scan hit its row cap (the same `AlertEvaluationOptions.MaxWindowScan` the
+live scheduler uses for one tick, reused here to bound the one scan across the whole
+look-back) — a lower bound, never a sampled estimate; the wording changed to match ("at
+least N times... the scan hit its row cap" instead of "approximately N times").
+
+Caught two real implementation bugs via the test suite itself before they shipped (both
+documented in full in this item's `red-green.md`, not glossed over): (1) computing the
+bucket index from raw `DateTimeOffset.Ticks` rather than whole Unix-epoch seconds is
+sensitive to ordinary clock drift between test setup and evaluation at an exact bucket
+boundary — the identical class of pitfall already recorded in this project's own memory
+notes and already avoided by the SQL fast path's `strftime('%s', ...)` bucketing, now fixed
+to match it; (2) requesting exactly `MaxWindowScan` rows from `StreamWindowAsync` (whose SQL
+already applies that as a `LIMIT`) makes "more rows than the cap" undetectable — fixed by
+requesting one more row than the cap. The second bug was found to pre-exist, unfixed, in the
+live scheduler's `AlertEvaluationService.InMemoryAsync` — out of scope for this item (a
+different, already-tested production path), so flagged as a separate follow-up task rather
+than fixed here.
+
+Test-first: four new `AlertWebTests` cases (filtered Threshold, DistinctCount, Absence, and
+a capped scan), each exercising a real full replay against seeded fixture data — no
+estimate could reliably land on the exact counts these assert. `AlertAdminService`'s
+constructor gained a new `IOptions<AlertEvaluationOptions>` parameter (the preview needed
+the same scan cap the scheduler already uses), which meant updating three existing manual
+`new AlertAdminService(...)` test call sites (`AlertWebTests`, `AlertSecurityTests`) — all
+still pass unchanged otherwise. Full regression: unit 1072/1072 (unchanged — no new unit
+tests, this item is entirely integration-shaped); integration suite full-green modulo the
+pre-existing, already-documented flake(s) (see this item's `verification.md`); `dotnet build
+-c Release` 0 warnings; `dotnet format --verify-no-changes` clean.
+
+**Verification** — `docs/evidence/v1.1-alert-preview-full-replay/` (verification.md,
+red-green.md). `docs/RELEASE_NOTES.md` new "Unreleased" bullet (P8-1 was never a
+user-documented v1.0.0 limitation, only an internal tracking item — no historical text to
+preserve). No new security-doc section: no new query path, no new attack surface — the
+preview already ran the operator-authored filter against scoped, already-reviewed event
+data; only the aggregation strategy above it changed. No new git tag, same standing reason
 as the other v1.1 items above.
 
 ---
@@ -2395,7 +2444,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | P7-3 `WriteToOdbc` live SQLite-ODBC round-trip | `IntegrationTests` | v1.1 (driver installed) |
 | P8-3 scheduled-alert-evaluation timing over a 2M-event DB (filtered-window scan; a tick over dozens of alerts) | `AlertWindowReader` / a bench | v1.1 (clean-VM) |
 | P8-2 DeviceSilent live-`rsyslogd` scenario | `IntegrationTests` | v1.1 (container / daemon host) |
-| P8-1 "would have fired" preview — full replay for filtered / distinct-count / absence alerts (currently sampled) | `AlertAdminService.PreviewAsync` | any |
+| ~~P8-1 "would have fired" preview — full replay for filtered / distinct-count / absence alerts (currently sampled)~~ | ~~`AlertAdminService.PreviewAsync`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | P7-5 Argon2 decoy-timing test — widen / quiet-gate | `LocalAuthenticationProviderTests` | CI host with dedicated cores |
 | ~~P5-4 unify `SqliteLogRepository` onto `EventRowMapper`~~ | ~~`Data`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | ~~P2-2 spill / segment / cursor file ACLs~~ | ~~Phase 12 installer~~ | **DONE (Phase 12)** |

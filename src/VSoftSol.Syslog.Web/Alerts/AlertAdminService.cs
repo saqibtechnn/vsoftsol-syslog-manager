@@ -26,7 +26,11 @@ public sealed record AlertActionResult(bool Ok, string Message, IReadOnlyList<st
 
 /// <summary>The "would have fired" preview (PHASE_08 UX gate).</summary>
 /// <param name="Count">How many times the alert would have fired over the look-back.</param>
-/// <param name="Approximate">True when the number is sampled, not exact (filtered alerts).</param>
+/// <param name="Approximate">
+/// True when the historical scan hit its row cap before covering the whole look-back —
+/// <see cref="Count"/> is then a lower bound, never a statistical estimate (v1.1 — P8-1;
+/// every alert type is now a full, bucket-by-bucket replay, never sampled).
+/// </param>
 /// <param name="Detail">A human sentence for the editor.</param>
 public sealed record AlertPreview(int Count, bool Approximate, string Detail);
 
@@ -55,6 +59,7 @@ public sealed class AlertAdminService
     private readonly SqliteDeviceStore _devices;
     private readonly VSoftSol.Syslog.Data.Users.SqliteUserStore _userStore;
     private readonly AlertCompiler _compiler;
+    private readonly int _previewScanCap;
 
     public AlertAdminService(
         SqliteAlertStore alerts,
@@ -66,7 +71,8 @@ public sealed class AlertAdminService
         SqliteSavedSearchStore savedSearches,
         SqliteDeviceStore devices,
         VSoftSol.Syslog.Data.Users.SqliteUserStore userStore,
-        Microsoft.Extensions.Options.IOptions<ActionExecutorOptions> actionOptions)
+        Microsoft.Extensions.Options.IOptions<ActionExecutorOptions> actionOptions,
+        Microsoft.Extensions.Options.IOptions<AlertEvaluationOptions> evaluationOptions)
     {
         _alerts = alerts;
         _instances = instances;
@@ -80,6 +86,10 @@ public sealed class AlertAdminService
         ActionExecutorOptions a = actionOptions.Value;
         _compiler = new AlertCompiler(new VSoftSol.Syslog.Rules.Rules.RuleCompileOptions(
             a.ScriptAllowListDirectories, a.FileActionBaseDirectory, a.LocalSyslogEndpoints));
+        // v1.1 — P8-1: the same row cap the live scheduler uses for one tick's window scan
+        // (AlertEvaluationOptions.MaxWindowScan), reused here to bound the preview's single
+        // whole-look-back scan.
+        _previewScanCap = Math.Max(1, evaluationOptions.Value.MaxWindowScan);
     }
 
     public static IReadOnlyList<VSoftSol.Syslog.Data.Seed.DefaultAlertTemplates.Template> Templates =>
@@ -217,80 +227,129 @@ public sealed class AlertAdminService
             return new AlertPreview(breaches, false, Sentence(breaches, window, exact: true));
         }
 
-        // Filtered / distinct-count / absence: sample a handful of windows and extrapolate.
-        int sampledBreaches = 0;
-        const int samples = 24;
-        var step = TimeSpan.FromTicks(window.Ticks / samples);
-        for (int i = 0; i < samples; i++)
-        {
-            DateTimeOffset at = now - window + (step * (i + 1));
-            AlertWindowData data = await SampleWindowAsync(c, at, deviceIds, ct).ConfigureAwait(false);
-            if (AlertEvaluator.Evaluate(c, data, at).AnyBreach)
-            {
-                sampledBreaches++;
-            }
-        }
-
-        int estimate = (int)Math.Round(sampledBreaches / (double)samples * (window.TotalSeconds / Math.Max(1, c.IntervalSeconds)));
-        return new AlertPreview(estimate, true, Sentence(estimate, window, exact: false));
+        // v1.1 — P8-1 (docs/evidence/phase-08/known-issues.md): filtered / distinct-count /
+        // absence alerts used to sample 24 windows and extrapolate. Every non-overlapping
+        // WindowSeconds-long bucket across the whole look-back is now evaluated — a full
+        // replay, not an estimate — via exactly one bounded scan of the raw events instead
+        // of one scan per bucket, so this stays cheap even when there are many buckets.
+        (int fired, bool truncated) = await FullReplayAsync(c, now, window, deviceIds, ct).ConfigureAwait(false);
+        return new AlertPreview(fired, truncated, Sentence(fired, window, exact: !truncated));
     }
 
-    private async Task<AlertWindowData> SampleWindowAsync(CompiledAlert c, DateTimeOffset at, IReadOnlyList<long> deviceIds, CancellationToken ct)
+    /// <summary>
+    /// Buckets the look-back into non-overlapping <c>WindowSeconds</c>-long slices and
+    /// evaluates each one with the same <see cref="AlertEvaluator"/> the live scheduler
+    /// uses, summing the breaching groups per bucket (a threshold alert with a group-by can
+    /// breach in more than one group within the same bucket — each counts as its own fire,
+    /// the same as <c>AlertEvaluationService.ReconcileAsync</c> opening one instance per
+    /// breaching group). Capped at <see cref="_previewScanCap"/> total matching-or-not raw
+    /// events read — the same cap the live scheduler applies to one tick's window scan,
+    /// reused here to bound one scan across the whole look-back instead. A capped scan makes
+    /// <see cref="AlertPreview.Count"/> a lower bound, never a statistical estimate.
+    /// </summary>
+    private async Task<(int Fired, bool Truncated)> FullReplayAsync(
+        CompiledAlert c, DateTimeOffset now, TimeSpan window, IReadOnlyList<long> deviceIds, CancellationToken ct)
     {
-        DateTimeOffset from = at - TimeSpan.FromSeconds(c.WindowSeconds);
-        if (c.Type is AlertEvaluationType.DistinctCount && c.AlwaysMatches && SqliteAlertWindowReader.IsSqlGroupable(c.GroupByField))
-        {
-            (long distinct, _) = await _reader.DistinctCountAsync(from, at, c.GroupByField!, deviceIds, c.StreamIds, 0, ct).ConfigureAwait(false);
-            return new AlertWindowData { DistinctValueCount = distinct };
-        }
+        DateTimeOffset from = now - window;
+        int bucketSeconds = Math.Max(1, c.WindowSeconds);
+        int bucketCount = Math.Max(1, (int)(window.TotalSeconds / bucketSeconds));
 
-        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
-        var distinctValues = new HashSet<string>(StringComparer.Ordinal);
-        await foreach (SyslogEvent e in _reader.StreamWindowAsync(from, at, deviceIds, c.StreamIds, 200_000, ct).ConfigureAwait(false))
+        var counts = new Dictionary<string, long>?[bucketCount];
+        var distinctValues = new HashSet<string>?[bucketCount];
+        var anyMatch = new bool[bucketCount];
+
+        // Whole-second Unix-epoch bucketing (memory: "SQLite time bucketing: use strftime
+        // seconds" — the same pitfall this codebase already hit once). `from` and each
+        // event's ReceivedUtc otherwise carry independent sub-second precision, so a tiny,
+        // unavoidable clock drift between when a caller's data was written and this method's
+        // own `now` could split two events a few milliseconds apart across a bucket boundary
+        // that looks aligned at whole-second resolution. Integer seconds make the boundary
+        // exact, matching PreviewBucketCountsAsync's own `strftime('%s', ...)` SQL bucketing
+        // above so both branches of this method agree on what a "bucket" is.
+        long fromSeconds = from.ToUnixTimeSeconds();
+
+        // Ask for one more row than the cap: only then does "got more rows than the cap"
+        // unambiguously mean "there were more matching rows than the cap", rather than
+        // "there were exactly cap rows" (StreamWindowAsync's own SQL LIMIT would otherwise
+        // make scanned > cap unreachable).
+        int scanned = 0;
+        bool truncated = false;
+        await foreach (SyslogEvent e in _reader.StreamWindowAsync(from, now, deviceIds, c.StreamIds, _previewScanCap + 1, ct).ConfigureAwait(false))
         {
+            if (++scanned > _previewScanCap)
+            {
+                truncated = true;
+                break;
+            }
+
             if (!c.FilterMatches(e))
+            {
+                continue;
+            }
+
+            int bucket = (int)((e.ReceivedUtc.ToUnixTimeSeconds() - fromSeconds) / bucketSeconds);
+            if (bucket < 0 || bucket >= bucketCount)
             {
                 continue;
             }
 
             if (c.Type is AlertEvaluationType.DistinctCount)
             {
-                string? k = AlertGrouping.DistinctKeyFor(c.GroupByField!, e);
-                if (k is not null)
+                string? key = AlertGrouping.DistinctKeyFor(c.GroupByField!, e);
+                if (key is not null)
                 {
-                    distinctValues.Add(k);
+                    (distinctValues[bucket] ??= new HashSet<string>(StringComparer.Ordinal)).Add(key);
                 }
+            }
+            else if (c.Type is AlertEvaluationType.Absence)
+            {
+                anyMatch[bucket] = true;
             }
             else
             {
-                string g = AlertGrouping.KeyFor(c.GroupByField, e) ?? string.Empty;
-                counts[g] = counts.GetValueOrDefault(g) + 1;
+                string group = AlertGrouping.KeyFor(c.GroupByField, e) ?? string.Empty;
+                Dictionary<string, long> bucketCounts = counts[bucket] ??= new Dictionary<string, long>(StringComparer.Ordinal);
+                bucketCounts[group] = bucketCounts.GetValueOrDefault(group) + 1;
             }
         }
 
-        if (c.Type is AlertEvaluationType.DistinctCount)
+        int fired = 0;
+        for (int i = 0; i < bucketCount; i++)
         {
-            return new AlertWindowData { DistinctValueCount = distinctValues.Count };
+            AlertWindowData data = c.Type switch
+            {
+                AlertEvaluationType.DistinctCount => new AlertWindowData { DistinctValueCount = distinctValues[i]?.Count ?? 0 },
+                AlertEvaluationType.Absence => new AlertWindowData { GroupCounts = [new GroupCount(null, anyMatch[i] ? 1 : 0, [])] },
+                _ => new AlertWindowData
+                {
+                    GroupCounts = counts[i] is { } bucketCounts
+                        ? [.. bucketCounts.Select(kv => new GroupCount(c.GroupByField is null ? null : kv.Key, kv.Value, []))]
+                        : [],
+                },
+            };
+
+            DateTimeOffset bucketEnd = from + TimeSpan.FromSeconds((long)(i + 1) * bucketSeconds);
+            fired += AlertEvaluator.Evaluate(c, data, bucketEnd).Breaches.Count;
         }
 
-        if (c.Type is AlertEvaluationType.Absence && counts.Count == 0)
-        {
-            return new AlertWindowData { GroupCounts = [new GroupCount(null, 0, [])] };
-        }
-
-        return new AlertWindowData
-        {
-            GroupCounts = [.. counts.Select(kv => new GroupCount(c.GroupByField is null ? null : kv.Key, kv.Value, []))],
-        };
+        return (fired, truncated);
     }
 
     private static string Sentence(int count, TimeSpan window, bool exact)
     {
         string days = window.TotalDays >= 1 ? $"{window.TotalDays:F0} days" : $"{window.TotalHours:F0} hours";
-        string prefix = exact ? "This would have fired" : "This would have fired approximately";
-        return count == 0
-            ? $"{(exact ? "This would not have fired" : "This would rarely have fired")} in the last {days}."
-            : $"{prefix} {count} time{(count == 1 ? string.Empty : "s")} in the last {days}.";
+        string times = $"{count} time{(count == 1 ? string.Empty : "s")}";
+
+        if (exact)
+        {
+            return count == 0
+                ? $"This would not have fired in the last {days}."
+                : $"This would have fired {times} in the last {days}.";
+        }
+
+        // v1.1 — P8-1: "not exact" now only ever means the historical scan hit its row cap
+        // before covering the whole look-back — a lower bound, never a sampled estimate.
+        return $"This would have fired at least {times} in the last {days} (the scan hit its row cap before finishing).";
     }
 
     // ---------------------------------------------------------------- lifecycle

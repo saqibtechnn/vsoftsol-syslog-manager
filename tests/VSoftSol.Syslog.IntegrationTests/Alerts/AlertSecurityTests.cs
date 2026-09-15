@@ -54,7 +54,8 @@ public sealed class AlertSecurityTests : IClassFixture<SyslogWebApplicationFacto
             sp.GetRequiredService<VSoftSol.Syslog.Data.Search.SqliteSavedSearchStore>(),
             sp.GetRequiredService<VSoftSol.Syslog.Data.Devices.SqliteDeviceStore>(),
             sp.GetRequiredService<VSoftSol.Syslog.Data.Users.SqliteUserStore>(),
-            Options.Create(new ActionExecutorOptions()));
+            Options.Create(new ActionExecutorOptions()),
+            sp.GetRequiredService<IOptions<VSoftSol.Syslog.Service.Hosting.AlertEvaluationOptions>>());
     }
 
     [Fact]

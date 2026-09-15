@@ -34,6 +34,12 @@
   previously rendered an identical "no data" page/CSV to a genuinely empty time range — the
   PDF, the CSV, and the audit log all now say plainly that the report's query didn't run,
   and why.
+- **The alert editor's "would have fired" preview is now exact for every alert type.**
+  A filtered, distinct-count, or absence alert used to sample the look-back and show an
+  "approximately N times" estimate that could change between two clicks of Preview on the
+  same, unchanged alert. It now replays every bucket across the whole look-back and shows
+  the real count; the only time it says "at least N" now is when the historical scan hits
+  its own row cap, in which case it says so plainly instead of hedging with "approximately."
 
 ## v1.0.0
 
