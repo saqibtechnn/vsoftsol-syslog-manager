@@ -1,5 +1,6 @@
 <Project>
 
   <Import Project="$(MSBuildThisFileDirectory)build\branding.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)build\releasesigning.targets" />
 
 </Project>

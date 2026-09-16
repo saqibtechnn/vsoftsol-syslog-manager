@@ -82,4 +82,12 @@ public static class AuditActions
     public const string ReportRun = "report.run";
     public const string ReportDelivered = "report.delivered";
     public const string ReportDeliveryFailed = "report.delivery.failed";
+
+    // v1.1 — self-update (ADR 0021).
+    public const string UpdateCheckPerformed = "update.check.performed";
+    public const string UpdateAvailable = "update.available";
+    public const string UpdateDownloadedAndVerified = "update.downloaded_and_verified";
+    public const string UpdateSignatureVerificationFailed = "update.signature_verification_failed";
+    public const string UpdateSettingsChange = "update.settings.change";
+    public const string UpdateMsiDownloadedByAdmin = "update.msi.downloaded_by_admin";
 }

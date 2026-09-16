@@ -1,0 +1,72 @@
+<Project>
+
+  <!--
+    Bakes the self-update release-signing public key into
+    src/VSoftSol.Syslog.Core/Generated/ReleaseSigningInfo.g.cs at build time (v1.1 — ADR
+    0021). Deliberately pure MSBuild (ReadLinesFromFile/WriteLinesToFile) rather than a
+    second BrandingGen-style console project: the payload is one string constant, not
+    multi-format asset derivation, so no external generator exe is warranted — see
+    release-signing/README.md for the full rationale.
+
+    release-signing/public-key.txt missing or blank (the common case until a real
+    keypair is generated via tools/VSoftSol.Syslog.ReleaseSigning) is a build WARNING and a
+    placeholder key, never a failure — ReleaseSigningInfo.HasRealKey = false makes
+    UpdateSignatureVerifier fail closed ("not configured"), it never treats the placeholder
+    as a real trust anchor. Only Core (the branding/trust-anchor owner project) runs this.
+  -->
+
+  <Target Name="GenerateReleaseSigningInfo"
+          Condition="'$(MSBuildProjectName)' == '$(BrandingOwnerProject)'"
+          BeforeTargets="BeforeCompile;CoreCompile"
+          Inputs="$(ReleaseSigningPublicKeyFile)"
+          Outputs="$(GeneratedReleaseSigningFile)">
+
+    <!-- A real, freshly generated, immediately-discarded ECDSA P-256 public key — its
+         private half was never exported anywhere, so this placeholder can never verify a
+         genuine signature; it exists only so BundleSigner.Verify has well-formed key bytes
+         to parse in a build with no real key configured, rather than a garbage string. -->
+    <PropertyGroup>
+      <_HasRealKey>false</_HasRealKey>
+      <_PublicKeyValue>MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0Kl76Ez/+FWejzRGEpNA9C8d/LG1W818YqA914/Wlw3FsvYLAWgMV3yLwp9bvRUiA5DSuw4zTBZ2JfayZgSOkg==</_PublicKeyValue>
+    </PropertyGroup>
+
+    <ReadLinesFromFile File="$(ReleaseSigningPublicKeyFile)" Condition="Exists('$(ReleaseSigningPublicKeyFile)')">
+      <Output TaskParameter="Lines" ItemName="_ReleaseSigningKeyLines" />
+    </ReadLinesFromFile>
+
+    <PropertyGroup Condition="'@(_ReleaseSigningKeyLines)' != ''">
+      <_PublicKeyValue>@(_ReleaseSigningKeyLines)</_PublicKeyValue>
+      <_HasRealKey>true</_HasRealKey>
+    </PropertyGroup>
+
+    <Warning Code="VSOFTSOL-UPDATE-001"
+             Text="No release-signing public key at $(ReleaseSigningPublicKeyFile) — self-update signature verification is disabled in this build (ReleaseSigningInfo.HasRealKey = false). See release-signing/README.md."
+             Condition="'$(_HasRealKey)' != 'true'" />
+
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(GeneratedReleaseSigningFile)'))" />
+
+    <ItemGroup>
+      <_ReleaseSigningLine Include="// &lt;auto-generated&gt; by build/releasesigning.targets — do not edit by hand." />
+      <_ReleaseSigningLine Include="#nullable enable" />
+      <_ReleaseSigningLine Include="namespace VSoftSol.Syslog.Core%3B" />
+      <_ReleaseSigningLine Include="/// &lt;summary&gt;The one build-time-baked ECDSA P-256 public key self-update trusts (v1.1 — ADR 0021). See release-signing/README.md.&lt;/summary&gt;" />
+      <_ReleaseSigningLine Include="public static class ReleaseSigningInfo" />
+      <_ReleaseSigningLine Include="{" />
+      <_ReleaseSigningLine Include="    /// &lt;summary&gt;False when no real key was configured at build time (release-signing/public-key.txt missing or blank) — self-update verification always fails closed in that case, it never trusts the placeholder key below. Deliberately &quot;static readonly&quot;, not &quot;const&quot; — a const bool lets the compiler prove callers&apos; guard clauses are statically dead code and fail the warnings-as-errors build the moment this value is false.&lt;/summary&gt;" />
+      <_ReleaseSigningLine Include="    public static readonly bool HasRealKey = $(_HasRealKey)%3B" />
+      <_ReleaseSigningLine Include="    public const string PublicKeyBase64 = &quot;$(_PublicKeyValue)&quot;%3B" />
+      <_ReleaseSigningLine Include="}" />
+    </ItemGroup>
+
+    <WriteLinesToFile File="$(GeneratedReleaseSigningFile)" Lines="@(_ReleaseSigningLine)" Overwrite="true" />
+
+    <!-- The file is generated during this build, after the default *.cs glob was
+         evaluated on the first-ever build; add it to the compilation now (same reasoning
+         as branding.targets' GenerateBranding — on later builds this is a harmless,
+         deduplicated re-add since the default glob already covers the now-existing file). -->
+    <ItemGroup>
+      <Compile Include="$(GeneratedReleaseSigningFile)" Condition="Exists('$(GeneratedReleaseSigningFile)')" />
+    </ItemGroup>
+  </Target>
+
+</Project>

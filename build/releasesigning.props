@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Self-update release-signing trust anchor (v1.1 — ADR 0021). Locations only;
+       $(Configuration) is not needed here since this mechanism is pure MSBuild (no
+       generator exe to configure a build variant for), unlike branding.props/.targets. -->
+  <PropertyGroup>
+    <ReleaseSigningPublicKeyFile>$(MSBuildThisFileDirectory)..\release-signing\public-key.txt</ReleaseSigningPublicKeyFile>
+    <GeneratedReleaseSigningFile>$(MSBuildThisFileDirectory)..\src\VSoftSol.Syslog.Core\Generated\ReleaseSigningInfo.g.cs</GeneratedReleaseSigningFile>
+  </PropertyGroup>
+
+</Project>

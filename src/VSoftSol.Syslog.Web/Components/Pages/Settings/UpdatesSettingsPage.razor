@@ -1,0 +1,100 @@
+@page "/settings/updates"
+@attribute [Authorize(Policy = AuthPolicies.Administer)]
+@rendermode InteractiveServer
+@using VSoftSol.Syslog.Data.Updates
+@using VSoftSol.Syslog.Web.Updates
+@inject UpdateAdminService Admin
+@inject ToastService Toast
+
+<PageTitle>Updates — @BrandingInfo.ProductName</PageTitle>
+
+<div class="ds-page">
+    <header class="ds-page__header">
+        <h1>Updates</h1>
+        <a class="ds-button ds-button--ghost" href="/settings">Settings</a>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonLoader Rows="6" />
+    }
+    else
+    {
+        <form class="ds-form" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <FormField Label="Check for updates" FieldId="ds-enabled"
+                       Help="Off by default. When on, the collector periodically checks GitHub for a new, cryptographically verified release — nothing is ever installed automatically; you always take the last step yourself.">
+                <input id="ds-enabled" type="checkbox" @bind="_enabled" />
+            </FormField>
+            <FormField Label="Check interval (hours)" FieldId="ds-interval">
+                <input id="ds-interval" class="ds-input" type="number" min="1" max="168" @bind="_intervalHours" />
+            </FormField>
+
+            <div class="ds-form__actions">
+                <button type="submit" class="ds-button ds-button--primary">Save</button>
+            </div>
+        </form>
+
+        <section class="ds-editorsection">
+            <h2>Status</h2>
+
+            @if (_settings!.UpdateReady)
+            {
+                <div class="ds-alert ds-alert--info">
+                    <strong>Update ready — version @_settings.LatestKnownVersion.</strong>
+                    Downloaded and verified against this build's own release-signing key.
+                    <a href="/updates/download">Download the installer</a>, then run it as
+                    Administrator to upgrade — the service restarts automatically as part of
+                    that install, the same as any other upgrade (see the Admin Guide's
+                    "Upgrading" section).
+                </div>
+            }
+            else if (_settings.LastCheckError is { Length: > 0 } error)
+            {
+                <div class="ds-alert ds-alert--warning">Last check failed: @error</div>
+            }
+            else if (_settings.LastCheckedUtc is { } checkedUtc)
+            {
+                <p class="ds-muted">Up to date. Last checked @checkedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'").</p>
+            }
+            else
+            {
+                <p class="ds-muted">No check has run yet.</p>
+            }
+
+            <div class="ds-form__actions">
+                <button type="button" class="ds-button ds-button--ghost" @onclick="CheckNowAsync">Check now</button>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _enabled;
+    private int _intervalHours = 24;
+    private UpdateSettings? _settings;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _settings = await Admin.GetStatusAsync(CancellationToken.None);
+        _enabled = _settings.CheckEnabled;
+        _intervalHours = _settings.CheckIntervalHours;
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        (bool ok, string message) = await Admin.SaveEnabledStateAsync(_enabled, _intervalHours, CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+        await RefreshAsync();
+    }
+
+    private async Task CheckNowAsync()
+    {
+        (bool ok, string message) = await Admin.CheckNowAsync(CancellationToken.None);
+        Toast.Show(ok ? ToastLevel.Success : ToastLevel.Error, message);
+        await RefreshAsync();
+    }
+}

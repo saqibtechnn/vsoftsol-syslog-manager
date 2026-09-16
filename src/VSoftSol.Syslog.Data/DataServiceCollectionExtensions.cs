@@ -98,6 +98,9 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<Reports.SqliteReportSmtpSettingsStore>();
         services.TryAddSingleton<Reports.ReportContentReader>();
 
+        // v1.1 — self-update check settings (ADR 0021).
+        services.TryAddSingleton<Updates.SqliteUpdateSettingsStore>();
+
         services.AddHostedService<SearchIndexMaintainer>();
 
         return services;

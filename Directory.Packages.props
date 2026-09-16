@@ -14,6 +14,8 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.0" />
+    <!-- v1.1 — self-update's GitHubUpdateClient (services.AddHttpClient<T>()). -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="8.0.1" />
 
     <!-- Logging -->
     <PackageVersion Include="Serilog.AspNetCore" Version="8.0.3" />

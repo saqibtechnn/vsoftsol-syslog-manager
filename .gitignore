@@ -35,6 +35,10 @@ installer/Strings.en-us.wxl
 src/VSoftSol.Syslog.Core/Generated/BrandingInfo.g.cs
 branding/.brand-cache/
 
+# Self-update release-signing trust anchor (v1.1 — ADR 0021). public-key.txt IS committed
+# (it is a public key); only the build-generated .cs it produces is ignored.
+src/VSoftSol.Syslog.Core/Generated/ReleaseSigningInfo.g.cs
+
 # OS
 Thumbs.db
 .DS_Store

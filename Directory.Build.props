@@ -40,5 +40,6 @@
   </ItemGroup>
 
   <Import Project="$(MSBuildThisFileDirectory)build\branding.props" />
+  <Import Project="$(MSBuildThisFileDirectory)build\releasesigning.props" />
 
 </Project>

@@ -10,6 +10,7 @@ using VSoftSol.Syslog.Web.Reports;
 using VSoftSol.Syslog.Web.Search;
 using VSoftSol.Syslog.Web.Security;
 using VSoftSol.Syslog.Web.Setup;
+using VSoftSol.Syslog.Web.Updates;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -74,6 +75,7 @@ try
     app.MapReportEndpoints();
     app.MapBundleEndpoints();
     app.MapSetupEndpoints();
+    app.MapUpdateEndpoints();
     app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
     app.Run();

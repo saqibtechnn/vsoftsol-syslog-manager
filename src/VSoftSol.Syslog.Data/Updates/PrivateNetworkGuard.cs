@@ -1,21 +1,18 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace VSoftSol.Syslog.Rules.Actions;
+namespace VSoftSol.Syslog.Data.Updates;
 
 /// <summary>
-/// SSRF defence for the webhook and syslog-forward actions (PHASE_07 Security Validation).
-/// Resolves a host to <b>every</b> address it maps to and rejects the action if any of them
-/// is loopback, link-local (incl. the cloud metadata range <c>169.254.0.0/16</c>), a
-/// private RFC1918 / CGNAT range, or a unique-local IPv6 address — unless the operator has
-/// explicitly allow-listed that exact CIDR on the action.
-///
-/// <para>v1.1 — ADR 0021, decision #5: <c>VSoftSol.Syslog.Data.Updates.PrivateNetworkGuard</c>
-/// is a deliberate duplicate of this type for the self-update GitHub client, which cannot
-/// reference this assembly (<c>LayeringTests</c>). Keep the two in sync if the blocked-range
-/// logic ever changes.</para>
+/// SSRF defence for <see cref="GitHubUpdateClient"/> (v1.1 — ADR 0021, decision #5). This is
+/// a deliberate duplicate of <c>VSoftSol.Syslog.Rules.Actions.PrivateNetworkGuard</c> — the
+/// layering fitness test (<c>LayeringTests.Layer_DoesNotReference_ForbiddenAssemblies</c>)
+/// forbids <c>VSoftSol.Syslog.Data</c> from referencing <c>VSoftSol.Syslog.Rules</c>, and the
+/// guard's logic can't live in <c>Core</c> either (<c>CoreArchitectureTests</c> forbids any
+/// <c>System.Net</c>/<c>System.Net.Sockets</c> reference there). Keep the two copies in sync
+/// if the blocked-range logic ever changes — see ADR 0021 for the full reasoning.
 /// </summary>
-public static class PrivateNetworkGuard
+internal static class PrivateNetworkGuard
 {
     /// <summary>
     /// Returns null when every resolved address is a routable public address (or explicitly
@@ -58,14 +55,14 @@ public static class PrivateNetworkGuard
             if (IsBlocked(address) && !allow.Any(c => InRange(address, c.Network, c.Prefix)))
             {
                 return $"the target resolves to {address}, which is a private/link-local/loopback address " +
-                       "(add its CIDR to the webhook's private-network allow-list to override)";
+                       "(add its CIDR to the allow-list to override)";
             }
         }
 
         return null;
     }
 
-    /// <summary>The synchronous check for a single literal address (used at compile time).</summary>
+    /// <summary>The synchronous check for a single literal address.</summary>
     public static bool IsBlocked(IPAddress address)
     {
         if (IPAddress.IsLoopback(address))

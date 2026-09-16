@@ -42,6 +42,7 @@ public static class WebSecurityExtensions
         services.TryAddScoped<VSoftSol.Syslog.Web.Hardening.ApiKeyAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Hardening.ListenerSettingsService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Hardening.ConfigBundleAdminService>();
+        services.TryAddScoped<VSoftSol.Syslog.Web.Updates.UpdateAdminService>();
         services.TryAddScoped<VSoftSol.Syslog.Web.Hardening.SelfMonitoringViewService>();
 
         services.AddOptions<WebAuthOptions>()

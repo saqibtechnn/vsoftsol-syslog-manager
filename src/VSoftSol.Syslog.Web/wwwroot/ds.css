@@ -149,6 +149,9 @@
 
 .ds-alert { padding: 0.6rem 0.8rem; border-radius: var(--ds-radius); margin-bottom: 1rem; }
 .ds-alert--error { background: #fce8e6; border: 1px solid #f3c0bb; color: #7a1a13; }
+/* v1.1 — self-update Settings page. */
+.ds-alert--warning { background: color-mix(in srgb, var(--ds-warn, #e37400) 14%, transparent); border: 1px solid var(--ds-warn, #e37400); }
+.ds-alert--info { background: color-mix(in srgb, var(--ds-accent, #1a73e8) 12%, transparent); border: 1px solid var(--ds-accent, #1a73e8); }
 
 .ds-cardgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
 .ds-card { background: var(--ds-surface); border: 1px solid var(--ds-border); border-radius: var(--ds-radius); padding: 1rem 1.25rem; }

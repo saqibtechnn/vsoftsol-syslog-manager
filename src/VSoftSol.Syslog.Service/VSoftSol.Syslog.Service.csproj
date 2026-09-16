@@ -20,6 +20,8 @@
     <!-- Microsoft.Extensions.Hosting is supplied implicitly by Microsoft.NET.Sdk.Worker. -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <!-- v1.1 — self-update's GitHubUpdateClient. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Serilog.Extensions.Hosting" />
     <PackageReference Include="Serilog.Sinks.File" />
     <PackageReference Include="Serilog.Sinks.EventLog" />

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Vendor-only release-signing tool (v1.1 — ADR 0021). Never shipped: referenced by no
+       other project, so it cannot end up in the installer's published output regardless of
+       glob patterns. References only Core, for BundleSigner (ECDSA) and the UpdateManifest
+       shapes — no product runtime dependency. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>VSoftSol.Syslog.ReleaseSigning</RootNamespace>
+    <AssemblyName>VSoftSol.Syslog.ReleaseSigning</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

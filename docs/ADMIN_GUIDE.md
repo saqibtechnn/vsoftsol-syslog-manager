@@ -58,6 +58,26 @@ the new version starts; the syslog listeners' OS-level socket buffers absorb a s
 but a very long one can still drop UDP datagrams sent during the window — schedule upgrades
 outside your busiest ingest period if that risk matters to you.
 
+### Automatic update checks
+
+Settings → Updates can periodically check for a new release on the vendor's GitHub
+repository, so you don't have to remember to look. It is **off by default** — turn it on
+and set a check interval (1–168 hours) to use it.
+
+When enabled, the collector checks for a new release, and if one exists, downloads and
+cryptographically verifies it — signature first, then the installer's own hash — entirely
+on its own. Nothing is ever installed automatically: once a release is downloaded and
+verified, the Settings page shows "Update ready — version X.Y.Z" and a **Download the
+installer** button. Download it, then run it as Administrator exactly as described above
+under "Upgrading" — the service restarts automatically as part of that install, the same as
+any other upgrade.
+
+If a signature or hash check ever fails (a sign of a tampered or compromised release), the
+installer is refused and never offered for download; this is recorded in the audit log and
+shown on the Settings page. This feature makes one outbound connection, to GitHub, only
+when enabled — everything else about the product stays as described in
+`docs/security/THREAT_MODEL.md`'s "Not internet-facing" characterization.
+
 ## Backup and restore
 
 The database (`syslog.db`, in the data directory) is the only place product state lives —

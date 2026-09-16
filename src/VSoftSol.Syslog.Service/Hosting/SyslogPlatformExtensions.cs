@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Configuration;
@@ -6,9 +8,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using VSoftSol.Syslog.Core.Abstractions;
 using VSoftSol.Syslog.Data;
+using VSoftSol.Syslog.Data.Audit;
 using VSoftSol.Syslog.Data.Bundles;
 using VSoftSol.Syslog.Data.Security;
 using VSoftSol.Syslog.Data.Sqlite;
+using VSoftSol.Syslog.Data.Updates;
 using VSoftSol.Syslog.Data.Users;
 using VSoftSol.Syslog.Ingestion;
 using VSoftSol.Syslog.Ingestion.Parsing;
@@ -182,8 +186,34 @@ public static class SyslogPlatformExtensions
             sp.GetRequiredService<SqliteBundleTrustStore>(),
             ResolvePatternsDirectory(sp)));
 
+        // v1.1 — self-update check (ADR 0021). Bound here (not AddCollectorRuntime), same
+        // disposition as IngestionOptions/ListenerPortReloadService above: a standalone Web
+        // host must still be able to show "update available" in Settings even when it is
+        // not hosting the collector runtime. GitHubUpdateOptions is bootstrap-tier
+        // (compiled-in product facts — which repo, which asset names), not admin-editable;
+        // the enabled/interval toggle lives in the DB-backed UpdateSettings instead.
+        services.AddOptions<GitHubUpdateOptions>().Bind(configuration.GetSection("Updates:GitHub"));
+        services.AddHttpClient<GitHubUpdateClient>();
+        services.TryAddSingleton<UpdateChecker>(sp => new UpdateChecker(
+            sp.GetRequiredService<SqliteUpdateSettingsStore>(),
+            sp.GetRequiredService<GitHubUpdateClient>(),
+            sp.GetRequiredService<SqliteAuditLog>(),
+            sp.GetRequiredService<NotificationSink>(),
+            currentVersion: CurrentAssemblyVersion(),
+            dataDirectory: sp.ResolveDataDirectory(),
+            sp.GetRequiredService<TimeProvider>()));
+        services.AddHostedService<UpdateCheckHostedService>();
+
         return services;
     }
+
+    /// <summary>Every project shares one version (<c>Directory.Build.props</c>
+    /// "One shared version"), so reading it from this assembly is equivalent to reading it
+    /// from whichever host process actually loaded — mirrors <c>AboutInfo.Version</c>
+    /// (VSoftSol.Syslog.Web), duplicated rather than referenced since Service does not
+    /// reference Web (the dependency runs the other way).</summary>
+    private static string CurrentAssemblyVersion() =>
+        FileVersionInfo.GetVersionInfo(Assembly.GetExecutingAssembly().Location).ProductVersion ?? "0.0.0";
 
     /// <summary>Mirrors <c>PatternPackLoader</c>'s own default resolution exactly, so a
     /// bundle export/import always targets the same directory the parser actually reads.</summary>

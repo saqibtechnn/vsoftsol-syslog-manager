@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The application can now check for its own updates.** Settings → Updates (off by
+  default) periodically checks the vendor's GitHub releases for a newer, cryptographically
+  signed version, downloads it, and verifies it — signature, then hash — entirely on its
+  own. Nothing installs itself: once verified, the page offers a "Download the installer"
+  button, and you run it exactly as described under Upgrading. A release that fails
+  verification is never offered and is recorded in the audit log. See the [Admin Guide's
+  Automatic update checks section](ADMIN_GUIDE.md#automatic-update-checks).
 - **The installer's own .NET Runtime check is fixed — it could never pass, on any machine,
   since v1.0.0.** Every fresh install hit "requires the ASP.NET Core Runtime 8.0.x (Hosting
   Bundle)" regardless of whether that runtime was actually installed: the check read a

@@ -27,6 +27,10 @@ to learn where the build stands. Keep it terse and factual.
   the runtime was actually present — is fixed; see "v1.1 log" below. Found by a real user
   install attempt, the first time this project's own history has an installer defect
   reported from outside its own (VM-only, no-clean-install) testing.
+- **Post-`v1.1.0` feature, not yet tagged (2026-09-16):** self-update check and verified
+  download (ADR 0021) — the application can now check the vendor's GitHub repository for a
+  new, cryptographically signed release, download it, and verify it; off by default, never
+  installs anything itself. See "v1.1 log" below.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -472,6 +476,68 @@ history" convention — the gap in that phase's own sign-off is recorded here in
 security-doc section: this is an installer-packaging defect, not a runtime attack surface
 change. No new git tag yet — this fix landed after `v1.1.0`; tagging a `v1.1.1` (or folding
 it into a future release) remains the operator's call.
+
+### Self-update check and verified download (ADR 0021) — 2026-09-16
+
+The application can now check `github.com/saqibtechnn/vsoftsol-syslog-manager` for a new
+release, download it, and cryptographically verify it — entirely automatically. It never
+installs anything itself: an Administrator downloads the already-verified MSI from Settings
+→ Updates and runs it elevated, exactly like every prior manual upgrade. **Off by default.**
+Went through this project's formal Plan Mode workflow given the security/architecture
+weight of the decision; the approved plan forced three explicit choices up front — apply
+mechanism (download+verify automatically, install manually — not fully silent, no new
+elevated helper component), integrity model (real ECDSA signature verification reusing
+`BundleSigner`, not checksum-only), and default state (off, admin opts in).
+
+**Trust model** — one ECDSA P-256 public key baked in at build time
+(`ReleaseSigningInfo`, `build/releasesigning.targets`), not the trust-on-first-use model
+config bundles use (ADR 0019): self-update has exactly one legitimate signer, decided once,
+not whichever key arrives with the first manifest a compromised channel could serve. The
+release-signing tool (`tools/VSoftSol.Syslog.ReleaseSigning`) signs a small manifest
+(version, MSI SHA-256, URLs) rather than the ~12 MB MSI itself; the product re-hashes the
+downloaded MSI against the manifest's pinned hash as a second independent check, and a third
+time immediately before serving it to the Administrator.
+
+**Two real defects caught and fixed while building this, not designed around in advance:**
+1. The first-draft SSRF-guard reuse (give `Data` a new `ProjectReference` to `Rules`) passed
+   the one fitness test checked by hand but failed a broader one
+   (`LayeringTests.Layer_DoesNotReference_ForbiddenAssemblies`) — caught by the full unit
+   suite, not by inspection. Fixed by duplicating the small guard locally in `Data`
+   (`VSoftSol.Syslog.Data.Updates.PrivateNetworkGuard`, doc-commented to explain why) and
+   moving `UpdateChecker` itself into `Service` (it needs `Rules.Actions.NotificationSink`,
+   same reason every other notification-raising `BackgroundService` already lives there).
+2. `UpdateWebTests.cs` — the first test in this codebase to exercise a Web download endpoint
+   over real HTTP while also needing to audit the acting user — caught a live 500:
+   `CurrentUserAccessor` wraps Blazor Server's `ServerAuthenticationStateProvider`, which
+   throws when resolved outside a Razor component's circuit, and `UpdateEndpoints.
+   DownloadAsync` is a plain minimal-API handler, not a circuit. Fixed by having
+   `UpdateAdminService.GetVerifiedDownloadAsync` take the caller's `ClaimsPrincipal` directly
+   from `HttpContext.User` instead. The same latent bug appears to affect at least
+   `ConfigBundleAdminService.ExportAsync` (`/bundles/export`) — flagged as a separate
+   follow-up task rather than fixed here (out of scope for this feature; no existing test in
+   this codebase had ever exercised that endpoint over real HTTP either, which is why it was
+   never caught before).
+
+**Verification** — full unit suite 1113/1113, full integration suite 848/848 (self-update
+subset 39/39), `dotnet build -c Release` warning-clean (2 expected
+`VSOFTSOL-UPDATE-001` warnings — no real signing key configured in this repository, by
+design), `dotnet format --verify-no-changes` clean, `dotnet build installer/Installer.wixproj
+-c Release` unaffected. `docs/evidence/v1.1-self-update/` (red-green.md, verification.md).
+Docs: new ADR `docs/adr/0021-self-update-check-and-verified-download.md`; new B6 section in
+`docs/security/THREAT_MODEL.md`; new v1.1 section in `docs/security/ASVS-checklist.md`
+(citing ASVS 5.0's actual V11.4/V11.6, verified directly against the ASVS 5.0.0 source —
+5.0 does not carry forward 4.0.3's dedicated self-update-signing control); new v1.1
+paragraph in `docs/security/SECURITY_REVIEW.md`; new "Automatic update checks" subsection in
+`docs/ADMIN_GUIDE.md`; new "Unreleased" bullet in `docs/RELEASE_NOTES.md`.
+
+**Deferred, explicitly** (see the ADR's "Consequences"): no key-rotation mechanism in v1; the
+`VersionPrefix`/`Installer.wixproj` `ProductVersion` version-sync gap is documented as a
+manual release-cut checklist step, not fixed; no CI-assisted release automation, by design
+(the private key must never touch CI); a manual end-to-end check against a real signed
+release is deferred to the vendor generating a production keypair, which was deliberately
+not done in this session (a credential-custody decision, not an oversight — see
+`release-signing/README.md`). No new git tag — same posture as the installer fix above;
+tagging remains the operator's call.
 
 ---
 

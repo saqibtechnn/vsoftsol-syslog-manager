@@ -329,3 +329,38 @@ permission) leaves the working listener untouched and this protocol is never lef
 listeners (Constraint 3). Gated to `AuthPolicies.Administer` and every attempted change —
 accepted or refused — is audited under `AuditActions.ConfigChange` (**V7.1**), the same as
 every other Settings write. Evidence: `docs/evidence/v1.1-live-listener-ports/`.
+
+## v1.1 — V11.4/V11.6 self-update check and verified download
+
+Adds a new, opt-in, off-by-default outbound path (application → GitHub) — the first place
+this product reaches the public internet at all. **This is not a control this ASVS 5.0
+edition carries as its own numbered item**: 4.0.3's dedicated "V10.3 Deployed Application
+Integrity Controls" chapter (auto-update must use a secure channel and be digitally signed
+before installing) does not exist in 5.0 — it was folded away in the V10/V13/V15
+restructuring, and the closest 5.0 controls that remain (**V15.1.2**/**V15.2.4**, supply-chain
+provenance for *third-party* dependencies) are about components pulled into the build, not
+about the product's own shipped-update mechanism, so citing them here would overstate the
+match. Verified directly against the ASVS 5.0.0 source (`OWASP/ASVS` tag `v5.0.0`) rather than
+carried forward from an older edition's numbering, per this checklist's own header
+instruction.
+
+What does apply, and is met: **V11.4.3** (hash functions used in digital signatures must be
+collision-resistant, adequate bit-length) and **V11.6.1** (only approved algorithms/modes
+for digital signature generation and verification) — the release-signing scheme reuses
+`BundleSigner`'s existing ECDSA P-256 + SHA-256 primitive (already cited for config bundles,
+ADR 0019) rather than a new algorithm choice, so this closes the same way that citation
+already closed. The 4.0.3-era *intent* (signed update, secure channel, no reduced security
+on downgrade) is still substantively met by construction even without a numbered 5.0 control
+to point at: the release-signing tool signs a manifest with the one build-time-baked public
+key (`ReleaseSigningInfo`, not TOFU — see ADR 0021 for why); `GitHubUpdateClient` requires
+HTTPS in production (`GitHubUpdateOptions.RequireHttps`); a manifest that fails signature
+verification is audited (`AuditActions.UpdateSignatureVerificationFailed`) and the MSI is
+never downloaded; the downloaded MSI is independently re-hashed against the manifest's
+pinned SHA-256 both immediately after download and again immediately before the Settings
+page serves it to the Administrator (`UpdateAdminService.GetVerifiedDownloadAsync`); nothing
+is ever installed automatically — the Administrator runs the already-verified MSI themselves,
+elevated, so no privilege boundary is crossed by this feature (THREAT_MODEL.md B6). Evidence:
+`docs/evidence/v1.1-self-update/`.
+
+Sources checked directly: `github.com/OWASP/ASVS` at tag `v5.0.0`, chapters
+`0x20-V11-Cryptography.md`, `0x22-V13-Configuration.md`, `0x24-V15-Secure-Coding-and-Architecture.md`.

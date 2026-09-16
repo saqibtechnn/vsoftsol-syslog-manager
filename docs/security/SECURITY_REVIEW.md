@@ -296,6 +296,29 @@ logged and skipped at collector startup, never fatal to ingestion. Full detail i
 `docs/security/ASVS-checklist.md`'s v1.1 section; evidence in
 `docs/evidence/v1.1-user-extractor-wiring/`.
 
+## v1.1 — Self-update check and verified download (ADR 0021)
+
+Adds this product's first genuinely internet-facing egress path (B6, new in
+`THREAT_MODEL.md`) — off by default, opt-in per Administrator. No new privilege or process
+boundary is crossed: the service account's rights are unchanged from ADR 0006, and the
+feature never installs, elevates, or schedules anything itself — it downloads and
+cryptographically verifies a release, then hands the Administrator an already-verified MSI
+to run themselves, exactly like every prior manual upgrade. Integrity rests on one
+compile-time-baked ECDSA P-256 public key (`ReleaseSigningInfo`) rather than the
+trust-on-first-use model config bundles use (ADR 0019) — deliberate, since the only
+acceptable signer here is a single vendor-controlled key decided once, not whichever key
+happens to arrive with the first manifest a compromised channel could serve. The one
+redirect hop GitHub Releases requires is allow-listed and re-validated against the same
+`PrivateNetworkGuard` SSRF defence the webhook action already relies on (B4) — necessarily a
+second, deliberately duplicated copy of that check, since the layering fitness tests forbid
+`Data` from depending on `Rules` and forbid the check from moving into `Core` either (both
+enforced by `LayeringTests`/`CoreArchitectureTests`, which is how a first draft of this
+design — sharing the check via a new `Data → Rules` reference — was caught and corrected
+before merge, not after). Accepted, explicitly documented residual risk: no key-rotation
+mechanism in v1 — see ADR 0021. Full detail in `docs/security/ASVS-checklist.md`'s v1.1
+section and `docs/security/THREAT_MODEL.md`'s B6; evidence in
+`docs/evidence/v1.1-self-update/`.
+
 ## Open findings by severity
 
 | Severity | Count | Must fix before |

@@ -32,7 +32,10 @@ service, Elevation of privilege.
 Single Windows host. One service process hosts the syslog collector (UDP/TCP/TLS
 listeners → bounded channel → disk spill queue → SQLite) and a Blazor Server UI over
 HTTPS bound to localhost or a named LAN interface. Outbound: SMTP, HTTP webhooks, syslog
-forward, ODBC, and local script execution as rule actions (Phase 7). Not internet-facing.
+forward, ODBC, and local script execution as rule actions (Phase 7). Not internet-facing,
+with one narrow, opt-in exception: v1.1's self-update checker (B6) can reach GitHub to
+check for and download a new, cryptographically verified release — off by default, and
+even when enabled it never installs anything itself.
 
 ## Trust boundaries
 
@@ -43,6 +46,7 @@ forward, ODBC, and local script execution as rule actions (Phase 7). Not interne
 | B3 | Application → SQLite file | Trusted (same host, ACL'd directory) |
 | B4 | Application → outbound actions (SMTP/webhook/script/syslog/ODBC) | Egress to attacker-influenceable targets |
 | B5 | Operator → installer & config-bundle import | Privileged operator, but the *files* may be untrusted |
+| B6 | Application → GitHub (self-update) | The one genuinely internet-facing egress path; opt-in, off by default |
 
 ---
 
@@ -230,6 +234,32 @@ devices, users, dashboards, reports, and vendor parser packs.
 
 ---
 
+## B6 — Application → GitHub (self-update)
+
+**Assets:** the update-signing trust anchor; the Administrator's own machine (the eventual
+target of whatever MSI they are handed); the collector's outbound network path.
+**Entry points:** `GitHubUpdateClient` (v1.1 — ADR 0021) — the *only* place this product
+initiates a connection to the public internet; everything else it talks to is on the local
+network or loopback. **Off by default** — no outbound call happens until an Administrator
+explicitly enables it on the new Settings → Updates page.
+
+This boundary is deliberately narrower than B4 (application → outbound actions): B4's
+targets are Administrator-configured (a webhook URL, a script path) and reachable on the
+internal network; B6's target is one fixed, compiled-in GitHub repository, and the only
+thing that ever crosses back into the product is a small signed manifest and, only after
+that manifest verifies, an MSI the Administrator chooses to run themselves.
+
+| STRIDE | Threat | Mitigation | Owner | Status |
+|---|---|---|---|---|
+| S / T | **Forged release** — an attacker who compromises the GitHub repo, the CDN, or a network path forwards a malicious manifest/MSI as if it were a genuine release | The manifest is signed with a private key that never leaves the vendor's offline custody (`release-signing/README.md`); the product trusts exactly one public key, baked in at build time (`ReleaseSigningInfo`, not TOFU — see decision #2 in ADR 0021, contrasted with the config-bundle model in B5). A manifest that fails signature verification is audited (`AuditActions.UpdateSignatureVerificationFailed`) and the MSI is **never downloaded**. The downloaded MSI is independently re-hashed against the manifest's pinned SHA-256 immediately after download, and again immediately before the Settings page serves it to the Administrator — two independent checks, not one | v1.1 | **implemented** — `UpdateSignatureVerifierTests` (tampered document / tampered signature fail closed), `GitHubUpdateClientTests` (hash-mismatched MSI refused, no partial file left), `UpdateWebTests` (tampered on-disk file refused at serve time even after passing the earlier check) |
+| I | **SSRF via the one redirect hop GitHub Releases requires** — a compromised or malicious `Location` header redirects the download to an internal or cloud-metadata address | Unlike B4's webhook action (zero redirects ever followed), this client follows **at most one** hop, and the resolved `Location`'s host is re-validated against a small fixed allow-list (`github.com`, `objects.githubusercontent.com`) and its resolved address re-checked against the same `PrivateNetworkGuard` logic B4 already uses before the second request is made — a private/loopback/link-local/CGNAT/cloud-metadata target is refused exactly as it would be for a webhook. This guard is a deliberate, documented duplicate of `Rules.Actions.PrivateNetworkGuard`, not a shared reference — `Data` may not depend on `Rules` (`LayeringTests`), and the check cannot move into `Core` either (`CoreArchitectureTests` forbids any `System.Net` reference there) | v1.1 | **implemented** — `GitHubUpdateClientTests` (allow-listed redirect followed; redirect to a private/loopback/non-allow-listed host refused; a second redirect refused outright) |
+| D | **Oversized response** — a compromised or malicious server serves an unbounded response body to exhaust memory/disk | Hard byte caps checked while streaming, before the full body is held in memory: 64 KB for the GitHub API response, 16 KB for the manifest (matching `UpdateManifestValidator.MaxDocumentBytes`), 200 MB for the MSI (generous — the real installer is ~12 MB) — a response that exceeds its cap is treated as a hard failure, never a silently-truncated success | v1.1 | **implemented** — `GitHubUpdateClientTests.DownloadManifestAsync_Oversized…` |
+| I | **Distribution-channel unavailability used to hide a targeted downgrade or withheld patch** | Out of scope for this feature by design — this is a manual-apply, opt-in checker, not a security-patch delivery SLA; a failed check is recorded and surfaced on the Settings page (`LastCheckError`), never silently swallowed, so an Administrator relying on it can see when it last succeeded | v1.1 | **accepted** — no software control; operationally, an Administrator who needs assurance of the *absence* of a newer release should check the vendor's GitHub releases page directly |
+| E | **The release-signing private key is compromised or lost** | The key never touches this product, this repository, or CI — it exists only in the vendor's own offline custody, generated and used exclusively through `tools/VSoftSol.Syslog.ReleaseSigning`. There is no rotation mechanism in v1: a compromise or loss requires shipping a full product update (with a new baked-in public key) through this same mechanism, verified against the *old* key one last time. Accepted, documented residual risk — see ADR 0021 and `release-signing/README.md`'s "Key rotation" section | v1.1 | **accepted** — no rotation mechanism in v1, documented |
+| E | **The downloaded MSI is trusted to install itself** | It never is — this feature never runs, elevates, or schedules anything. The Web process (an unprivileged service account, ADR 0006) only ever serves a file it has already verified twice; the Administrator downloads it over their own authenticated, `Administer`-gated session and runs it elevated, themselves, exactly like every prior manual upgrade. No new privilege boundary is crossed and ADR 0006's threat model is unchanged | v1.1 | **implemented** — `UpdateEndpoints`/`UpdateWebTests` (download gated independently of the page, at the endpoint) |
+
+---
+
 ## Phase 0 mitigations already in force
 
 - Parameterized-SQL, `Process.Start`, weak-crypto, disabled-cert-validation, and
@@ -253,3 +283,4 @@ devices, users, dashboards, reports, and vendor parser packs.
 | Phase 10 | (not a scheduled review) archive tampering, path traversal / zip-slip in archive naming, decompression bomb, cross-scope report leak (incl. the restore path), PDF/CSV injection; 5 rows recorded for the Phase 11 review — **done** (2026-09-11) |
 | Phase 11 | Re-draw B1 and B5 for TLS, SNMP, Windows Event Log, and config-bundle import; fold in the Phase 8 alert rows, the Phase 9 dashboard rows, and the Phase 10 retention/report rows — **done** (2026-09-11) |
 | Phase 12 | Full pre-release pen test (SECURITY_STANDARDS.md §7) — **partial**: a self-review against the packaged build plus a no-backdoor automated assertion were performed (`docs/security/PENTEST_REPORT.md`); an independent external penetration test needs a tester and infrastructure this environment does not have, and is carried (`known-issues.md`). Installer/B5 and the new `/setup` pre-auth surface (B2 addendum) reviewed — **done** (2026-09-12) |
+| v1.1 | New B6 boundary drawn for the self-update checker (application → GitHub) — the first genuinely internet-facing egress path — **done** (2026-09-16) |
