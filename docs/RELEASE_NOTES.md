@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The installer's own .NET Runtime check is fixed — it could never pass, on any machine,
+  since v1.0.0.** Every fresh install hit "requires the ASP.NET Core Runtime 8.0.x (Hosting
+  Bundle)" regardless of whether that runtime was actually installed: the check read a
+  registry path a 64-bit Hosting Bundle install never writes to. If you hit this dialog on
+  `v1.0.0` or `v1.1.0` after already installing the Hosting Bundle, that was this bug, not a
+  problem with your machine — download the latest installer and it will now pass correctly.
+
 ## v1.1.0 — 2026-09-15
 
 - **TOTP MFA is now enforced at sign-in**, closing the one limitation named in v1.0.0's own

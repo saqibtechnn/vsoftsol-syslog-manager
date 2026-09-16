@@ -46,9 +46,20 @@
       prerequisite (ASP.NET Core Runtime 8.0.x Hosting Bundle) so a missing/wrong version
       still fails fast at service start with a clear .NET error, not silently.
     -->
+    <!--
+      v1.1 — this RegistrySearch previously read
+      SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedhost, the 32-bit-view
+      registry path. A real x64 Hosting Bundle install (confirmed live: Version 8.0.31,
+      Path C:\Program Files\dotnet\) registers at the native, non-redirected
+      SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost instead — this package is
+      built Platform=x64 (Installer.wixproj), so a RegistrySearch with no Bitness override
+      already reads the native 64-bit view; hard-coding WOW6432Node into the key path made
+      the search look in the wrong hive entirely, so this Launch Condition failed 100% of
+      the time regardless of whether the prerequisite was actually installed.
+    -->
     <Property Id="DOTNETSHAREDHOST" Secure="yes">
       <RegistrySearch Id="DotNetSharedHostSearch" Root="HKLM"
-                       Key="SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedhost"
+                       Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
                        Name="Version" Type="raw" />
     </Property>
     <Launch Condition="Installed OR DOTNETSHAREDHOST" Message="!(loc.DotNetRequiredMessage)" />

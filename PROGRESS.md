@@ -22,6 +22,11 @@ to learn where the build stands. Keep it terse and factual.
   (2026-09-15) rather than picked up; everything else left is blocked on infrastructure this
   sandbox lacks (clean-VM hardware, a container/daemon host, a real ODBC driver, a CI host,
   a browser).
+- **Post-`v1.1.0` fix, not yet tagged (2026-09-16):** the installer's `.NET` Runtime launch
+  condition — broken since `v1.0.0`, blocking every first-time install regardless of whether
+  the runtime was actually present — is fixed; see "v1.1 log" below. Found by a real user
+  install attempt, the first time this project's own history has an installer defect
+  reported from outside its own (VM-only, no-clean-install) testing.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -423,6 +428,50 @@ by, unlike the purely-internal P5-4 refactor earlier in this series. No new secu
 section: no new query path, no new attack surface, no privilege change — the fix only
 corrects when an existing, already-reviewed diagnostic fires. No new git tag, same standing
 reason as the other v1.1 items above.
+
+### Installer's .NET Runtime launch condition fixed — 2026-09-16
+
+**High severity, present since `v1.0.0` (`d0bdd94`, Phase 12) — the MSI's own prerequisite
+check could never pass, on any machine, regardless of whether the correct runtime was
+installed.** Found by the user's own real install attempt on a real machine, not caught by
+anything in this project's own testing to date. `installer/Product.wxs`'s
+`<Launch Condition="Installed OR DOTNETSHAREDHOST" ...>` gates setup on either an in-place
+upgrade (`Installed`, true only during a repair/upgrade of an already-installed product —
+always empty on a first install) or `DOTNETSHAREDHOST`, populated from a `RegistrySearch`
+that read `SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedhost`. A 64-bit
+Hosting Bundle install registers at the native, non-redirected
+`SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost` instead — confirmed live on the
+reporting machine (the `WOW6432Node`-prefixed path did not exist; the corrected path showed
+`Version 8.0.31`, `Path C:\Program Files\dotnet\`, a genuinely-installed Hosting Bundle the
+installer refused to recognize). The package itself is built `Platform=x64`
+(`Installer.wixproj`), so a `RegistrySearch` with no `Bitness` override already reads the
+native 64-bit registry view — hard-coding `WOW6432Node` into the literal key path pointed
+the search at a location a 64-bit install never populates, meaning this launch condition
+failed unconditionally on every first-time install since it was written.
+
+This gap survived Phase 12's own sign-off because nothing in this project's testing history
+has ever run the packaged MSI interactively to completion: this sandbox has no clean VM or
+browser, and Phase 12's UI verification scripted the *web app's* first-run wizard via `curl`
+(documented in that phase's own evidence), which cannot exercise a native MSI's launch
+condition — that needs a real, elevated `msiexec` process with real registry state, which
+only a human clicking through the installer can provide. Stated plainly here rather than
+downplayed, since every prior "installer verified" claim in this project's history did not
+actually cover this code path.
+
+Fixed: the `RegistrySearch`'s `Key` corrected to the native (non-`WOW6432Node`) path. No
+automated test exercises this launch condition — doing so needs the same real, elevated,
+machine-wide `msiexec` state a unit/integration suite cannot provide, the same class of
+limitation already carried for every other "needs a clean VM/real hardware" item in this
+project. The live registry reproduction above, plus the reporting user re-running the
+corrected MSI, is the closest available substitute for an automated red/green pair.
+
+**Verification** — `docs/evidence/v1.1-installer-dotnet-check-fix/verification.md`.
+`docs/RELEASE_NOTES.md` new "Unreleased" bullet (opened fresh after the `v1.1.0` tag).
+`docs/evidence/phase-12/known-issues.md` left untouched, per this project's "never rewrite
+history" convention — the gap in that phase's own sign-off is recorded here instead. No
+security-doc section: this is an installer-packaging defect, not a runtime attack surface
+change. No new git tag yet — this fix landed after `v1.1.0`; tagging a `v1.1.1` (or folding
+it into a future release) remains the operator's call.
 
 ---
 
