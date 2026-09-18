@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using VSoftSol.Syslog.Core.Reports;
 using VSoftSol.Syslog.Data.Audit;
 using VSoftSol.Syslog.Data.Reports;
@@ -56,6 +57,24 @@ public sealed class ReportAdminService
     public async Task<ReportDefinition?> GetAsync(long id, CancellationToken ct)
     {
         long uid = await CurrentUserIdAsync(ct).ConfigureAwait(false);
+        return await _store.GetAsync(id, uid, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Overload for callers outside a Razor component's circuit — currently just
+    /// <c>ReportEndpoints.RunAsync</c> (the "Run now" download route). Takes the caller's
+    /// <see cref="ClaimsPrincipal"/> from <c>HttpContext.User</c> directly rather than through
+    /// <see cref="CurrentUserAccessor"/>, which wraps Blazor Server's
+    /// <c>ServerAuthenticationStateProvider</c> and throws when resolved from a plain minimal
+    /// API endpoint handler. Confirmed as a live 500 on every "Run now" report download
+    /// (v1.1) — same root cause as ADR 0021's `UpdateAdminService.GetVerifiedDownloadAsync`
+    /// fix and `ConfigBundleAdminService.ExportAsync`'s. Every other method on this class is
+    /// only ever called from the Reports settings page's own circuit, so only this one read
+    /// needed a second, principal-taking overload rather than a wholesale signature change.
+    /// </summary>
+    public async Task<ReportDefinition?> GetAsync(long id, ClaimsPrincipal caller, CancellationToken ct)
+    {
+        long uid = await CurrentUserIdAsync(new CurrentUser(caller), ct).ConfigureAwait(false);
         return await _store.GetAsync(id, uid, ct).ConfigureAwait(false);
     }
 
@@ -167,6 +186,11 @@ public sealed class ReportAdminService
     private async Task<long> CurrentUserIdAsync(CancellationToken ct)
     {
         CurrentUser user = await _users.GetAsync().ConfigureAwait(false);
+        return await CurrentUserIdAsync(user, ct).ConfigureAwait(false);
+    }
+
+    private async Task<long> CurrentUserIdAsync(CurrentUser user, CancellationToken ct)
+    {
         UserAccount? account = await _userStore.FindByUsernameAsync(user.UserName, ct).ConfigureAwait(false);
         return account?.UserId ?? -1;
     }

@@ -31,6 +31,11 @@ to learn where the build stands. Keep it terse and factual.
   download (ADR 0021) — the application can now check the vendor's GitHub repository for a
   new, cryptographically signed release, download it, and verify it; off by default, never
   installs anything itself. See "v1.1 log" below.
+- **Post-`v1.1.0` fix, not yet tagged (2026-09-18):** a live production 500 on Settings →
+  Config bundles → Export (`CurrentUserAccessor` crashing outside a Razor circuit), plus two
+  more instances of the same bug found while checking for it (every "Run now" report
+  download; the first-run "Waiting for messages" poll) — all three fixed, installer rebuilt
+  and delivered. See "v1.1 log" below.
 - **Build status:** green — `dotnet build -c Release` warning-clean (14 projects), `dotnet test` **1060 unit / 754-to-756 integration** across this phase's several full re-runs against the packaged build (`docs/evidence/phase-12/verification.md`) — every failure observed is one of two pre-existing, already-documented, load-sensitive flakes (`P2-5` the hard-kill/WAL soak test, `P7-5` the Argon2 decoy-timing ratio check), both confirmed non-regressions and neither touching any code this phase changed (`docs/evidence/phase-12/known-issues.md`). `dotnet format --verify-no-changes` exit 0, SCA clean (14 projects, zero vulnerable packages).
 - **Branding:** `branding/logo.png` present — yes (788 KB); `branding/brand.json` present; `branding/placeholder/logo.png` committed
 - **Insert benchmark:** 1M batched insert = **18,781 rows/sec** (Phase 1, MARGINAL vs 20k — I/O-bound on the VMware dev VM; re-verify on clean-VM hardware, v1.1 — P1-1).
@@ -538,6 +543,43 @@ release is deferred to the vendor generating a production keypair, which was del
 not done in this session (a credential-custody decision, not an oversight — see
 `release-signing/README.md`). No new git tag — same posture as the installer fix above;
 tagging remains the operator's call.
+
+### CurrentUserAccessor crash on minimal-API endpoints — 2026-09-18
+
+**High severity, live in production** — found by the operator clicking Export on Settings →
+Config bundles on the just-installed v1.1 build and hitting the generic error page. Root
+cause: `CurrentUserAccessor` wraps Blazor Server's `ServerAuthenticationStateProvider`
+(via `SyslogAuthenticationStateProvider`), whose base `GetAuthenticationStateAsync()` only
+works inside a Razor component's circuit DI scope — never from a plain minimal API endpoint
+handler (`MapGet`/`MapPost`). `ConfigBundleAdminService.ExportAsync` (called from
+`BundleEndpoints`'s `/bundles/export`) called it directly and 500'd on every request. This
+is the exact bug flagged as a follow-up task while building the self-update feature two days
+earlier (above) — not yet picked up when the operator hit it live.
+
+Checking for the same pattern surfaced two more, previously unnoticed, live instances:
+**`ReportRenderService.RunNowAsync`** (every "Run now" report download — worse than the
+bundle case, since the resolved user also determined *what data the report could see*, not
+just the audit actor) and **`SetupEndpoints`'s `/api/setup/first-message-status`** (polled
+repeatedly by the first-run "Waiting for messages" page's auto-advance script — every poll
+500'd). All three shared the same fix: build `CurrentUser`/use the `ClaimsPrincipal` from
+`HttpContext.User` directly instead of going through `CurrentUserAccessor` — the same
+pattern `SearchEndpoints.ExportAsync` already used correctly, confirmed never affected.
+
+Confirmed real RED before the fix (not merely inferred): the fix was temporarily reverted
+via `git stash` for each of the three new regression tests, observed failing with the exact
+production `InvalidOperationException`, then the fix restored and confirmed GREEN.
+
+**Verification** — full unit suite 1113/1113; full integration suite 853/854 (one failure,
+`WalCrashConsistencyTests` / `P2-5`, the pre-existing documented load-sensitive flake,
+confirmed non-regression by isolated re-run — passed in 13s); targeted new-test subset
+45/45; `dotnet build -c Release` warning-clean; `dotnet format --verify-no-changes` clean;
+installer republished and rebuilt (`dotnet publish src/VSoftSol.Syslog.Web -c Release -r
+win-x64 --self-contained false -o publish/Web` then `dotnet build
+installer/Installer.wixproj -c Release`) and delivered to the operator immediately, ahead of
+the rest of this write-up, since this was a live blocker. `docs/evidence/
+v1.1-currentuseraccessor-endpoint-fix/` (red-green.md, verification.md).
+
+No new git tag — same posture as the other post-`v1.1.0` items above.
 
 ---
 

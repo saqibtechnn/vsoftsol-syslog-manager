@@ -14,9 +14,14 @@ public static class SetupEndpoints
     public static IEndpointRouteBuilder MapSetupEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/setup/first-message-status",
-            async (ScopedEventReader reader, CurrentUserAccessor currentUser, CancellationToken ct) =>
+            async (HttpContext http, ScopedEventReader reader, CancellationToken ct) =>
         {
-            CurrentUser user = await currentUser.GetAsync().ConfigureAwait(false);
+            // A plain minimal API endpoint, not a Razor component circuit — CurrentUserAccessor
+            // wraps Blazor Server's ServerAuthenticationStateProvider, which throws when
+            // resolved outside a circuit (v1.1, same root cause as ADR 0021's
+            // UpdateAdminService.GetVerifiedDownloadAsync fix). Build the CurrentUser directly
+            // from HttpContext.User instead, matching SearchEndpoints' existing convention.
+            var user = new CurrentUser(http.User);
             long count = await reader.CountAsync(user.Scope, new LogQuery { Limit = 1 }, ct).ConfigureAwait(false);
             return Results.Ok(new { hasMessage = count > 0 });
         }).RequireAuthorization();

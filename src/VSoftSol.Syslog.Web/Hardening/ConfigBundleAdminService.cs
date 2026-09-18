@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using VSoftSol.Syslog.Core.Bundles;
 using VSoftSol.Syslog.Data.Audit;
 using VSoftSol.Syslog.Data.Bundles;
@@ -28,9 +29,23 @@ public sealed class ConfigBundleAdminService
 
     public static IReadOnlyList<string> AllSections => BundleSections.All;
 
-    public async Task<SignedBundle> ExportAsync(IReadOnlySet<string> sections, string title, CancellationToken ct)
+    /// <summary>
+    /// Takes the caller's <see cref="ClaimsPrincipal"/> directly rather than going through
+    /// <see cref="CurrentUserAccessor"/>: this method is called from a plain minimal API
+    /// endpoint (<c>BundleEndpoints.ExportAsync</c>), not from within a Razor component's
+    /// circuit — <c>CurrentUserAccessor</c> wraps Blazor Server's own
+    /// <c>ServerAuthenticationStateProvider</c>, which throws <c>InvalidOperationException</c>
+    /// ("Do not call GetAuthenticationStateAsync outside of the DI scope for a Razor
+    /// component") when resolved from a request that never went through the component
+    /// circuit — confirmed as a live 500 on `/bundles/export` (v1.1, same root cause as ADR
+    /// 0021's `UpdateAdminService.GetVerifiedDownloadAsync` fix). <see cref="TrustSignerAsync"/>
+    /// and <see cref="ApplyAsync"/> below are both called from the Bundles settings page's own
+    /// circuit, so they keep using <see cref="CurrentUserAccessor"/> — only this
+    /// endpoint-invoked method needed the change.
+    /// </summary>
+    public async Task<SignedBundle> ExportAsync(IReadOnlySet<string> sections, string title, ClaimsPrincipal caller, CancellationToken ct)
     {
-        CurrentUser me = await _currentUser.GetAsync().ConfigureAwait(false);
+        var me = new CurrentUser(caller);
         SignedBundle bundle = await _exporter.ExportAsync(sections, BundleKind.CustomerExport, title, me.UserName, DateTimeOffset.UtcNow, ct)
             .ConfigureAwait(false);
         await _audit.AppendAsync(new AuditEntry(AuditActions.Export, me.UserName, "config_bundle", title, Detail: string.Join(",", sections)),

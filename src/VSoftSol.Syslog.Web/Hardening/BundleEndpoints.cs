@@ -29,7 +29,7 @@ public static class BundleEndpoints
             : new HashSet<string>(sectionsParam.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
         string title = string.IsNullOrWhiteSpace(http.Request.Query["title"]) ? "Export" : http.Request.Query["title"].ToString();
 
-        SignedBundle bundle = await admin.ExportAsync(sections, title, http.RequestAborted).ConfigureAwait(false);
+        SignedBundle bundle = await admin.ExportAsync(sections, title, http.User, http.RequestAborted).ConfigureAwait(false);
         byte[] body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle));
         string fileName = $"{Sanitize(title)}.vsbundle.json";
 

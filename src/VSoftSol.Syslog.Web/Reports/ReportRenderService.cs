@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Text;
 using VSoftSol.Syslog.Core.Reports;
 using VSoftSol.Syslog.Core.Security;
@@ -23,25 +24,36 @@ public sealed class ReportRenderService
 {
     private readonly ReportContentReader _content;
     private readonly SqliteAuditLog _audit;
-    private readonly CurrentUserAccessor _users;
     private readonly TimeProvider _time;
     private readonly IWebHostEnvironmentLogoResolver _logo;
 
     public ReportRenderService(
-        ReportContentReader content, SqliteAuditLog audit, CurrentUserAccessor users,
+        ReportContentReader content, SqliteAuditLog audit,
         TimeProvider? timeProvider, IWebHostEnvironmentLogoResolver logo)
     {
         _content = content;
         _audit = audit;
-        _users = users;
         _time = timeProvider ?? TimeProvider.System;
         _logo = logo;
     }
 
-    public async Task<ReportRenderResult> RunNowAsync(ReportDefinition report, CancellationToken ct)
+    /// <summary>
+    /// Takes the caller's <see cref="ClaimsPrincipal"/> directly rather than
+    /// <see cref="CurrentUserAccessor"/>: this is called exclusively from the plain minimal
+    /// API endpoint <c>ReportEndpoints.RunAsync</c> (the Razor "Run now" button is a full page
+    /// navigation to that route, never a circuit-scoped call) — <c>CurrentUserAccessor</c>
+    /// wraps Blazor Server's own <c>ServerAuthenticationStateProvider</c>, which throws
+    /// <c>InvalidOperationException</c> when resolved outside a Razor component's circuit.
+    /// Confirmed as a live 500 on every "Run now" report download (v1.1, same root cause as
+    /// ADR 0021's `UpdateAdminService.GetVerifiedDownloadAsync` fix, and
+    /// `ConfigBundleAdminService.ExportAsync`'s) — here it also determined the *scope* the
+    /// report content resolved under, not just the audit actor, so this was a correctness bug
+    /// as well as an availability one.
+    /// </summary>
+    public async Task<ReportRenderResult> RunNowAsync(ReportDefinition report, ClaimsPrincipal caller, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(report);
-        CurrentUser user = await _users.GetAsync().ConfigureAwait(false);
+        var user = new CurrentUser(caller);
 
         ReportContent content = await _content
             .ResolveAsync(report, user.Scope, user.DisplayName, _time.GetUtcNow(), ct).ConfigureAwait(false);

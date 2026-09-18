@@ -22,14 +22,14 @@ public static class ReportEndpoints
 
     private static async Task RunAsync(HttpContext http, long id, ReportAdminService admin, ReportRenderService renderer)
     {
-        ReportDefinition? report = await admin.GetAsync(id, http.RequestAborted).ConfigureAwait(false);
+        ReportDefinition? report = await admin.GetAsync(id, http.User, http.RequestAborted).ConfigureAwait(false);
         if (report is null)
         {
             http.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
 
-        ReportRenderResult result = await renderer.RunNowAsync(report, http.RequestAborted).ConfigureAwait(false);
+        ReportRenderResult result = await renderer.RunNowAsync(report, http.User, http.RequestAborted).ConfigureAwait(false);
 
         bool csv = string.Equals(http.Request.Query["format"], "csv", StringComparison.OrdinalIgnoreCase);
         byte[] body = csv ? result.Csv : result.Pdf;
