@@ -52,7 +52,7 @@ public sealed class DesignSystemRenderTests : IClassFixture<SyslogWebApplication
 
         string html = await auth.Client.GetStringAsync("/about");
 
-        html.Should().Contain("1.0.0");
+        html.Should().Contain("1.1.1");
         html.Should().Contain("Vision Software Solutions");
         html.Should().Contain("vsoftsol.com");
         html.Should().Contain("&#xA9;").And.Contain("2026"); // copyright

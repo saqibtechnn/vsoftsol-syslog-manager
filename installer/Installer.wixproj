@@ -21,7 +21,7 @@
     <SuppressIces>ICE60</SuppressIces>
     <DefineConstants>
       WebPublishDir=$(MSBuildThisFileDirectory)..\publish\Web;
-      ProductVersion=1.0.0
+      ProductVersion=1.1.1
     </DefineConstants>
   </PropertyGroup>
 
