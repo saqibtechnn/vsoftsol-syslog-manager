@@ -1,6 +1,18 @@
 # VSoftSol Syslog Manager — Release Notes
 
-## Unreleased
+## v1.1.2 — 2026-10-07
+
+- **Two separate downloads: one to update, one for a new installation.** Each release now
+  ships `VSoftSolSyslogManagerUpdate-<version>.msi` (about 12 MB — installs over an existing
+  install and keeps your data) and `VSoftSolSyslogManagerInstall-<version>.exe` (about 118 MB —
+  for a first install: it installs the ASP.NET Core 8 Hosting Bundle for you if it is missing,
+  built in so it works on a server with no internet access, then installs the product). Either
+  can do the other's job where the prerequisite is already present. The application itself is
+  unchanged from v1.1.1.
+- The product version is now defined in one place; the installer and the bundle both read it,
+  so they can no longer disagree.
+
+## v1.1.1 — 2026-09-23
 
 - **The application can now check for its own updates.** Settings → Updates (off by
   default) periodically checks the vendor's GitHub releases for a newer, cryptographically
@@ -15,6 +27,9 @@
   registry path a 64-bit Hosting Bundle install never writes to. If you hit this dialog on
   `v1.0.0` or `v1.1.0` after already installing the Hosting Bundle, that was this bug, not a
   problem with your machine — download the latest installer and it will now pass correctly.
+- **Fixed: Settings → Config bundles → Export, "Run now" report downloads, and the first-run
+  "Waiting for messages" page's auto-advance** all returned an error page. They shared one
+  root cause and are fixed together.
 
 ## v1.1.0 — 2026-09-15
 

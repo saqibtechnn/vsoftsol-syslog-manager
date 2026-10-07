@@ -5,12 +5,23 @@ for search syntax, rules, dashboards, or reports, see the [User Guide](USER_GUID
 
 ## Install
 
-1. Install the **ASP.NET Core Runtime 8.0.x (Hosting Bundle)** first, if it is not already
-   present: <https://dotnet.microsoft.com/download/dotnet/8.0>. The installer checks for a
-   .NET runtime and stops with a clear message if none is present, but it cannot verify the
-   exact version — if the service fails to start after install, this is the first thing to
-   check.
-2. Run `VSoftSolSyslogManagerSetup.msi`. It installs to `C:\Program Files\VSoftSol Syslog
+Each release ships two files; use the one that matches what you are doing:
+
+| File | Use it for |
+|---|---|
+| `VSoftSolSyslogManagerInstall-<version>.exe` | **A new installation.** Installs the ASP.NET Core 8 Hosting Bundle first if it is missing (it is built into the file, so no internet access is needed), then installs the product. About 118 MB. |
+| `VSoftSolSyslogManagerUpdate-<version>.msi` | **Updating an existing install.** Installs over the top, keeping your data. About 12 MB. It needs the Hosting Bundle already present, which any existing install has. |
+
+Either file also works on the other's job (the Install `.exe` will upgrade an existing
+install; the Update `.msi` will do a first install on a machine that already has the Hosting
+Bundle). Both are on the [GitHub releases page](https://github.com/saqibtechnn/vsoftsol-syslog-manager/releases).
+
+1. Run **`VSoftSolSyslogManagerInstall-<version>.exe`** as Administrator. If you would rather
+   install the prerequisite yourself, install the **ASP.NET Core Runtime 8.0.x (Hosting
+   Bundle)** first (<https://dotnet.microsoft.com/download/dotnet/8.0>) and run the `.msi`
+   instead; it stops with a clear message if no .NET runtime is present, but cannot verify
+   the exact version — if the service fails to start after install, check this first.
+2. The installer puts the product in `C:\Program Files\VSoftSol Syslog
    Manager`, creates the data directory at `C:\ProgramData\Vision Software
    Solutions\VSoftSol Syslog Manager` with permissions restricted to the service account and
    Administrators, registers one Windows Service, and opens three Windows Firewall rules
@@ -41,8 +52,8 @@ unexpectedly.
 
 ## Upgrading
 
-Run the newer version's MSI directly over an existing install — no need to uninstall
-first. `MajorUpgrade` handling removes the old file version and preserves:
+Run the newer version's **Update** file (`VSoftSolSyslogManagerUpdate-<version>.msi`)
+directly over an existing install — no need to uninstall first. `MajorUpgrade` handling removes the old file version and preserves:
 
 - the database and every row in it (events, streams, rules, alerts, dashboards, reports,
   users, audit log)

@@ -76,6 +76,8 @@
     <PackageVersion Include="WixToolset.Util.wixext" Version="7.0.0" />
     <PackageVersion Include="WixToolset.Firewall.wixext" Version="7.0.0" />
     <PackageVersion Include="WixToolset.UI.wixext" Version="7.0.0" />
+    <!-- New-install bootstrapper bundle (v1.1.1) -->
+    <PackageVersion Include="WixToolset.BootstrapperApplications.wixext" Version="7.0.0" />
   </ItemGroup>
 
   <!-- Transitive pins (CentralPackageTransitivePinningEnabled). Legacy System.* packages

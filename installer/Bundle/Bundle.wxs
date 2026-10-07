@@ -1,0 +1,45 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Bundle Name="VSoftSol Syslog Manager"
+          Version="$(var.ProductVersion)"
+          Manufacturer="Vision Software Solutions"
+          UpgradeCode="26fb17fb-500f-43e0-aa42-41e8cbcc7fab"
+          IconSourceFile="..\assets\app-icon.ico"
+          AboutUrl="https://vsoftsol.com"
+          HelpUrl="https://vsoftsol.com">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="rtfLicense"
+                                              LicenseFile="..\License.rtf"
+                                              SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <!-- Same test the MSI's own launch condition uses (installer/Product.wxs): the native
+         64-bit sharedhost key the ASP.NET Core Hosting Bundle writes. -->
+    <util:RegistrySearch Id="DotNetSharedHostSearch" Root="HKLM"
+                         Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost"
+                         Value="Version" Result="exists" Variable="DotNetSharedHost" Bitness="always64" />
+
+    <Chain>
+      <!-- Skipped entirely when the Hosting Bundle is already present. Permanent: removing
+           this product must never uninstall a runtime other software may depend on. -->
+      <ExePackage Id="AspNetCoreHostingBundle"
+                  DisplayName="ASP.NET Core $(var.HostingBundleVersion) Hosting Bundle"
+                  SourceFile="$(var.HostingBundleFile)"
+                  Name="dotnet-hosting-$(var.HostingBundleVersion)-win.exe"
+                  DetectCondition="DotNetSharedHost"
+                  InstallArguments="/install /quiet /norestart"
+                  RepairArguments="/repair /quiet /norestart"
+                  Permanent="yes"
+                  Vital="yes">
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="1638" Behavior="success" />
+        <ExitCode Value="3010" Behavior="scheduleReboot" />
+      </ExePackage>
+
+      <MsiPackage Id="SyslogManager" SourceFile="$(var.MsiFile)" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

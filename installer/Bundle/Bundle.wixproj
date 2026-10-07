@@ -1,0 +1,47 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+
+  <!-- "New install" package: a Burn bootstrapper that installs the ASP.NET Core 8 Hosting
+       Bundle first (only when it is missing) and then the product MSI. The MSI alone is the
+       "Update" package — see installer/README.md. The Hosting Bundle is embedded so a server
+       with no internet access can still do a first install. It is a ~107 MB Microsoft-signed
+       file that is never committed: the EnsureHostingBundle target below downloads it from
+       Microsoft on first build and refuses to continue if its SHA-512 does not match. -->
+
+  <PropertyGroup>
+    <OutputName>VSoftSolSyslogManagerInstall</OutputName>
+    <OutputType>Bundle</OutputType>
+    <Platform>x64</Platform>
+    <DebugType>none</DebugType>
+
+    <HostingBundleVersion>8.0.31</HostingBundleVersion>
+    <HostingBundleSha512>5D647F414BF2FABE0470B5A4407C8FF5832454DA3C225749A23B39268172A96CC7FE75270791D18E28D8446ADBE8D2102101ECD03CD562C378493ED76D57AA75</HostingBundleSha512>
+    <HostingBundleUrl>https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/$(HostingBundleVersion)/dotnet-hosting-$(HostingBundleVersion)-win.exe</HostingBundleUrl>
+    <HostingBundleFile>$(MSBuildThisFileDirectory)prereq\dotnet-hosting-$(HostingBundleVersion)-win.exe</HostingBundleFile>
+    <MsiFile>$(MSBuildThisFileDirectory)..\bin\x64\$(Configuration)\en-us\VSoftSolSyslogManagerSetup.msi</MsiFile>
+
+    <!-- One shared version: Directory.Build.props's VersionPrefix. -->
+    <DefineConstants>ProductVersion=$(VersionPrefix);MsiFile=$(MsiFile);HostingBundleFile=$(HostingBundleFile);HostingBundleVersion=$(HostingBundleVersion)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.BootstrapperApplications.wixext" />
+    <PackageReference Include="WixToolset.Util.wixext" />
+  </ItemGroup>
+
+  <Target Name="EnsureHostingBundle" BeforeTargets="BeforeBuild;Compile">
+    <MakeDir Directories="$(MSBuildThisFileDirectory)prereq" />
+    <DownloadFile SourceUrl="$(HostingBundleUrl)" DestinationFolder="$(MSBuildThisFileDirectory)prereq"
+                  Condition="!Exists('$(HostingBundleFile)')" />
+    <GetFileHash Files="$(HostingBundleFile)" Algorithm="SHA512" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_HostingBundleHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_ActualHostingBundleSha512>%(_HostingBundleHash.FileHash)</_ActualHostingBundleSha512>
+    </PropertyGroup>
+    <Error Condition="'$([System.String]::Copy($(_ActualHostingBundleSha512)).ToUpperInvariant())' != '$(HostingBundleSha512)'"
+           Text="The Hosting Bundle at $(HostingBundleFile) has SHA-512 $(_ActualHostingBundleSha512), expected $(HostingBundleSha512). Delete the file and rebuild, or update HostingBundleVersion/HostingBundleSha512 together." />
+    <Error Condition="!Exists('$(MsiFile)')"
+           Text="The product MSI was not found at $(MsiFile). Build installer/Installer.wixproj first." />
+  </Target>
+
+</Project>

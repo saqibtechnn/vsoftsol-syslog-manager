@@ -581,6 +581,33 @@ v1.1-currentuseraccessor-endpoint-fix/` (red-green.md, verification.md).
 
 No new git tag — same posture as the other post-`v1.1.0` items above.
 
+### v1.1.1 published; v1.1.2 splits the release into Update and New-install files — 2026-10-07
+
+`v1.1.1` was tagged and released on GitHub (2026-09-23) carrying everything in the post-`v1.1.0`
+entries above, with the product version finally defined to match the tag (it had read `1.0.0`
+internally since Phase 12). On the operator's request that each release provide **one file to
+update and one for a new installation**, `v1.1.2` adds:
+
+- **`VSoftSolSyslogManagerUpdate-<ver>.msi`** — the existing MSI, unchanged in role (it already
+  upgrades in place); renamed so its purpose is explicit. Still what the self-update checker
+  downloads (it matches any `.msi` asset).
+- **`VSoftSolSyslogManagerInstall-<ver>.exe`** — a new WiX Burn bootstrapper
+  (`installer/Bundle/`) that installs the ASP.NET Core 8 Hosting Bundle only if absent, then the
+  MSI. The prerequisite (Microsoft-signed, ~107 MB) is **embedded** so a first install works on a
+  server with no internet; it is never committed — the build downloads it and fails unless its
+  SHA-512 matches. Aimed squarely at the dead end the operator hit on their first install.
+- The version now has a single source (`Directory.Build.props` `VersionPrefix`; the MSI and the
+  bundle read it), retiring the "bump two places" gap named in ADR 0021's Consequences — that
+  ADR is left as written, per convention.
+
+Shipped as a new version rather than extra assets on `v1.1.1` so the tag, the source, and the
+published files agree. **Verification:** unit 1113/1113 and integration 854/854 on the 1.1.2
+build; `dotnet build -c Release` 0 errors; both artifacts built, MSI `ProductVersion` and bundle version read `1.1.2`; the
+bundle was exercised in `/layout` mode (no install) and its Burn log shows both packages parsed
+and the Hosting Bundle correctly detected as already present on the dev machine. **Not
+verified:** the "prerequisite missing" path (a real first install on a clean VM) — this sandbox
+has none, the same limitation carried for every installer item since Phase 12.
+
 ---
 
 ## Phase log

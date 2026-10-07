@@ -21,9 +21,16 @@
     <SuppressIces>ICE60</SuppressIces>
     <DefineConstants>
       WebPublishDir=$(MSBuildThisFileDirectory)..\publish\Web;
-      ProductVersion=1.1.1
+      ProductVersion=$(VersionPrefix)
     </DefineConstants>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The new-install bootstrapper lives in Bundle\ and has its own project. -->
+    <Compile Remove="Bundle\**" />
+    <EmbeddedResource Remove="Bundle\**" />
+    <None Remove="Bundle\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="WixToolset.Util.wixext" />

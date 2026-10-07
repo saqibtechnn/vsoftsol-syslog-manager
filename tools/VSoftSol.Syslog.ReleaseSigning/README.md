@@ -28,9 +28,9 @@ with the private key, and writes `update-manifest.json` next to the MSI:
 
 ```bash
 dotnet run --project tools/VSoftSol.Syslog.ReleaseSigning -- sign-release \
-  "C:\build\out\VSoftSolSyslogManagerSetup-1.1.0.msi" \
+  "C:\build\out\VSoftSolSyslogManagerUpdate-1.1.0.msi" \
   1.1.0 \
-  "https://github.com/saqibtechnn/vsoftsol-syslog-manager/releases/download/v1.1.0/VSoftSolSyslogManagerSetup-1.1.0.msi" \
+  "https://github.com/saqibtechnn/vsoftsol-syslog-manager/releases/download/v1.1.0/VSoftSolSyslogManagerUpdate-1.1.0.msi" \
   "https://github.com/saqibtechnn/vsoftsol-syslog-manager/releases/tag/v1.1.0" \
   "<private-key-base64>"
 ```
@@ -44,25 +44,25 @@ shared or logged shell (a CLI argument can end up in shell history).
 There is no CI-assisted release automation — the private key must never touch CI, so every
 release is cut by hand, offline, by whoever holds the key:
 
-1. **Bump the version in *two* places** — these are independent, hardcoded literals today,
-   not wired to each other:
-   - `Directory.Build.props`'s `VersionPrefix`
-   - `installer/Installer.wixproj`'s `ProductVersion`
+1. **Bump the version in one place**: `Directory.Build.props`'s `VersionPrefix`. The MSI
+   (`installer/Installer.wixproj`) and the new-install bundle (`installer/Bundle/Bundle.wixproj`)
+   both read it, so the artifacts carry the version you are about to sign. Do this first,
+   before building.
 
-   Forgetting either one is a real gap this feature depends on but does not itself fix. Do
-   this first, before building, so the built artifacts actually carry the version you're
-   about to sign.
-
-2. **Build and publish** the product per the normal release process (`dotnet build -c
-   Release`, then `dotnet build installer/Installer.wixproj -c Release` to produce the MSI).
+2. **Build and publish** the product, producing the two release files (see
+   `installer/README.md` for the full order): `dotnet build -c Release`, `dotnet publish`,
+   then `dotnet build installer/Installer.wixproj -c Release` (the MSI) and
+   `dotnet build installer/Bundle/Bundle.wixproj -c Release` (the bootstrapper). Release them
+   as **`VSoftSolSyslogManagerUpdate-<version>.msi`** (the MSI) and
+   **`VSoftSolSyslogManagerInstall-<version>.exe`** (the bootstrapper).
 
 3. **Run `sign-release`** against the built MSI (see above), using the offline private key.
    This produces `update-manifest.json` alongside the MSI.
 
 4. **Tag the release** in git (`vX.Y.Z`, matching what you signed).
 
-5. **Create the GitHub release** under that tag, and **upload both files as release
-   assets**: the MSI itself, and `update-manifest.json` — the asset filenames must match
+5. **Create the GitHub release** under that tag, and **upload the files as release
+   assets**: the Update MSI, the Install `.exe`, and `update-manifest.json` — the asset filenames must match
    `GitHubUpdateOptions.ManifestAssetName` (`update-manifest.json`) and
    `GitHubUpdateOptions.MsiAssetNameSuffix` (any name ending in `.msi`) for the deployed
    product's self-update checker to find them.
