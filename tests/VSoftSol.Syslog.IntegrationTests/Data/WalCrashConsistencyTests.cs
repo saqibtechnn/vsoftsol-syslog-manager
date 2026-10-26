@@ -38,7 +38,9 @@ public sealed class WalCrashConsistencyTests
             {
                 using (Process child = StartProbe(probe, dbPath, readyFile))
                 {
-                    await WaitForFileAsync(readyFile, TimeSpan.FromSeconds(30));
+                    // Generous: this waits on a cold `dotnet` start, which a loaded CI/dev host can
+                    // stretch well past 30 s. A timeout here is host load, not a durability fault.
+                    await WaitForFileAsync(readyFile, TimeSpan.FromSeconds(120));
                     await Task.Delay(Random.Shared.Next(15, 120));
                     child.Kill(entireProcessTree: true);
                     await child.WaitForExitAsync();
@@ -49,13 +51,8 @@ public sealed class WalCrashConsistencyTests
                 var options = new SqliteDataOptions { DatabasePath = dbPath };
                 using var factory = new SqliteConnectionFactory(options);
 
-                await using (SqliteConnection connection = await factory.OpenAsync(CancellationToken.None))
-                await using (SqliteCommand check = connection.CreateCommand())
-                {
-                    check.CommandText = "PRAGMA integrity_check;";
-                    (await check.ExecuteScalarAsync())!.ToString()
-                        .Should().Be("ok", "iteration {0} left the database corrupt", iteration);
-                }
+                string integrity = await IntegrityCheckAsync(factory);
+                integrity.Should().Be("ok", "iteration {0} left the database corrupt", iteration);
 
                 // The store must still be usable and every previously-committed row present.
                 var runner = new MigrationRunner(factory, NullLogger<MigrationRunner>.Instance);
@@ -73,6 +70,33 @@ public sealed class WalCrashConsistencyTests
             {
                 SqliteConnection.ClearAllPools();
                 TryDelete(dir);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Windows can still be releasing the killed process's WAL/SHM handles (or scanning them) for a
+    /// moment after <c>WaitForExitAsync</c> returns, and SQLite reports that as a transient
+    /// SQLITE_IOERR on the first statement. That is a harness race, not a durability fault: genuine
+    /// damage surfaces as SQLITE_CORRUPT or a non-"ok" integrity result, neither of which is retried,
+    /// and an I/O error that persists past the retry window still fails the test.
+    /// </summary>
+    private static async Task<string> IntegrityCheckAsync(SqliteConnectionFactory factory)
+    {
+        const int SqliteIoErr = 10;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using SqliteConnection connection = await factory.OpenAsync(CancellationToken.None);
+                await using SqliteCommand check = connection.CreateCommand();
+                check.CommandText = "PRAGMA integrity_check;";
+                return (await check.ExecuteScalarAsync())!.ToString()!;
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteIoErr && attempt < 10)
+            {
+                SqliteConnection.ClearAllPools();
+                await Task.Delay(250);
             }
         }
     }

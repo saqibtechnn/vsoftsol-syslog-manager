@@ -608,6 +608,36 @@ and the Hosting Bundle correctly detected as already present on the dev machine.
 verified:** the "prerequisite missing" path (a real first install on a clean VM) — this sandbox
 has none, the same limitation carried for every installer item since Phase 12.
 
+### v1.1 close-out — build unblocked, flakes hardened, first axe-core scan — 2026-10-26
+
+Not released or version-bumped (the product version is still 1.1.2); evidence in
+`docs/evidence/v1.1-closeout/` (`red-green.md`, `known-issues.md`, `test-output.txt`).
+
+- **Build unblocked.** The NuGet advisory database began flagging `SixLabors.ImageSharp` 2.1.13
+  (two High, three Moderate) and `TreatWarningsAsErrors` stopped every restore. 2.1.13 is the last
+  Apache-2.0 release with no patched 2.x; fixes are 3.x under the Six Labors Split License (the
+  reason ADR 0007 pinned 2.x). Suppressed per advisory in `BrandingGen` and `UnitTests` only, with a
+  written rationale in `SECURITY_REVIEW.md` ("Build-tool advisory"): the tool runs at build time on
+  the operator's own `logo.png` and is not in any shipped artefact (Core references it with
+  `ReferenceOutputAssembly="false"`; no `SixLabors*.dll` in any `src` output). **Operator decision
+  open:** ImageSharp 3.x or `System.Drawing`; either deletes the suppressions.
+- **Test flakes hardened (P2-5, P7-5, and more).** Argon2 timing test uses fastest-of-9; WAL
+  hard-kill test waits 120 s for the child process and retries only a transient `SQLITE_IOERR` right
+  after the kill; the integration project no longer runs test collections in parallel
+  (`xunit.runner.json`); drain deadlines in `ChaosTests`/`IngestionHarness` are 300 s hang guards;
+  three listener tests use OS-assigned ports instead of random fixed ones. No product code changed.
+- **First axe-core scan (P4-2/P5-2, partly).** axe-core 4.10.0, WCAG 2.0–2.2 A/AA + best-practice, on
+  the first-run wizard page: two moderate findings (`landmark-one-main`, `region`) — `BareLayout`
+  and `WizardLayout` had no `<main>`. Fixed test-first (`PreShellLandmarkTests`, red then green):
+  brand in `<header>`, body in `<main id="main-content">`, copyright in `<footer>`. Re-scan: 0
+  violations, 30 passes. **Not scanned:** signed-in screens (the in-app browser rejects the self-signed
+  certificate and the trust store was not changed), post-circuit Blazor DOM, keyboard/AT traversal.
+- **Verification:** unit 1113/1113; integration 856 total, 855 passed in the last full run (33 m),
+  the one failure being the random-port collision fixed afterwards, with the 13 affected tests
+  re-run green; `dotnet format --verify-no-changes` passes; `dotnet build -c Release` 0 errors (the
+  two warnings are the intentional `VSOFTSOL-UPDATE-001` "no release-signing key" notice). The full
+  integration suite was not run a further time after the port fix.
+
 ---
 
 ## Phase log
@@ -2663,7 +2693,7 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | ~~P0-3 CSP nonces~~ | ~~`SecurityHeadersMiddleware`~~ | **DONE (Phase 4)** |
 | ~~P2-1 listener-management **UI** (FK + `user_scopes` landed in migration 002)~~ | ~~`Web` Settings~~ | **DONE (v1.1)** — see "v1.1 log" |
 | P5-1 50M-event search benchmark + broad-free-text `< 2 s` re-verification | `SearchBenchmark` | v1.1 (clean-VM) |
-| P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | v1.1 |
+| P5-2 axe-core + AT traversal + 1366×768 screenshot for the search screens | `Web` | v1.1 — unauthenticated pages scanned clean (v1.1.3 close-out); signed-in screens need a trusted-cert browser |
 | ~~P5-3 wire `user_extractors` into the ingest `ExtractorPipeline`~~ | ~~`Ingestion` / `Web` config~~ | **DONE (v1.1)** — see "v1.1 log" |
 | P6-1 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 20 active streams | `benchmarks` `--ingest-probe --streams 20` | v1.1 (clean-VM) |
 | P7-4 ingest benchmark ≥ 5,000 msg/sec with vendor extraction **and** 50 active rules | `benchmarks` `--ingest-probe --rules 50` | v1.1 (clean-VM) |
@@ -2671,17 +2701,17 @@ by the phase prompt; the five-point gate applies from Phase 4.
 | P8-3 scheduled-alert-evaluation timing over a 2M-event DB (filtered-window scan; a tick over dozens of alerts) | `AlertWindowReader` / a bench | v1.1 (clean-VM) |
 | P8-2 DeviceSilent live-`rsyslogd` scenario | `IntegrationTests` | v1.1 (container / daemon host) |
 | ~~P8-1 "would have fired" preview — full replay for filtered / distinct-count / absence alerts (currently sampled)~~ | ~~`AlertAdminService.PreviewAsync`~~ | **DONE (v1.1)** — see "v1.1 log" |
-| P7-5 Argon2 decoy-timing test — widen / quiet-gate | `LocalAuthenticationProviderTests` | CI host with dedicated cores |
+| P7-5 Argon2 decoy-timing test — widen / quiet-gate | `LocalAuthenticationProviderTests` | hardened (v1.1.3 close-out: fastest-of-9, serial collections); monitor on CI |
 | ~~P5-4 unify `SqliteLogRepository` onto `EventRowMapper`~~ | ~~`Data`~~ | **DONE (v1.1)** — see "v1.1 log" |
 | ~~P2-2 spill / segment / cursor file ACLs~~ | ~~Phase 12 installer~~ | **DONE (Phase 12)** |
 | P3-1 live oracle vs rsyslog/syslog-ng | `OracleDifferentialTests` | v1.1 (container host) |
 | P3-2 pipeline parse-cost investigation + perf re-verify | `IngestionPipeline` / `VendorExtractor` | v1.1 |
 | P3-3 Stryker mutation run (was P0-2; +`stryker-config.search.json` for the query language) | `stryker-config*.json` | CI host with VsTest adapter |
 | P4-1 OWASP ZAP DAST against the running UI | `Web` | v1.1 / CI |
-| P4-2 axe-core a11y scan + live keyboard/AT traversal + 1366×768 screenshot | `Web` | v1.1 |
+| P4-2 axe-core a11y scan + live keyboard/AT traversal + 1366×768 screenshot | `Web` | v1.1 — first axe-core scan done on the pre-shell pages, 2 issues fixed (v1.1.3 close-out); signed-in screens + AT traversal remain |
 | P4-3 re-evaluate a Blazor component-test lib (AngleSharp advisory) | test stack | when fixed upstream |
 | P1-1 re-measure insert benchmark on clean-VM hardware | `benchmarks` | v1.1 |
 | Re-run ingest throughput benchmark | `IngestionBenchmark` | ~~6~~ ~~7~~ done, 12 |
-| P2-5 `WalCrashConsistencyTests.HardKill…TwentyTimes` load-dependent flake | `IntegrationTests` | monitor / CI host |
+| P2-5 `WalCrashConsistencyTests.HardKill…TwentyTimes` load-dependent flake | `IntegrationTests` | hardened (v1.1.3 close-out: retry on transient SQLITE_IOERR, serial collections, 120 s start wait); monitor |
 
 _(P0-1 coverage gate met — Ingestion 90.5%, Rules 84.5%, Reporting 93.8%.)_

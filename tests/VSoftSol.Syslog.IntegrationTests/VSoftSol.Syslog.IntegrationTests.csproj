@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Socket-, disk- and process-heavy tests (flood, chaos, kill-recovery) are timing-bound and
+         were load-flaky when run alongside the rest of the suite; run collections one at a time. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\fixtures\alerts\**\*.json" LinkBase="fixtures\alerts" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\fixtures\dashboards\**\*" LinkBase="fixtures\dashboards" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

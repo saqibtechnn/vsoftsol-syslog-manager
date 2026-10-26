@@ -16,6 +16,11 @@ namespace VSoftSol.Syslog.IntegrationTests.Ingestion;
 [Trait("Category", "Ingestion")]
 public sealed class ChaosTests(ITestOutputHelper output)
 {
+    // A hang guard, not a performance gate: draining the spill is bounded by disk speed (about 65 s
+    // per run for the 100 MB disk-full case on the reference dev host), so 90 s failed whenever the
+    // disk was merely slow. A drain that is truly stuck still fails, just later.
+    private static readonly TimeSpan DrainDeadline = TimeSpan.FromSeconds(300);
+
     private static RawFrame Frame(int i) => new(
         DateTimeOffset.UtcNow, "198.51.100.20", "udp:test", Protocol.Udp,
         System.Text.Encoding.UTF8.GetBytes($"<13>chaos-{i}"), truncated: false);
@@ -48,7 +53,7 @@ public sealed class ChaosTests(ITestOutputHelper output)
             h.Spill.PendingFrameCount.Should().BeGreaterThan(0, "run {0}: the stall must push to disk", run);
             stall.Release();
             await producer;
-            await h.DrainAsync(TimeSpan.FromSeconds(90));
+            await h.DrainAsync(DrainDeadline);
 
             (await h.CommittedCountAsync()).Should().Be(total, "run {0}", run);
             IngestionStatsSnapshot s = h.Stats.Snapshot();
@@ -93,7 +98,7 @@ public sealed class ChaosTests(ITestOutputHelper output)
             mid.Total.DroppedSpillFull.Should().BeGreaterThan(0, "run {0}: the disk cap must bite and be counted", run);
 
             stall.Release();
-            await h.DrainAsync(TimeSpan.FromSeconds(90));
+            await h.DrainAsync(DrainDeadline);
 
             IngestionStatsSnapshot end = h.Stats.Snapshot();
             long committed = await h.CommittedCountAsync();

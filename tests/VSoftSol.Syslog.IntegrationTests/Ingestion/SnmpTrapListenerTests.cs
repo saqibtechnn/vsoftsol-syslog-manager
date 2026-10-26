@@ -31,7 +31,7 @@ public sealed class SnmpTrapListenerTests
         {
             o.Enabled = true;
             o.BindAddress = "127.0.0.1";
-            o.Port = Random.Shared.Next(20_000, 60_000);
+            o.Port = LoopbackSyslog.FreeUdpPort();
         });
         services.AddSingleton<SnmpCommunityProvider>(_ => _ => new ValueTask<IReadOnlyList<string>>(allowedCommunities));
         services.AddSingleton<SnmpTrapListener>();

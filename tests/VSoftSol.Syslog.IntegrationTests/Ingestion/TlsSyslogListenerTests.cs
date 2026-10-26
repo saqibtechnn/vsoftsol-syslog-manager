@@ -34,7 +34,7 @@ public sealed class TlsSyslogListenerTests
         {
             o.Enabled = true;
             o.BindAddress = "127.0.0.1";
-            o.Port = Random.Shared.Next(20_000, 60_000); // TlsOptions.Port requires 1-65535, so unlike Udp/Tcp's own ephemeral-port tests this cannot be 0
+            o.Port = LoopbackSyslog.FreeTcpPort(); // OS-assigned (a random fixed port can collide with a reserved or busy one); TlsOptions.Port requires 1-65535, so unlike Udp/Tcp's own ephemeral-port tests this cannot be 0
             configure?.Invoke(o);
         });
         services.AddSingleton<TlsCertificateProvider>(_ => _ => new ValueTask<X509Certificate2?>(serverCert));

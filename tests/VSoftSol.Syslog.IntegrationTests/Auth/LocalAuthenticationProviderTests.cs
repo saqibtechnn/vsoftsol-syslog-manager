@@ -147,26 +147,30 @@ public sealed class LocalAuthenticationProviderTests
         await h.Auth.AuthenticateAsync("heidi", "warm", CancellationToken.None);
         await h.Auth.AuthenticateAsync("ghost", "warm", CancellationToken.None);
 
-        TimeSpan known = await Median(() => h.Auth.AuthenticateAsync("heidi", "bad", CancellationToken.None));
-        TimeSpan unknown = await Median(() => h.Auth.AuthenticateAsync("ghost-user", "bad", CancellationToken.None));
+        // Fastest-of-N, not median: CPU contention only ever adds time, so the minimum is the
+        // closest observable to each path's true cost and is stable under a loaded test run.
+        TimeSpan known = await Fastest(() => h.Auth.AuthenticateAsync("heidi", "bad", CancellationToken.None));
+        TimeSpan unknown = await Fastest(() => h.Auth.AuthenticateAsync("ghost-user", "bad", CancellationToken.None));
 
         double ratio = known.TotalMilliseconds / Math.Max(1.0, unknown.TotalMilliseconds);
         ratio.Should().BeInRange(0.5, 2.0,
             "the unknown-user and bad-password paths must not differ by more than ~2x");
     }
 
-    private static async Task<TimeSpan> Median(Func<Task> action)
+    private static async Task<TimeSpan> Fastest(Func<Task> action)
     {
-        var samples = new List<double>();
-        for (int i = 0; i < 7; i++)
+        TimeSpan best = TimeSpan.MaxValue;
+        for (int i = 0; i < 9; i++)
         {
             var sw = Stopwatch.StartNew();
             await action();
             sw.Stop();
-            samples.Add(sw.Elapsed.TotalMilliseconds);
+            if (sw.Elapsed < best)
+            {
+                best = sw.Elapsed;
+            }
         }
 
-        samples.Sort();
-        return TimeSpan.FromMilliseconds(samples[samples.Count / 2]);
+        return best;
     }
 }

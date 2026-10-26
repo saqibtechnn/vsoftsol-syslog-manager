@@ -5,14 +5,16 @@
 
 <div class="ds-bare">
     <div class="ds-bare__card">
-        <div class="ds-bare__brand">
+        <header class="ds-bare__brand">
             <BrandLogo ShowName="true" />
-        </div>
-        @Body
-        <p class="ds-bare__footer">
+        </header>
+        <main id="main-content">
+            @Body
+        </main>
+        <footer class="ds-bare__footer">
             @BrandingInfo.Copyright &middot;
             <a href="@BrandingInfo.VendorUrl" rel="noopener noreferrer" target="_blank">@BrandingInfo.VendorName</a>
-        </p>
+        </footer>
     </div>
     <ToastHost />
 </div>

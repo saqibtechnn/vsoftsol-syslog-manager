@@ -319,6 +319,26 @@ mechanism in v1 — see ADR 0021. Full detail in `docs/security/ASVS-checklist.m
 section and `docs/security/THREAT_MODEL.md`'s B6; evidence in
 `docs/evidence/v1.1-self-update/`.
 
+## Build-tool advisory — SixLabors.ImageSharp 2.1.13 (accepted, scoped, 2026-10-26)
+
+The NuGet audit began flagging `SixLabors.ImageSharp` 2.1.13 (five advisories, two High:
+GHSA-j9gm-c75j-xc9q, GHSA-j3p4-wp97-rph4; three Moderate: GHSA-jjfr-hcj7-qf5w,
+GHSA-wmxv-xphr-5c9g, GHSA-gwg2-r3hj-4w44), which with `TreatWarningsAsErrors` stopped every
+build at restore. 2.1.13 is the last Apache-2.0 release and no patched 2.x exists; the fixes
+are in 3.x, under the Six Labors Split License (ADR 0007's reason for pinning 2.1.x).
+
+**Disposition:** suppressed per advisory in `build/VSoftSol.Syslog.BrandingGen` only, never
+globally. The package is referenced solely by that console tool, which (a) runs at build
+time, (b) decodes only the operator's own `branding/logo.png`, never network or user input,
+and (c) is not shipped — the MSI/EXE contain no ImageSharp assembly. The exploit path (a
+crafted image reaching the decoder) therefore needs write access to the build tree, which
+already means arbitrary code execution. Not counted as an open High against the tag gate on
+that basis.
+
+**Operator decision pending:** move the tool to ImageSharp 3.x (accept the Split License for
+build-time use) or replace it with a Windows-only `System.Drawing` implementation. Either
+removes the suppressions; delete them with the change.
+
 ## Open findings by severity
 
 | Severity | Count | Must fix before |

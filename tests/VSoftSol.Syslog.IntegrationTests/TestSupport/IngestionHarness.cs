@@ -111,11 +111,15 @@ public sealed class IngestionHarness : IAsyncDisposable
         _pipelineTask = Task.Run(() => Pipeline.RunAsync(_pipelineCts.Token));
     }
 
-    /// <summary>Signals no more input and waits for the pipeline to drain everything.</summary>
+    /// <summary>
+    /// Signals no more input and waits for the pipeline to drain everything. The default is a hang
+    /// guard, not a performance gate: draining is bounded by disk speed, and a short deadline made
+    /// these tests fail on a merely slow disk while a truly stuck drain still fails, just later.
+    /// </summary>
     public async Task DrainAsync(TimeSpan? timeout = null)
     {
         Channel.Complete();
-        await _pipelineTask.WaitAsync(timeout ?? TimeSpan.FromSeconds(60));
+        await _pipelineTask.WaitAsync(timeout ?? TimeSpan.FromSeconds(300));
     }
 
     /// <summary>Cancels the pipeline immediately (simulates a hard stop mid-drain).</summary>
