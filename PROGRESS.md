@@ -629,11 +629,14 @@ self-update path end to end. Evidence: `docs/evidence/v1.1.4-dashboard-and-updat
   `bar` snapshot that had pinned the old inline-style markup (updated deliberately); the affected classes
   re-run 37/37. The full integration suite was not run a second time after the snapshot update.
   `dotnet format --verify-no-changes` clean.
+- **Also fixed in the same branch:** a pending device is now announced on every dashboard (banner + checklist hint,
+  role-aware link); hostname-less syslog is labelled by source address instead of "(none)"; the Updates page no longer
+  advertises a staged installer that is gone, shows a later failed check, and uses plain-English copy for a missing
+  manifest (`red-green.md` §8–10).
 - **Deferred / owner decisions:** (1) generate the release-signing key and publish `update-manifest.json` with each
   release — until then in-app updates cannot verify anything; (2) automatic install is not built (ADR 0021) — needs a
-  least-privilege updater and an ADR; (3) new devices sit "pending" while dashboards stay silent, hostname-less syslog
-  shows "(none)"; (4) Updates page keeps a stale "Update ready" line after a later failed check and shows an internal
-  option name for a missing manifest.
+  least-privilege updater and an ADR; (3) make the signing key injectable so the full verify-and-download path can be
+  covered by `UpdateCheckerTests` instead of only by the manual rehearsal.
 
 ### v1.1 close-out — build unblocked, flakes hardened, first axe-core scan — 2026-10-26
 

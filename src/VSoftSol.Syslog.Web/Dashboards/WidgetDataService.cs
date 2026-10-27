@@ -26,7 +26,15 @@ public enum WidgetRenderKind
 }
 
 /// <summary>One row of a recent-events widget, already scope-checked.</summary>
-public sealed record RecentEventRow(long EventId, DateTimeOffset ReceivedUtc, string? Hostname, int Severity, string Message);
+public sealed record RecentEventRow(long EventId, DateTimeOffset ReceivedUtc, string? Hostname, int Severity, string Message)
+{
+    /// <summary>
+    /// The name to show for a device: the hostname in the message, or — RFC 3164 messages often carry
+    /// none — the source address, which is always known. Never blank.
+    /// </summary>
+    public static string HostLabel(string? hostname, string sourceIp) =>
+        string.IsNullOrWhiteSpace(hostname) ? sourceIp : hostname;
+}
 
 /// <summary>One tile of a device-status widget.</summary>
 public sealed record DeviceStatusRow(long DeviceId, string Name, DateTimeOffset? LastSeenUtc, string Status);
@@ -230,7 +238,7 @@ public sealed class WidgetDataService
         }
 
         var rows = result.Rows
-            .Select(e => new RecentEventRow(e.EventId, e.ReceivedUtc, e.Hostname, (int)e.Severity, e.Message))
+            .Select(e => new RecentEventRow(e.EventId, e.ReceivedUtc, RecentEventRow.HostLabel(e.Hostname, e.SourceIp), (int)e.Severity, e.Message))
             .ToList();
 
         return new WidgetData(WidgetRenderKind.RecentEvents, Events: rows);

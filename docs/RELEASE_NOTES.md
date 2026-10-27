@@ -1,5 +1,27 @@
 # VSoftSol Syslog Manager — Release Notes
 
+## v1.1.4 — 2026-10-27
+
+- **Dashboards now display correctly in the browser.** Every dashboard widget was squeezed into a thin vertical
+  strip, and a widget meant to sit beside another dropped underneath it. Layouts, bar charts and the severity chart
+  now fill the page as designed. (The cause: the product's strict browser security policy, which is intentionally
+  kept, blocks inline styles that the dashboard layout was using.)
+- **Long lists such as the Audit log now show their rows.** They are shown 100 at a time with a "Show more" button.
+- **"Recent criticals" now shows only Critical, Alert and Emergency events.** It previously listed everything down
+  to informational messages and left out the most severe. The search examples in the interface were corrected the
+  same way (`severity:<=error` means "error or worse").
+- **A new device waiting for approval is now announced on every dashboard**, with a one-click "Review and approve"
+  button for Administrators, instead of leaving Device Health empty with no explanation.
+- **Devices that send no hostname are shown by their IP address** instead of "(none)" in Top talkers and Recent
+  criticals.
+- **Upgrades show the new look immediately.** Stylesheets are now re-checked on every load, so a browser can no
+  longer pair the new pages with a stale copy of the old stylesheet.
+- **Update checker fixes.** The update checker could not read the product's own version number and so always
+  reported "Up to date"; it now compares correctly. The Updates page also no longer advertises an installer that is
+  no longer on disk, shows a later failed check, and explains a release without a signed manifest in plain words.
+  Note: verified in-app updates additionally require the vendor's signing key, which this release does not yet
+  include — until then, update by downloading the Update file from the Updates page and running it.
+
 ## v1.1.3 — 2026-10-27
 
 - **Sign-in and first-run setup pages are now properly structured for screen readers.** They had

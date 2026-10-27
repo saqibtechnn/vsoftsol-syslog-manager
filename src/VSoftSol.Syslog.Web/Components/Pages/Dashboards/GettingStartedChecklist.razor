@@ -16,6 +16,10 @@
         <ul class="ds-gettingstarted__list">
             <li class="@(_hasDevice ? "ds-gettingstarted__item--done" : null)">
                 <span aria-hidden="true">@(_hasDevice ? "☑" : "☐")</span> A device has sent its first message
+                @if (!_hasDevice && _pending > 0)
+                {
+                    <span class="ds-muted">— it is waiting for approval (see above)</span>
+                }
             </li>
             <li class="@(_hasRule ? "ds-gettingstarted__item--done" : null)">
                 <span aria-hidden="true">@(_hasRule ? "☑" : "☐")</span>
@@ -34,10 +38,12 @@
     private bool _hasDevice;
     private bool _hasRule;
     private bool _hasAlert;
+    private long _pending;
 
     protected override async Task OnInitializedAsync()
     {
         _hasDevice = (await Devices.ListAsync(CancellationToken.None)).Count > 0;
+        _pending = await Devices.CountPendingAsync(CancellationToken.None);
         _hasRule = (await Rules.ListAsync(CancellationToken.None)).Any(r => !r.IsSystem);
         _hasAlert = (await Alerts.ListDefinitionsAsync(CancellationToken.None)).Any(a => !a.IsSystem);
         _loaded = true;

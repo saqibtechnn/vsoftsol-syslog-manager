@@ -77,7 +77,7 @@ public sealed class UpdateChecker
 
         if (release.ManifestUrl is null)
         {
-            await _settings.RecordCheckResultAsync(now, $"release {release.Version} has no {nameof(GitHubUpdateOptions.ManifestAssetName)} asset", cancellationToken)
+            await _settings.RecordCheckResultAsync(now, NoManifestMessage(release.Version), cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -158,6 +158,11 @@ public sealed class UpdateChecker
             null,
             cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>What an Administrator sees when the newest release carries no signed manifest — which is
+    /// how releases are published until the vendor starts signing them. Plain English: no option names.</summary>
+    public static string NoManifestMessage(string version) =>
+        $"release {version} has no signed update manifest (update-manifest.json), so it cannot be verified and is not offered. Download it from the vendor's Updates page instead.";
 
     private async Task FailSignatureAsync(string manifestUrl, string reason, CancellationToken cancellationToken)
     {

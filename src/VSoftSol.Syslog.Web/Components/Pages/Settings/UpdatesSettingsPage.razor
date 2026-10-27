@@ -47,6 +47,10 @@
                     that install, the same as any other upgrade (see the Admin Guide's
                     "Upgrading" section).
                 </div>
+                @if (_settings.LastCheckError is { Length: > 0 } laterError)
+                {
+                    <div class="ds-alert ds-alert--warning">Last check failed: @laterError (the installer above was verified earlier and is still valid.)</div>
+                }
             }
             else if (_settings.LastCheckError is { Length: > 0 } error)
             {

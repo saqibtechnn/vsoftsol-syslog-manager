@@ -680,3 +680,5 @@
 .ds-gettingstarted__list li { color: var(--ds-muted); }
 .ds-gettingstarted__item--done { text-decoration: line-through; }
 .ds-table__more td { text-align: center; padding: 0.5rem; }
+.ds-pendingbanner { margin-bottom: 1.25rem; border-left: 4px solid var(--ds-warning, #b7791f); display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+.ds-pendingbanner p { margin: 0; flex: 1 1 24rem; }

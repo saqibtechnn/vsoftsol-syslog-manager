@@ -13,7 +13,7 @@ its neighbour, "Recent criticals" listed informational events, long tables (audi
 Network Overview renders as designed (Message rate + Severity on row 1, Top talkers + Recent criticals on
 row 2; Recent criticals shows only Alert/Critical).
 
-Observed and NOT changed (product decisions, listed for the owner):
+Observed during the reproduction, since FIXED (see `red-green.md` §8–9; the text below is the original finding):
 
 1. **A new device is quarantined until approved, and the dashboards say nothing about it.** Messages from an
    unknown source create a "pending device" (a small red "1" in the navigation). Until it is approved,
@@ -72,5 +72,5 @@ installed copy on this host was left alone.
 4. **Automatic installation is not implemented** (see "What the product does today"). Doing it means a new
    least-privilege updater service or scheduled task that installs only MSIs verified against the same key —
    a design change that needs an ADR and the owner's decision.
-5. Minor: the Updates page keeps showing the earlier "Update ready" message after a later check fails
-   (the download itself is correctly refused), and the "no manifest" message exposes an internal option name.
+5. (Fixed — `red-green.md` §10.) The Updates page kept showing "Update ready" after the staged file was discarded and hid
+   a later failed check; the "no manifest" message exposed an internal option name.

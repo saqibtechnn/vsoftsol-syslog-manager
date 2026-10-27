@@ -23,7 +23,25 @@ public sealed class UpdateAdminService
         _users = users;
     }
 
-    public Task<UpdateSettings> GetStatusAsync(CancellationToken ct) => _store.GetAsync(ct);
+    /// <summary>
+    /// The stored state, corrected for what is actually on disk: a verified installer that has since
+    /// been discarded or deleted must not be advertised as ready (the download would 404).
+    /// </summary>
+    public async Task<UpdateSettings> GetStatusAsync(CancellationToken ct)
+    {
+        UpdateSettings settings = await _store.GetAsync(ct).ConfigureAwait(false);
+        if (settings.UpdateReady && !File.Exists(settings.DownloadedMsiPath))
+        {
+            return settings with
+            {
+                DownloadedMsiPath = null,
+                LastCheckError = settings.LastCheckError
+                    ?? "the downloaded installer is no longer on disk — click Check now to download it again",
+            };
+        }
+
+        return settings;
+    }
 
     public async Task<(bool Ok, string Message)> SaveEnabledStateAsync(bool enabled, int checkIntervalHours, CancellationToken ct)
     {

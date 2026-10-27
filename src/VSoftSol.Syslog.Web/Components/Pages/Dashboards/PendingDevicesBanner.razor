@@ -1,0 +1,40 @@
+@* A device that sends syslog for the first time is held "pending" until an Administrator approves
+   it. Until then the dashboards were silent about it — Device Health read "No devices are visible
+   to you yet" while the Network Overview filled with its messages — so a new admin concluded
+   nothing worked. This says so, on the dashboard, and sends the right role to the right place. *@
+@using VSoftSol.Syslog.Web.Devices
+@inject DeviceAdminService Devices
+
+@if (_pending > 0)
+{
+    <section class="ds-card ds-pendingbanner" role="status">
+        <p>
+            <strong>@_pending @(_pending == 1 ? "new device is" : "new devices are") waiting for your approval.</strong>
+            Their messages are being collected, but a device stays out of Device Health until it is approved.
+        </p>
+        <AuthorizeView Policy="@AuthPolicies.Administer">
+            <Authorized>
+                <a class="ds-button ds-button--primary ds-button--sm" href="/devices/pending">Review and approve</a>
+            </Authorized>
+            <NotAuthorized>
+                <span class="ds-muted">Ask an Administrator to review them.</span>
+            </NotAuthorized>
+        </AuthorizeView>
+    </section>
+}
+
+@code {
+    private long _pending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _pending = await Devices.CountPendingAsync(CancellationToken.None);
+        }
+        catch (Exception)
+        {
+            _pending = 0; // a banner must never break the dashboard
+        }
+    }
+}

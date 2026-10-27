@@ -37,7 +37,11 @@ internal sealed class AggregationCompiler
                 return CompiledAggregation.Reject($"'{groupBy}' cannot be grouped");
             }
 
-            groupExpr = column is not null
+            // A message with no hostname (common in RFC 3164) is grouped by its source address, not lumped
+            // into a meaningless "(none)" device.
+            groupExpr = column is "hostname"
+                ? "CAST(COALESCE(NULLIF(TRIM(e.hostname), ''), e.source_ip, '(none)') AS TEXT)"
+                : column is not null
                 ? $"CAST(COALESCE(e.{column}, '(none)') AS TEXT)"
                 : $"CAST(COALESCE({ExtractedScalar("g", extractedName!)}, '(none)') AS TEXT)";
             grouped = true;
