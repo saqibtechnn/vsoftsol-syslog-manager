@@ -1,11 +1,11 @@
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.RegularExpressions;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 
 namespace VSoftSol.Syslog.BrandingGen;
 
@@ -18,6 +18,7 @@ public sealed record BrandingResult(IReadOnlyList<string> Warnings, string Gener
 /// <c>logo.png</c> produces a warning and a placeholder fallback, never a failure.
 /// Every write is content-compared first, so two runs produce byte-identical output.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public static class BrandingGenerator
 {
     private static readonly Brand Defaults = new(
@@ -77,8 +78,8 @@ public static class BrandingGenerator
             sourceLogo = string.Empty;
         }
 
-        using Image<Rgba32> master = sourceLogo.Length > 0
-            ? Image.Load<Rgba32>(sourceLogo)
+        using Bitmap master = sourceLogo.Length > 0
+            ? LoadBitmap(sourceLogo)
             : SolidPlaceholder(brand.PrimaryColor);
 
         EmitPng(Path.Combine(webDir, "logo.png"), Square(master, 512), warnings);
@@ -182,67 +183,117 @@ public static class BrandingGenerator
     private static string Literal(string value) =>
         "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
-    private static Image<Rgba32> SolidPlaceholder(string hex)
+    private static Bitmap NewCanvas(int w, int h, PixelFormat format = PixelFormat.Format32bppArgb)
     {
-        var img = new Image<Rgba32>(512, 512);
-        img.Mutate(x => x.BackgroundColor(new Color(ParseHex(hex))));
+        var bmp = new Bitmap(w, h, format);
+        bmp.SetResolution(96, 96); // fixed, so the encoded bytes do not depend on the machine's DPI
+        return bmp;
+    }
+
+    /// <summary>
+    /// Decodes into a fresh 32bpp ARGB bitmap, so no file handle stays open and every source
+    /// format (indexed, 24bpp, 16-bit) is normalised before it is resized.
+    /// </summary>
+    private static Bitmap LoadBitmap(string path)
+    {
+        using var stream = new MemoryStream(File.ReadAllBytes(path));
+        using var decoded = new Bitmap(stream);
+        Bitmap copy = NewCanvas(decoded.Width, decoded.Height);
+        using Graphics g = Graphics.FromImage(copy);
+        g.CompositingMode = CompositingMode.SourceCopy;
+        g.DrawImage(decoded, new Rectangle(0, 0, decoded.Width, decoded.Height));
+        return copy;
+    }
+
+    private static Bitmap SolidPlaceholder(string hex)
+    {
+        Bitmap img = NewCanvas(512, 512);
+        using Graphics g = Graphics.FromImage(img);
+        g.Clear(ParseHex(hex));
         return img;
     }
 
-    private static Image<Rgba32> Square(Image<Rgba32> master, int size) => Resized(master, size, size);
+    private static Bitmap Square(Bitmap master, int size) => Resized(master, size, size);
 
-    private static Image<Rgba32> Letterbox(Image<Rgba32> master, int w, int h) => Resized(master, w, h);
+    private static Bitmap Letterbox(Bitmap master, int w, int h) => Resized(master, w, h);
 
-    private static Image<Rgba32> Resized(Image<Rgba32> master, int w, int h)
+    /// <summary>Scales to fit inside w×h, keeping the aspect ratio, centred on a transparent canvas.</summary>
+    private static Bitmap Resized(Bitmap master, int w, int h)
     {
-        Image<Rgba32> clone = master.Clone();
-        clone.Mutate(x => x.Resize(new ResizeOptions
-        {
-            Size = new Size(w, h),
-            Mode = ResizeMode.Pad,
-            PadColor = Color.Transparent,
-            Sampler = KnownResamplers.Lanczos3,
-        }));
-        return clone;
+        Bitmap canvas = NewCanvas(w, h);
+        using Graphics g = Graphics.FromImage(canvas);
+        (int dw, int dh) = FitWithin(master, w, h);
+        DrawScaled(g, master, new Rectangle((w - dw) / 2, (h - dh) / 2, dw, dh), CompositingMode.SourceCopy);
+        return canvas;
     }
 
-    private static Image<Rgba32> Monochrome(Image<Rgba32> master, string hex)
+    private static (int Width, int Height) FitWithin(Bitmap source, int w, int h)
     {
-        Image<Rgba32> clone = master.Clone();
-        Rgba32 tint = ParseHex(hex);
-        clone.ProcessPixelRows(accessor =>
+        double scale = Math.Min((double)w / source.Width, (double)h / source.Height);
+        return (Math.Max(1, (int)Math.Round(source.Width * scale)), Math.Max(1, (int)Math.Round(source.Height * scale)));
+    }
+
+    private static void DrawScaled(Graphics g, Bitmap source, Rectangle target, CompositingMode mode)
+    {
+        g.CompositingMode = mode;
+        g.CompositingQuality = CompositingQuality.HighQuality;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.SmoothingMode = SmoothingMode.HighQuality;
+
+        // Mirror edge pixels so the resampler does not blend a dark/transparent halo into the border.
+        using var attributes = new ImageAttributes();
+        attributes.SetWrapMode(WrapMode.TileFlipXY);
+        g.DrawImage(source, target, 0, 0, source.Width, source.Height, GraphicsUnit.Pixel, attributes);
+    }
+
+    private static Bitmap Monochrome(Bitmap master, string hex)
+    {
+        Bitmap clone = NewCanvas(master.Width, master.Height);
+        using (Graphics g = Graphics.FromImage(clone))
         {
-            for (int y = 0; y < accessor.Height; y++)
+            g.CompositingMode = CompositingMode.SourceCopy;
+            g.DrawImage(master, new Rectangle(0, 0, master.Width, master.Height));
+        }
+
+        Color tint = ParseHex(hex);
+        BitmapData data = clone.LockBits(
+            new Rectangle(0, 0, clone.Width, clone.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        try
+        {
+            var row = new byte[data.Width * 4];
+            for (int y = 0; y < data.Height; y++)
             {
-                Span<Rgba32> row = accessor.GetRowSpan(y);
-                for (int x = 0; x < row.Length; x++)
+                IntPtr line = data.Scan0 + (y * data.Stride);
+                Marshal.Copy(line, row, 0, row.Length);
+                for (int x = 0; x < row.Length; x += 4)
                 {
-                    row[x] = new Rgba32(tint.R, tint.G, tint.B, row[x].A);
+                    row[x] = tint.B; // BGRA in memory; alpha (x + 3) is kept
+                    row[x + 1] = tint.G;
+                    row[x + 2] = tint.R;
                 }
+
+                Marshal.Copy(row, 0, line, row.Length);
             }
-        });
+        }
+        finally
+        {
+            clone.UnlockBits(data);
+        }
+
         return clone;
     }
 
-    private static byte[] EncodePng(Image<Rgba32> image)
+    private static byte[] Encode(Bitmap image, ImageFormat format)
     {
         using var ms = new MemoryStream();
-        image.Save(ms, new PngEncoder
-        {
-            ColorType = PngColorType.RgbWithAlpha,
-            CompressionLevel = PngCompressionLevel.BestCompression,
-        });
+        image.Save(ms, format);
         return ms.ToArray();
     }
 
-    private static byte[] EncodeBmp(Image<Rgba32> image)
-    {
-        using var ms = new MemoryStream();
-        image.Save(ms, new BmpEncoder { BitsPerPixel = BmpBitsPerPixel.Pixel24 });
-        return ms.ToArray();
-    }
+    private static byte[] EncodePng(Bitmap image) => Encode(image, ImageFormat.Png);
 
-    private static void EmitPng(string path, Image<Rgba32> image, List<string> warnings)
+    private static void EmitPng(string path, Bitmap image, List<string> warnings)
     {
         using (image)
         {
@@ -251,12 +302,12 @@ public static class BrandingGenerator
     }
 
     private static void EmitOverridablePng(
-        string brandingDir, string outPath, string name, Func<Image<Rgba32>> make, List<string> warnings)
+        string brandingDir, string outPath, string name, Func<Bitmap> make, List<string> warnings)
     {
         string supplied = Path.Combine(brandingDir, name);
         if (File.Exists(supplied))
         {
-            using Image<Rgba32> img = Image.Load<Rgba32>(supplied);
+            using Bitmap img = LoadBitmap(supplied);
             WriteBytesIfDifferent(outPath, EncodePng(img), warnings);
             return;
         }
@@ -264,7 +315,7 @@ public static class BrandingGenerator
         EmitPng(outPath, make(), warnings);
     }
 
-    private static byte[] OverrideOrIco(string brandingDir, string name, Image<Rgba32> master, int[] sizes)
+    private static byte[] OverrideOrIco(string brandingDir, string name, Bitmap master, int[] sizes)
     {
         string supplied = Path.Combine(brandingDir, name);
         if (File.Exists(supplied))
@@ -275,7 +326,7 @@ public static class BrandingGenerator
         var frames = new List<byte[]>(sizes.Length);
         foreach (int s in sizes)
         {
-            using Image<Rgba32> frame = Resized(master, s, s);
+            using Bitmap frame = Resized(master, s, s);
             frames.Add(EncodePng(frame));
         }
 
@@ -283,7 +334,7 @@ public static class BrandingGenerator
     }
 
     private static byte[] OverrideOrBmp(
-        string brandingDir, string name, Image<Rgba32> master, int w, int h, string bg)
+        string brandingDir, string name, Bitmap master, int w, int h, string bg)
     {
         string supplied = Path.Combine(brandingDir, name);
         if (File.Exists(supplied))
@@ -291,20 +342,16 @@ public static class BrandingGenerator
             return File.ReadAllBytes(supplied);
         }
 
-        using var canvas = new Image<Rgba32>(w, h);
-        canvas.Mutate(x => x.BackgroundColor(new Color(ParseHex(bg))));
-
-        int target = (int)(h * 0.8);
-        using Image<Rgba32> logo = master.Clone();
-        logo.Mutate(x => x.Resize(new ResizeOptions
+        using Bitmap canvas = NewCanvas(w, h, PixelFormat.Format24bppRgb);
+        using (Graphics g = Graphics.FromImage(canvas))
         {
-            Size = new Size(target, target),
-            Mode = ResizeMode.Max,
-            Sampler = KnownResamplers.Lanczos3,
-        }));
-        var at = new Point((h - logo.Width) / 2, (h - logo.Height) / 2);
-        canvas.Mutate(x => x.DrawImage(logo, at, 1f));
-        return EncodeBmp(canvas);
+            g.Clear(ParseHex(bg));
+            int target = (int)(h * 0.8);
+            (int lw, int lh) = FitWithin(master, target, target);
+            DrawScaled(g, master, new Rectangle((h - lw) / 2, (h - lh) / 2, lw, lh), CompositingMode.SourceOver);
+        }
+
+        return Encode(canvas, ImageFormat.Bmp);
     }
 
     /// <summary>Wraps PNG frames in a minimal, valid ICONDIR container (PNG-in-ICO, Vista+).</summary>
@@ -340,13 +387,13 @@ public static class BrandingGenerator
         return ms.ToArray();
     }
 
-    private static Rgba32 ParseHex(string hex)
+    private static Color ParseHex(string hex)
     {
         string h = hex.TrimStart('#');
-        byte r = byte.Parse(h.Substring(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        byte g = byte.Parse(h.Substring(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        byte b = byte.Parse(h.Substring(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        return new Rgba32(r, g, b, 255);
+        byte r = byte.Parse(h.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        byte g = byte.Parse(h.AsSpan(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        byte b = byte.Parse(h.AsSpan(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        return Color.FromArgb(255, r, g, b);
     }
 
     private static void WriteTextIfDifferent(string path, string content, List<string> warnings) =>

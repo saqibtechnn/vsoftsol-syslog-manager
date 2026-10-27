@@ -619,8 +619,9 @@ Not released or version-bumped (the product version is still 1.1.2); evidence in
   reason ADR 0007 pinned 2.x). Suppressed per advisory in `BrandingGen` and `UnitTests` only, with a
   written rationale in `SECURITY_REVIEW.md` ("Build-tool advisory"): the tool runs at build time on
   the operator's own `logo.png` and is not in any shipped artefact (Core references it with
-  `ReferenceOutputAssembly="false"`; no `SixLabors*.dll` in any `src` output). **Operator decision
-  open:** ImageSharp 3.x or `System.Drawing`; either deletes the suppressions.
+  `ReferenceOutputAssembly="false"`; no `SixLabors*.dll` in any `src` output). **Superseded
+  2026-10-27:** the tool now uses `System.Drawing.Common` (MIT, Windows-only) and every suppression
+  was deleted — see the "ImageSharp replaced" note below.
 - **Test flakes hardened (P2-5, P7-5, and more).** Argon2 timing test uses fastest-of-9; WAL
   hard-kill test waits 120 s for the child process and retries only a transient `SQLITE_IOERR` right
   after the kill; the integration project no longer runs test collections in parallel
@@ -632,6 +633,16 @@ Not released or version-bumped (the product version is still 1.1.2); evidence in
   brand in `<header>`, body in `<main id="main-content">`, copyright in `<footer>`. Re-scan: 0
   violations, 30 passes. **Not scanned:** signed-in screens (the in-app browser rejects the self-signed
   certificate and the trust store was not changed), post-circuit Blazor DOM, keyboard/AT traversal.
+- **ImageSharp replaced (2026-10-27).** `BrandingGenerator` now draws with `System.Drawing.Common`
+  8.0.31 (GDI+, MIT, Windows-only — same platform as the installer). ImageSharp 3.x was rejected: the
+  Split License can require a paid licence for a commercial vendor. Fixed canvas DPI keeps output
+  byte-stable; the existing `BrandingPipelineTests` (dimensions, placeholder fallback, byte-identical
+  second run, rebrand) are the regression guard and pass 7/7; the test helper now reads PNG/BMP
+  header dimensions itself, so the tests need no imaging library. The five `NuGetAuditSuppress`
+  entries are gone; `dotnet list package --vulnerable --include-transitive` on the tool is clean.
+  Re-run after the swap: unit 1113/1113, Release build 0 errors, format clean. Output is visually
+  equivalent, not byte-identical to the ImageSharp output, so generated assets differ once on first
+  rebuild (they are git-ignored).
 - **Verification:** unit 1113/1113; integration 856 total, 855 passed in the last full run (33 m),
   the one failure being the random-port collision fixed afterwards, with the 13 affected tests
   re-run green; `dotnet format --verify-no-changes` passes; `dotnet build -c Release` 0 errors (the

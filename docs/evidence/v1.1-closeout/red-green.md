@@ -112,3 +112,21 @@ violations: []   passes: 30   incomplete: []   main landmarks: 1
 
 Layout unchanged by the wrapper: wizard card 672 px (42 rem), centred on the 1024 px viewport
 (card centre 512, brand centre 512).
+
+## 4. ImageSharp replaced by System.Drawing.Common (refactor — characterization tests)
+
+Behaviour-preserving swap, so there is no new failing test; the guard is the existing
+`BrandingPipelineTests` (derived-asset dimensions, placeholder fallback with warning, byte-identical
+second run, rebrand without source change, ICO frame sizes), which passed on ImageSharp before the
+change and 7 / 7 after it. Its dimension helper moved from `Image.Identify` to reading the PNG/BMP
+header, so the test no longer depends on any imaging library.
+
+- Restore: the five `NuGetAuditSuppress` entries were deleted from `BrandingGen` and `UnitTests`;
+  `dotnet build -c Release` restores and builds with 0 errors (the two warnings are the intentional
+  `VSOFTSOL-UPDATE-001`).
+- `dotnet list build/VSoftSol.Syslog.BrandingGen package --vulnerable --include-transitive`:
+  "has no vulnerable packages given the current sources".
+- Unit suite: 1113 / 1113. `dotnet format --verify-no-changes`: clean.
+- Not shipped: the MSI still excludes every `VSoftSol.Syslog.BrandingGen.*` file, and no
+  `System.Drawing.Common.dll` appears in the Web output.
+- Generated `logo-wide.png` inspected by eye: logo centred, aspect preserved, no halo.

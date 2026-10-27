@@ -11,7 +11,7 @@ BrandingInfo.g.cs`.
 
 ## Decision
 
-- A console tool, **`build/VSoftSol.Syslog.BrandingGen`** (depends only on ImageSharp),
+- A console tool, **`build/VSoftSol.Syslog.BrandingGen`** (depends only on System.Drawing.Common; ImageSharp until 2026-10-27),
   runs before `VSoftSol.Syslog.Core` compiles. It:
   - generates `src/VSoftSol.Syslog.Core/Generated/BrandingInfo.g.cs` (git-ignored) with
     the brand strings and colours as `const`s;
@@ -42,4 +42,6 @@ proven by `docs/evidence/phase-00/rebrand-acceptance.txt`.
 ## Cost accepted
 
 - One `<Exec>` in the build and a small console project not shipped with the product.
-- `ImageSharp` (Apache-2.0, 2.1.x line) as a build-only dependency, SCA-scanned.
+- `System.Drawing.Common` (MIT, Windows-only) as a build-only dependency, SCA-scanned. It replaced
+  ImageSharp 2.1.x (Apache-2.0) on 2026-10-27 after that line collected unfixable advisories and the
+  fixed 3.x line moved to the Six Labors Split License.

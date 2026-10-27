@@ -319,7 +319,7 @@ mechanism in v1 — see ADR 0021. Full detail in `docs/security/ASVS-checklist.m
 section and `docs/security/THREAT_MODEL.md`'s B6; evidence in
 `docs/evidence/v1.1-self-update/`.
 
-## Build-tool advisory — SixLabors.ImageSharp 2.1.13 (accepted, scoped, 2026-10-26)
+## Build-tool advisory — SixLabors.ImageSharp 2.1.13 (resolved 2026-10-27: replaced by System.Drawing.Common)
 
 The NuGet audit began flagging `SixLabors.ImageSharp` 2.1.13 (five advisories, two High:
 GHSA-j9gm-c75j-xc9q, GHSA-j3p4-wp97-rph4; three Moderate: GHSA-jjfr-hcj7-qf5w,
@@ -335,9 +335,11 @@ crafted image reaching the decoder) therefore needs write access to the build tr
 already means arbitrary code execution. Not counted as an open High against the tag gate on
 that basis.
 
-**Operator decision pending:** move the tool to ImageSharp 3.x (accept the Split License for
-build-time use) or replace it with a Windows-only `System.Drawing` implementation. Either
-removes the suppressions; delete them with the change.
+**Resolution (2026-10-27):** the tool now draws with `System.Drawing.Common` 8.0.x (GDI+, MIT,
+Windows-only — the same platform as the installer and product). ImageSharp 3.x was rejected
+because the Six Labors Split License can require a paid licence for a commercial vendor. All five
+suppressions were deleted; `dotnet list package --vulnerable --include-transitive` on the tool
+reports none. The disposition text above is kept as the record of why the suppressions existed.
 
 ## Open findings by severity
 

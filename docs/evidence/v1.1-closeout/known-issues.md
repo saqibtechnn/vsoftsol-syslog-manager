@@ -22,7 +22,6 @@ it needs; none can be finished by more code in this repository.
 | P7-3 | A SQLite ODBC driver installed | `WriteToOdbc` live round trip. |
 | P4-3 | An upstream AngleSharp fix | Blazor component-test library is banned until then (see memory `razor-component-testing-htmlrenderer`). |
 | B11-1, B11-2 | A design decision | Config-bundle import of personal content; listener-crash detection. Deliberately deferred. |
-| ImageSharp advisories | **Operator decision** | Build-tool-only and suppressed with a written rationale; remove by moving the branding tool to ImageSharp 3.x (Six Labors Split License) or to `System.Drawing`. See `docs/security/SECURITY_REVIEW.md`. |
 | Code-signing certificate, production release-signing key, external penetration test, unaided usability session | The vendor | Unchanged from v1.0.0 / v1.1.1. |
 
 ## Environment note

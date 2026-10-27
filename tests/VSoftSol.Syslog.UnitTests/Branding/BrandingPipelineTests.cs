@@ -1,5 +1,5 @@
+using System.Runtime.Versioning;
 using FluentAssertions;
-using SixLabors.ImageSharp;
 using VSoftSol.Syslog.BrandingGen;
 using Xunit;
 
@@ -10,6 +10,7 @@ namespace VSoftSol.Syslog.UnitTests.Branding;
 /// present; a warning + placeholder fallback + successful run when it is missing;
 /// byte-identical output on a second run.
 /// </summary>
+[SupportedOSPlatform("windows")] // the generator draws with GDI+
 public sealed class BrandingPipelineTests : IDisposable
 {
     private readonly string _repo;
@@ -164,10 +165,26 @@ public sealed class BrandingPipelineTests : IDisposable
 
     private static (int Width, int Height) Dimensions(string path)
     {
-        IImageInfo info = Image.Identify(path)
-            ?? throw new InvalidOperationException($"Not a recognised image: {path}");
-        return (info.Width, info.Height);
+        // Read the dimensions straight from the file header so the test needs no imaging library.
+        byte[] b = File.ReadAllBytes(path);
+        if (b.Length > 26 && b[0] == 0x89 && b[1] == (byte)'P')
+        {
+            // PNG: IHDR width/height are big-endian uint32 at offsets 16 and 20.
+            return (ReadBigEndian(b, 16), ReadBigEndian(b, 20));
+        }
+
+        if (b.Length > 26 && b[0] == (byte)'B' && b[1] == (byte)'M')
+        {
+            // BMP (BITMAPINFOHEADER): little-endian int32 width/height at 18 and 22; a negative
+            // height means top-down rows.
+            return (BitConverter.ToInt32(b, 18), Math.Abs(BitConverter.ToInt32(b, 22)));
+        }
+
+        throw new InvalidOperationException($"Not a recognised PNG or BMP: {path}");
     }
+
+    private static int ReadBigEndian(byte[] b, int offset) =>
+        (b[offset] << 24) | (b[offset + 1] << 16) | (b[offset + 2] << 8) | b[offset + 3];
 
     private static int[] IcoFrameSizes(string path)
     {
