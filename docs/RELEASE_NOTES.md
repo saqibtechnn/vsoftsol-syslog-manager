@@ -1,5 +1,16 @@
 # VSoftSol Syslog Manager — Release Notes
 
+## v1.1.3 — 2026-10-27
+
+- **Sign-in and first-run setup pages are now properly structured for screen readers.** They had
+  no main-content landmark, so assistive technology could not jump to the page body; they now have
+  a header, a main region and (on the sign-in page) a footer. Found by the product's first
+  automated accessibility scan (axe-core); the scan reports no violations on the checked page.
+  Appearance is unchanged.
+- No other change to the application. Internal: the build tool that turns your logo into the
+  product's icons and installer images no longer uses a third-party image library with open
+  security advisories; it is build-time only and is not part of what you install.
+
 ## v1.1.2 — 2026-10-07
 
 - **Two separate downloads: one to update, one for a new installation.** Each release now

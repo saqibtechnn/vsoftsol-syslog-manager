@@ -610,7 +610,8 @@ has none, the same limitation carried for every installer item since Phase 12.
 
 ### v1.1 close-out — build unblocked, flakes hardened, first axe-core scan — 2026-10-26
 
-Not released or version-bumped (the product version is still 1.1.2); evidence in
+**Released 2026-10-27 as v1.1.3** (version bumped from 1.1.2; MSI ProductVersion and bundle file version
+both read 1.1.3; assets staged in git-ignored `release-assets/1.1.3/`). Evidence in
 `docs/evidence/v1.1-closeout/` (`red-green.md`, `known-issues.md`, `test-output.txt`).
 
 - **Build unblocked.** The NuGet advisory database began flagging `SixLabors.ImageSharp` 2.1.13
