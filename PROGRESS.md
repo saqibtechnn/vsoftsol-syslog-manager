@@ -647,8 +647,8 @@ both read 1.1.3; assets staged in git-ignored `release-assets/1.1.3/`). Evidence
 - **Verification:** unit 1113/1113; integration 856 total, 855 passed in the last full run (33 m),
   the one failure being the random-port collision fixed afterwards, with the 13 affected tests
   re-run green; `dotnet format --verify-no-changes` passes; `dotnet build -c Release` 0 errors (the
-  two warnings are the intentional `VSOFTSOL-UPDATE-001` "no release-signing key" notice). The full
-  integration suite was not run a further time after the port fix.
+  two warnings are the intentional `VSOFTSOL-UPDATE-001` "no release-signing key" notice). Final full integration run on the
+  v1.1.3 commit: **856 / 856 passed** (`docs/evidence/v1.1-closeout/test-output-v1.1.3.txt`).
 
 ---
 

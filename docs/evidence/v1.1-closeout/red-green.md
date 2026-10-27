@@ -130,3 +130,9 @@ header, so the test no longer depends on any imaging library.
 - Not shipped: the MSI still excludes every `VSoftSol.Syslog.BrandingGen.*` file, and no
   `System.Drawing.Common.dll` appears in the Web output.
 - Generated `logo-wide.png` inspected by eye: logo centred, aspect preserved, no halo.
+
+## 5. Final confirmation on the released commit
+
+Full integration suite on `7da4e55` (tag `v1.1.3`), after the port fix and the ImageSharp swap:
+**856 total, 856 passed, 0 failed** (per-test list in `test-output-v1.1.3.txt`). Unit suite 1113 / 1113.
+This supersedes the 855 / 856 figure in section 2, whose one failure was the port collision fixed afterwards.
