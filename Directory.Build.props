@@ -22,11 +22,11 @@
     <DebugType>portable</DebugType>
 
     <!-- One shared version. Tags: v1.0.0-phase.N through v1.0.0; v1.1.0+ thereafter. -->
-    <VersionPrefix>1.1.3</VersionPrefix>
+    <VersionPrefix>1.1.4</VersionPrefix>
     <Product>Syslog Manager</Product>
     <Company>Vendor</Company>
-    <AssemblyVersion>1.1.3.0</AssemblyVersion>
-    <FileVersion>1.1.3.0</FileVersion>
+    <AssemblyVersion>1.1.4.0</AssemblyVersion>
+    <FileVersion>1.1.4.0</FileVersion>
     <NeutralLanguage>en</NeutralLanguage>
 
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>

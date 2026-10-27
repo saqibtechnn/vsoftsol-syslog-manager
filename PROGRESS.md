@@ -608,7 +608,7 @@ and the Hosting Bundle correctly detected as already present on the dev machine.
 verified:** the "prerequisite missing" path (a real first install on a clean VM) — this sandbox
 has none, the same limitation carried for every installer item since Phase 12.
 
-### Dashboard rendering and self-update fixes — 2026-10-27 (branch `fix/dashboard-csp-and-update-version`, not released)
+### Dashboard rendering and self-update fixes — 2026-10-27 (released as v1.1.4)
 
 Found by reproducing the dashboard in a real browser against an isolated instance, then rehearsing the
 self-update path end to end. Evidence: `docs/evidence/v1.1.4-dashboard-and-update-fixes/` (`red-green.md`,
@@ -625,10 +625,10 @@ self-update path end to end. Evidence: `docs/evidence/v1.1.4-dashboard-and-updat
 - **Self-update never offered an update.** The product's own version reads `1.1.3+<sha>`; the parser rejected
   `+metadata`, so every release was "not newer". Fixed; guard test reads the real built version.
 - **TDD gap closed:** `InstallerPrerequisiteCheckTests` pins the installer's .NET check (red observed on the old key).
-- **Verification:** unit 1130/1130; integration 881 total, 880 passed in the full run — the one failure was the
-  `bar` snapshot that had pinned the old inline-style markup (updated deliberately); the affected classes
-  re-run 37/37. The full integration suite was not run a second time after the snapshot update.
-  `dotnet format --verify-no-changes` clean.
+- **Verification:** full unit 1130/1130 and full integration 890/890 on the release commit (after one earlier run
+  that failed only on the `bar` snapshot, which had pinned the old inline-style markup and was updated
+  deliberately); `dotnet format --verify-no-changes` clean. The release carries no signing key and no
+  `update-manifest.json`, so customers update by running the Update file.
 - **Also fixed in the same branch:** a pending device is now announced on every dashboard (banner + checklist hint,
   role-aware link); hostname-less syslog is labelled by source address instead of "(none)"; the Updates page no longer
   advertises a staged installer that is gone, shows a later failed check, and uses plain-English copy for a missing
