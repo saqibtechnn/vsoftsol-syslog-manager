@@ -608,6 +608,33 @@ and the Hosting Bundle correctly detected as already present on the dev machine.
 verified:** the "prerequisite missing" path (a real first install on a clean VM) — this sandbox
 has none, the same limitation carried for every installer item since Phase 12.
 
+### Dashboard rendering and self-update fixes — 2026-10-27 (branch `fix/dashboard-csp-and-update-version`, not released)
+
+Found by reproducing the dashboard in a real browser against an isolated instance, then rehearsing the
+self-update path end to end. Evidence: `docs/evidence/v1.1.4-dashboard-and-update-fixes/` (`red-green.md`,
+`verification.md`). Every fix test-first (red observed).
+
+- **Dashboards were unusable in a browser.** The strict CSP (no `unsafe-inline`, correct) drops inline `style`
+  attributes; the grid and bar charts used them, so every widget collapsed to a ~59 px strip. Placement and
+  bar width now use classes (`ds-gc/gs/gy/gr-N`, `ds-pct-N`); widgets also now honour their row.
+- **`DataTable` no longer uses `Virtualize`** (same CSP problem; the audit log rendered no rows). Windowed rendering
+  with "Show more", same parameters.
+- **"Recent criticals" was inverted** (`severity:>=critical`, numeric code 0 = most severe) — now `<=critical`;
+  UI examples corrected.
+- **Static files revalidate** (`Cache-Control: no-cache`) so an upgrade does not run new pages on a cached old stylesheet.
+- **Self-update never offered an update.** The product's own version reads `1.1.3+<sha>`; the parser rejected
+  `+metadata`, so every release was "not newer". Fixed; guard test reads the real built version.
+- **TDD gap closed:** `InstallerPrerequisiteCheckTests` pins the installer's .NET check (red observed on the old key).
+- **Verification:** unit 1130/1130; integration 881 total, 880 passed in the full run — the one failure was the
+  `bar` snapshot that had pinned the old inline-style markup (updated deliberately); the affected classes
+  re-run 37/37. The full integration suite was not run a second time after the snapshot update.
+  `dotnet format --verify-no-changes` clean.
+- **Deferred / owner decisions:** (1) generate the release-signing key and publish `update-manifest.json` with each
+  release — until then in-app updates cannot verify anything; (2) automatic install is not built (ADR 0021) — needs a
+  least-privilege updater and an ADR; (3) new devices sit "pending" while dashboards stay silent, hostname-less syslog
+  shows "(none)"; (4) Updates page keeps a stale "Update ready" line after a later failed check and shows an internal
+  option name for a missing manifest.
+
 ### v1.1 close-out — build unblocked, flakes hardened, first axe-core scan — 2026-10-26
 
 **Released 2026-10-27 as v1.1.3** (version bumped from 1.1.2; MSI ProductVersion and bundle file version

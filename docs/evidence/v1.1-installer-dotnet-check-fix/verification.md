@@ -72,3 +72,15 @@ correct, standard location; the installer was checking a path that has never exi
 - `docs/evidence/phase-12/known-issues.md` — left untouched, per this project's "never
   rewrite history" convention; the gap this bug represents in that phase's own sign-off is
   stated here instead, in the new work's own record.
+
+## Addendum (2026-10-27) — why there was no red/green step, and the regression guard added
+
+`TESTING_STANDARDS.md` requires a red-to-green record for new tests. This fix was verified by
+installing on a live host (above), because an MSI launch condition cannot be executed from the unit
+or integration suites, so no failing test existed at the time. The gap is closed after the fact:
+`tests/VSoftSol.Syslog.UnitTests/Installer/InstallerPrerequisiteCheckTests.cs` reads the WiX
+source and pins (a) the MSI `RegistrySearch` key to the native `SOFTWARE\dotnet\...\sharedhost` path
+with no `WOW6432Node`, (b) the launch condition `Installed OR DOTNETSHAREDHOST`, and (c) the
+bundle's search to the same key with `Bitness="always64"`. The red state is recorded in
+`docs/evidence/v1.1.4-dashboard-and-update-fixes/red-green.md` section 7: the original `WOW6432Node` key was
+put back and the test observed failing before the restored line made it pass.

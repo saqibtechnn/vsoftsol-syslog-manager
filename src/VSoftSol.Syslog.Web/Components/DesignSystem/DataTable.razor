@@ -1,6 +1,8 @@
-@* The one table component (PHASE_04 design system; UX_STANDARDS.md §6). Virtualized,
-   sortable, with a column chooser and a teaching empty state. Every later phase's list
-   view uses this — no forked table. *@
+@* The one table component (PHASE_04 design system; UX_STANDARDS.md §6). Windowed (long lists
+   render 100 rows at a time with a "Show more" control), sortable, with a column chooser and a
+   teaching empty state. Every later phase's list view uses this — no forked table.
+   Windowing replaced the framework Virtualize: its scroll spacers are positioned with inline style
+   attributes, which the page CSP (style-src with a nonce, no unsafe-inline) blocks. *@
 @typeparam TItem
 
 <div class="ds-table-wrap">
@@ -67,18 +69,21 @@
                 </tr>
             </thead>
             <tbody>
-                @if (Virtualized)
+                @{ List<TItem> sorted = SortedItems; int shown = Virtualized ? Math.Min(_shown, sorted.Count) : sorted.Count; }
+                @for (int i = 0; i < shown; i++)
                 {
-                    <Virtualize Items="SortedItems" Context="row" ItemSize="36">
-                        @RenderRowGroup(row)
-                    </Virtualize>
+                    @RenderRowGroup(sorted[i])
                 }
-                else
+                @if (shown < sorted.Count)
                 {
-                    @foreach (TItem row in SortedItems)
-                    {
-                        @RenderRowGroup(row)
-                    }
+                    int remaining = sorted.Count - shown;
+                    <tr class="ds-table__more">
+                        <td colspan="@(VisibleColumns.Count() + (RowDetail is not null ? 1 : 0))">
+                            <button type="button" class="ds-button ds-button--ghost" @onclick="ShowMore">
+                                Show @Math.Min(WindowSize, remaining) more (@remaining remaining)
+                            </button>
+                        </td>
+                    </tr>
                 }
             </tbody>
         </table>
@@ -90,6 +95,13 @@
     private string? _sortColumnId;
     private bool _sortDescending;
     private readonly HashSet<object> _expanded = [];
+
+    /// <summary>Rows rendered at a time when <see cref="Virtualized"/> is on.</summary>
+    private const int WindowSize = 100;
+
+    private int _shown = WindowSize;
+
+    private void ShowMore() => _shown += WindowSize;
 
     private object KeyOf(TItem row) => RowKey is not null ? RowKey(row) : row!;
 
@@ -108,6 +120,11 @@
 
     [Parameter, EditorRequired] public IReadOnlyList<TItem> Items { get; set; } = [];
 
+    /// <summary>
+    /// True (default): render long lists in windows of 100 rows with a "Show more" control. False:
+    /// render every row (only for lists known to be short). The name is historical; the framework
+    /// Virtualize is no longer used because the page CSP blocks its inline styles.
+    /// </summary>
     [Parameter] public bool Virtualized { get; set; } = true;
 
     /// <summary>

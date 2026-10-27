@@ -9,8 +9,8 @@ namespace VSoftSol.Syslog.Core.Updates;
 /// </summary>
 public static class ProductVersion
 {
-    /// <summary>Parses an optional leading 'v'/'V' plus Major.Minor.Patch. Ignores any
-    /// trailing '-suffix' (e.g. a pre-release tag) for comparison purposes.</summary>
+    /// <summary>Parses an optional leading 'v'/'V' plus Major.Minor.Patch. Ignores any trailing
+    /// '-suffix' (a pre-release tag) or '+metadata' (build/commit info) for comparison purposes.</summary>
     public static bool TryParse(string? version, out (int Major, int Minor, int Patch) parsed)
     {
         parsed = default;
@@ -25,10 +25,13 @@ public static class ProductVersion
             trimmed = trimmed[1..];
         }
 
-        int dashIndex = trimmed.IndexOf('-', StringComparison.Ordinal);
-        if (dashIndex >= 0)
+        // Drop a pre-release suffix ("-rc1") and semver build metadata ("+<commit>"). The SDK stamps
+        // every build with the source commit, so the running product reads back "1.1.3+<sha>"; failing
+        // to parse that made the checker call every release "not newer" and never offer an update.
+        int suffixIndex = trimmed.IndexOfAny(['-', '+']);
+        if (suffixIndex >= 0)
         {
-            trimmed = trimmed[..dashIndex];
+            trimmed = trimmed[..suffixIndex];
         }
 
         string[] parts = trimmed.Split('.');

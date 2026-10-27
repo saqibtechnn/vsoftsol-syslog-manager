@@ -60,7 +60,13 @@ try
 
     app.UseHttpsRedirection();
     app.UseSecurityHeaders();
-    app.UseStaticFiles();
+    // Static files carry an ETag but no freshness, so browsers cached them heuristically for days and
+    // kept the previous version's ds.css against the new pages after an upgrade. no-cache = always
+    // revalidate (a 304 is cheap), so an upgrade is visible on the next load.
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        OnPrepareResponse = context => context.Context.Response.Headers.CacheControl = "no-cache",
+    });
 
     // PHASE_12 build item 2: unskippable first-run wizard. Before auth, so it never races
     // the normal challenge-redirect-to-/login logic.

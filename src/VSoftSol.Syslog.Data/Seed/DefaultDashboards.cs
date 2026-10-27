@@ -29,7 +29,7 @@ public static class DefaultDashboards
                 Agg(AggregationFunction.Count, groupBy: "hostname", topN: 10), VisualizationType.Bar),
             Widget("net-severity", "Severity distribution", WidgetSource.MatchAll,
                 Agg(AggregationFunction.Count), VisualizationType.SeverityDonut),
-            Widget("net-criticals", "Recent criticals", WidgetSource.Query("severity:>=critical"),
+            Widget("net-criticals", "Recent criticals", WidgetSource.Query("severity:<=critical"),
                 Agg(AggregationFunction.Count), VisualizationType.RecentEventsTable),
         };
 

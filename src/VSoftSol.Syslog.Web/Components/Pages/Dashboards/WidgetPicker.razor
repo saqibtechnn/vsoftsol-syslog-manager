@@ -32,7 +32,7 @@
             @if (_sourceChoice == "query")
             {
                 <FormField Label="Query" FieldId="p-q" Help="The same query language as Search. Leave blank for everything.">
-                    <input id="p-q" class="ds-input" @bind="_query" placeholder="e.g. severity:>=error" />
+                    <input id="p-q" class="ds-input" @bind="_query" placeholder="e.g. severity:<=error" />
                 </FormField>
             }
             else if (_sourceChoice == "metric")

@@ -7,7 +7,7 @@
     <form class="ds-querybar__form" @onsubmit="SubmitAsync" @onsubmit:preventDefault>
         <div class="ds-querybar__inputwrap">
             <input id="search-query" class="ds-querybar__input" type="text" autocomplete="off"
-                   placeholder="Search — e.g. failed severity:>=error host:core-sw1"
+                   placeholder="Search — e.g. failed severity:<=error host:core-sw1"
                    value="@Value" @oninput="OnInput" @onkeydown="OnKeyDown"
                    aria-describedby="query-help" aria-invalid="@(Error is not null)" />
             @if (_suggestions.Count > 0)

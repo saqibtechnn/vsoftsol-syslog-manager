@@ -71,8 +71,12 @@ else
                 @foreach (WidgetDefinition widget in _dashboard.Widgets)
                 {
                     WidgetLayout cell = _dashboard.LayoutFor(widget);
-                    <div class="ds-dashgrid__cell"
-                         style="grid-column: @(cell.Column + 1) / span @(cell.ColumnSpan); grid-row: span @(cell.RowSpan);">
+                    @* Placement is by class, not a style attribute: the page CSP (style-src with a nonce,
+                       no unsafe-inline) makes the browser drop inline styles, which collapsed every widget
+                       into one grid column. ds.css defines ds-gc-1..12 (start column), ds-gs-1..12 (column span), ds-gy-1..30
+                       (start row; without it a widget placed beside an earlier one drops to the next row) and
+                       ds-gr-1..6 (row span). *@
+                    <div class="ds-dashgrid__cell ds-gc-@(cell.Column + 1) ds-gs-@(cell.ColumnSpan) ds-gy-@(Math.Min(cell.Row + 1, 30)) ds-gr-@(cell.RowSpan)">
                         <WidgetCard Widget="widget" DashboardRange="Range" RefreshSeconds="RefreshSeconds" />
                     </div>
                 }

@@ -15,7 +15,7 @@ else
             <li class="ds-barchart__row">
                 <span class="ds-barchart__label" title="@c.Label">@c.Label</span>
                 <span class="ds-barchart__track">
-                    <span class="ds-barchart__fill" style="width:@Pct(c)"></span>
+                    <span class="ds-barchart__fill ds-pct-@Pct(c)"></span>
                 </span>
                 <span class="ds-barchart__value">@c.Value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</span>
             </li>
@@ -47,6 +47,6 @@ else
         }
     }
 
-    private string Pct(ChartCategory c) =>
-        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Math.Clamp(c.Value / _max, 0, 1) * 100:0.#}%");
+    // Whole percent (0-100) so the bar width can be a CSS class (ds-pct-N): inline styles are blocked by the CSP.
+    private int Pct(ChartCategory c) => (int)Math.Round(Math.Clamp(c.Value / _max, 0, 1) * 100, MidpointRounding.AwayFromZero);
 }
