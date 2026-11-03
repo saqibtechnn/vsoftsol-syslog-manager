@@ -19,15 +19,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\VSoftSol.Syslog.Core\VSoftSol.Syslog.Core.csproj" />
-    <!-- Referenced only for the composition root (SyslogPlatformExtensions) — Web must
-         not inherit Service.exe's own appsettings.json into its publish output (they
-         collide at the same relative path; NETSDK1152). The Properties metadata below
-         flows a build-time flag into Service.csproj (see its own appsettings.json Content
-         item) telling it to exclude that one file only when built as a reference, never
-         when Service publishes itself. -->
-    <ProjectReference Include="..\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj">
-      <Properties>ExcludeAppSettingsFromPublish=true</Properties>
-    </ProjectReference>
+    <!-- Referenced only for the composition root (SyslogPlatformExtensions). Service keeps its
+         own appsettings.json out of the content that flows to this project (see Service.csproj),
+         so Web's publish output holds only Web's file (NETSDK1152). Do not add build properties
+         to this reference: it would make MSBuild build Service twice in parallel (CS2012). -->
+    <ProjectReference Include="..\VSoftSol.Syslog.Service\VSoftSol.Syslog.Service.csproj" />
   </ItemGroup>
 
   <ItemGroup>

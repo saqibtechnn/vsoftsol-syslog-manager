@@ -13,8 +13,11 @@ namespace VSoftSol.Syslog.IntegrationTests.TestSupport;
 /// <summary>
 /// Hosts the Web app with its data directory and database redirected to a throwaway temp
 /// location, so the real ProgramData store is never touched by tests.
+/// <c>Components.App</c> is only the marker that points the factory at the Web assembly: Web's
+/// <c>Program</c> is ambiguous here, because Service (whose internals this assembly can see, for
+/// the update-checker test seam) also has a top-level-statements <c>Program</c>.
 /// </summary>
-public sealed class SyslogWebApplicationFactory : WebApplicationFactory<Program>
+public sealed class SyslogWebApplicationFactory : WebApplicationFactory<VSoftSol.Syslog.Web.Components.App>
 {
     private readonly string _dataDirectory =
         Path.Combine(Path.GetTempPath(), "vsoftsol-web-" + Guid.NewGuid().ToString("N"));

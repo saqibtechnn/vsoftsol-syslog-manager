@@ -35,13 +35,14 @@ public sealed class NoBackdoorTests
 
     public static IEnumerable<object[]> PublishedAssemblies()
     {
+        // publish/Web is a build artifact that only exists after an installer build. Without it,
+        // scan the product assemblies built next to this test (the same compiled code), so the
+        // theory always has data instead of failing with "No data found" on a clean checkout/CI.
         string publishDir = Path.Combine(RepoRoot(), "publish", "Web");
-        if (!Directory.Exists(publishDir))
-        {
-            yield break; // publish/Web is a build artifact, not always present when this suite runs
-        }
+        string scanDir = Directory.Exists(publishDir) ? publishDir : AppContext.BaseDirectory;
 
-        foreach (string dll in Directory.EnumerateFiles(publishDir, "VSoftSol.Syslog.*.dll", SearchOption.TopDirectoryOnly))
+        foreach (string dll in Directory.EnumerateFiles(scanDir, "VSoftSol.Syslog.*.dll", SearchOption.TopDirectoryOnly)
+                     .Where(path => !Path.GetFileName(path).Contains("Tests", StringComparison.Ordinal)))
         {
             yield return [dll];
         }

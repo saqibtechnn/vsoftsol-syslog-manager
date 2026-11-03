@@ -36,13 +36,22 @@
   </ItemGroup>
 
   <!-- PHASE_12: Web references this project only for the composition root
-       (SyslogPlatformExtensions) and would otherwise inherit this appsettings.json into
-       its own publish output, colliding with Web's own file at the same relative path
-       (NETSDK1152). ExcludeAppSettingsFromPublish is set only via the Properties metadata
-       on Web's ProjectReference to this project — Service's own build/publish never sets
-       it, so `dotnet publish src/VSoftSol.Syslog.Service` is completely unaffected. -->
-  <ItemGroup Condition="'$(ExcludeAppSettingsFromPublish)' == 'true'">
+       (SyslogPlatformExtensions). Content with CopyToOutputDirectory / CopyToPublishDirectory
+       flows to every project that references this one, so this appsettings.json would land in
+       Web's output and publish folder and collide with Web's own file at the same relative
+       path (NETSDK1152). It is therefore never marked as copy-able content; Service copies
+       its own file next to its own executable below, which does not flow to referencing
+       projects.
+       Do NOT go back to flipping this with a property set on Web's ProjectReference: that makes
+       MSBuild build this project a second time, in parallel, and the solution build fails with
+       CS2012 (see ProjectReferenceBuildTests). This host is the dev-only console collector and
+       is never packaged or published on its own (installer/Installer.wixproj publishes Web). -->
+  <ItemGroup>
     <Content Update="appsettings.json" CopyToPublishDirectory="Never" CopyToOutputDirectory="Never" />
   </ItemGroup>
+
+  <Target Name="CopyOwnAppSettings" AfterTargets="CopyFilesToOutputDirectory">
+    <Copy SourceFiles="appsettings.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

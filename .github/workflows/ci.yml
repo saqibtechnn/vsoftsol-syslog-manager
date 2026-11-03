@@ -121,7 +121,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - run: dotnet tool install --global CycloneDX
-      - run: dotnet CycloneDX VSoftSol.Syslog.sln -o artifacts/sbom
+      # The tool reads each project's obj/project.assets.json, so packages must be restored first.
+      - run: dotnet restore VSoftSol.Syslog.sln
+      # The tool's command is `dotnet-CycloneDX`; `dotnet CycloneDX` is not resolved on Linux.
+      - run: dotnet-CycloneDX VSoftSol.Syslog.sln -o artifacts/sbom
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
