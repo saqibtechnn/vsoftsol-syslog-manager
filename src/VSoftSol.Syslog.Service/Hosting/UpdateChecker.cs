@@ -29,6 +29,11 @@ public sealed class UpdateChecker
     private readonly string _currentVersion;
     private readonly string _dataDirectory;
 
+    // Null in every production build: the checker then trusts only the key baked in at compile time
+    // (ReleaseSigningInfo). Only the internal constructor below can set it, and it is reachable from
+    // the test assemblies alone, so no runtime configuration or caller can substitute a trust anchor.
+    private readonly string? _testPublicKeyBase64;
+
     public UpdateChecker(
         SqliteUpdateSettingsStore settings,
         GitHubUpdateClient client,
@@ -37,7 +42,23 @@ public sealed class UpdateChecker
         string currentVersion,
         string dataDirectory,
         TimeProvider? timeProvider = null)
+        : this(settings, client, audit, notifications, currentVersion, dataDirectory, releasePublicKeyBase64: null, timeProvider)
     {
+    }
+
+    /// <summary>Test seam: verifies manifests against <paramref name="releasePublicKeyBase64"/> instead of the
+    /// baked-in vendor key, so the full verify-and-stage path can be exercised with a throwaway keypair.</summary>
+    internal UpdateChecker(
+        SqliteUpdateSettingsStore settings,
+        GitHubUpdateClient client,
+        SqliteAuditLog audit,
+        NotificationSink notifications,
+        string currentVersion,
+        string dataDirectory,
+        string? releasePublicKeyBase64,
+        TimeProvider? timeProvider = null)
+    {
+        _testPublicKeyBase64 = releasePublicKeyBase64;
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _audit = audit ?? throw new ArgumentNullException(nameof(audit));
@@ -55,7 +76,7 @@ public sealed class UpdateChecker
             return;
         }
 
-        if (!ReleaseSigningInfo.HasRealKey)
+        if (_testPublicKeyBase64 is null && !ReleaseSigningInfo.HasRealKey)
         {
             // Nothing to verify against — never silently "succeed" against the placeholder key.
             await _settings.RecordCheckResultAsync(_time.GetUtcNow(), "no release-signing key is configured in this build", cancellationToken)
@@ -109,7 +130,10 @@ public sealed class UpdateChecker
             return;
         }
 
-        if (!UpdateSignatureVerifier.Verify(signed.DocumentJson, signed.SignatureBase64))
+        bool signatureValid = _testPublicKeyBase64 is null
+            ? UpdateSignatureVerifier.Verify(signed.DocumentJson, signed.SignatureBase64)
+            : Core.Bundles.BundleSigner.Verify(signed.DocumentJson, signed.SignatureBase64, _testPublicKeyBase64);
+        if (!signatureValid)
         {
             await FailSignatureAsync(release.ManifestUrl, "signature did not verify against the embedded release-signing key", cancellationToken)
                 .ConfigureAwait(false);

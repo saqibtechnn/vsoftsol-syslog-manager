@@ -608,6 +608,21 @@ and the Hosting Bundle correctly detected as already present on the dev machine.
 verified:** the "prerequisite missing" path (a real first install on a clean VM) — this sandbox
 has none, the same limitation carried for every installer item since Phase 12.
 
+### CI repair and update-checker test coverage — 2026-11-03 (not yet released; no product behaviour change)
+
+Diagnosed from the failed GitHub run of the v1.1.4 commit. Evidence: `docs/evidence/ci-and-update-test-fixes/red-green.md`.
+
+- **`NoBackdoorTests` failed on a clean checkout** ("No data found"): it only scanned `publish/Web`, which exists after
+  an installer build. It now falls back to the built product assemblies. Same check, never empty.
+- **SBOM job fixed** (`dotnet-CycloneDX` command, plus the missing restore). Verified locally; needs a CI run to confirm.
+- **Parallel double build removed** (the CS2012 / branding file-lock): Web no longer references Service with a build
+  property, which made MSBuild compile Service (and Core) twice at once. Guarded by `ProjectReferenceBuildTests`.
+  Service's own appsettings are now copied by a target and no longer flow to Web.
+- **`UpdateChecker` signing key injectable for tests only** (`internal` constructor): +5 tests cover verify, tamper,
+  untrusted signer, hash mismatch and not-newer. The shipped product still trusts only the baked-in key.
+- **Verification:** unit 1132/1132, integration 895/895, format clean, clean Release solution build 0 errors.
+- **Still deferred:** CI itself not re-run (needs a push); signing key and `update-manifest.json`; automatic install.
+
 ### Dashboard rendering and self-update fixes — 2026-10-27 (released as v1.1.4)
 
 Found by reproducing the dashboard in a real browser against an isolated instance, then rehearsing the

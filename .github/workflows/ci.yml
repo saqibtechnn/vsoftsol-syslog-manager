@@ -104,12 +104,17 @@ jobs:
   secrets:
     name: Secrets scan (Gitleaks)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read   # gitleaks-action lists the PR's commits
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
+          # gitleaks-action@v2 refuses to scan pull requests without the token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
 
   sbom:
@@ -121,7 +126,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - run: dotnet tool install --global CycloneDX
-      - run: dotnet CycloneDX VSoftSol.Syslog.sln -o artifacts/sbom
+      # The tool reads each project's obj/project.assets.json, so packages must be restored first.
+      - run: dotnet restore VSoftSol.Syslog.sln
+      # The tool's command is `dotnet-CycloneDX`; `dotnet CycloneDX` is not resolved on Linux.
+      - run: dotnet-CycloneDX VSoftSol.Syslog.sln -o artifacts/sbom
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
